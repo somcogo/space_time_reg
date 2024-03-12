@@ -82,8 +82,22 @@ class SegmentationMaskTrainer():
         return (g_x**2).sum() + (g_y ** 2).sum()
 
     def calculate_space_time_reg(self, ):
+        # create batched frames and flows to feed into apply_flow_to_frame
+        batched_frames = torch.zeros(self.frame_number, 2*self.time_window, *self.seg_masks[0].shape, device=self.seg_masks.device, dtype=self.seg_masks.dtype)
+        batched_flows = torch.zeros(self.frame_number, 2*self.time_window, *self.flows[0].shape, device=self.flows.device, dtype=self.flows.dtype)
         for i in range(self.frame_number):
-            pass
+            frames_before = i - max(0, i - self.time_window)
+            frames_after = min(self.frame_number, i + self.time_window) - i
+            batched_frames[i][:frames_before] = self.seg_masks[i - frames_before:i]
+            batched_frames[i][-frames_after:] = self.seg_masks[i:i + frames_after]
+            batched_flows[i][:frames_before] = self.flows[i - frames_before:i]
+            batched_flows[i][-frames_after:] = self.flows[i:i + frames_after]
+
+        # calculate masks predicted by flows
+        batched_pred = apply_flow_to_frame(batched_flows, batched_frames, batched_frames.device)
+
+        # get mask
+
 
     def compute_metrics(self, ):
         pass
