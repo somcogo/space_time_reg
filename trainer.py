@@ -27,10 +27,12 @@ def apply_flow_to_frame(flow, frame, device):
     return new_frame
 
 class SegmentationMaskTrainer():
-    def __init__(self, init_data, flows, **kwargs):
+    def __init__(self, init_data, flows, masks, **kwargs):
         self.init_frame = init_data[0]
         self.frame_number = init_data[1]
         self.flows = flows
+        self.consistency_masks = masks[..., 0]
+        self.occlusion_masks = masks[..., 1]
         self.device = kwargs['device']
         self.time_window = kwargs['time_window']
         self.config = kwargs
@@ -83,20 +85,21 @@ class SegmentationMaskTrainer():
 
     def calculate_space_time_reg(self, ):
         # create batched frames and flows to feed into apply_flow_to_frame
-        batched_frames = torch.zeros(self.frame_number, 2*self.time_window, *self.seg_masks[0].shape, device=self.seg_masks.device, dtype=self.seg_masks.dtype)
-        batched_flows = torch.zeros(self.frame_number, 2*self.time_window, *self.flows[0].shape, device=self.flows.device, dtype=self.flows.dtype)
+        batched_frames = torch.zeros(2*self.time_window, self.frame_number, *self.seg_masks[0].shape, device=self.seg_masks.device, dtype=self.seg_masks.dtype)
+        batched_flows = torch.zeros(2*self.time_window, self.frame_number, *self.flows[0].shape, device=self.flows.device, dtype=self.flows.dtype)
         for i in range(self.frame_number):
             frames_before = i - max(0, i - self.time_window)
             frames_after = min(self.frame_number, i + self.time_window) - i
-            batched_frames[i][:frames_before] = self.seg_masks[i - frames_before:i]
-            batched_frames[i][-frames_after:] = self.seg_masks[i:i + frames_after]
-            batched_flows[i][:frames_before] = self.flows[i - frames_before:i]
-            batched_flows[i][-frames_after:] = self.flows[i:i + frames_after]
+            batched_frames[:frames_before][i] = self.seg_masks[i - frames_before:i]
+            batched_frames[-frames_after:][i] = self.seg_masks[i:i + frames_after]
+            batched_flows[:frames_before][i] = self.flows[i - frames_before:i]
+            batched_flows[-frames_after:][i] = self.flows[i:i + frames_after]
 
         # calculate masks predicted by flows
-        batched_pred = apply_flow_to_frame(batched_flows, batched_frames, batched_frames.device)
+        batched_pred = apply_flow_to_frame(batched_flows, torch.broadcast_to(self.seg_masks, batched_frames.shape), batched_frames.device)
 
-        # get mask
+        # masked difference
+        reg_sum = (batched_pred - batched_frames)**2[self.consistency_masks].sum()
 
 
     def compute_metrics(self, ):
