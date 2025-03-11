@@ -1,4 +1,44 @@
+from functools import partial
+
 import torch
+from torch.utils.data import DataLoader, Dataset
+
+from siren import training, dataio, modules, loss_functions, utils
+
+def fit_neural_reps(data):
+    n_reps = []
+    for time_point in range(data.shape[0]):
+        lr = 1e-4
+        num_epochs = 10000
+        steps_til_summary = 1000
+        dset = SingleImgDataset(data[time_point])
+        if len(data.shape) == 3:
+            coord_dataset = dataio.Implicit2DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
+        else:
+            coord_dataset = dataio.Implicit3DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
+
+        dataloader = DataLoader(coord_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+
+        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=data.shape[1:])
+        model.cuda()
+
+        loss_fn = partial(loss_functions.image_mse, None)
+
+        n_rep = training.train(model=model, train_dataloader=dataloader, epochs=num_epochs, lr=lr,
+                    steps_til_summary=steps_til_summary, loss_fn=loss_fn)
+        n_reps.append(n_rep)
+    return n_reps
+        
+class SingleImgDataset(Dataset):
+    def __init__(self, img):
+        super().__init__()
+        self.img = img
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, idx):
+        return self.img
 
 def generate_grid_tensor(shape):
     if len(shape) == 3:

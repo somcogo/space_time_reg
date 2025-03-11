@@ -17,6 +17,3 @@ def registration(config, data, writer):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-
-    
