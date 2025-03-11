@@ -5,7 +5,7 @@ from networks import get_func
 from utils import generate_grid_tensor
 from losses import calculate_losses
 
-def registration(config, data):
+def registration(config, data, writer):
     func = get_func(config.func_name, config.func_kwargs)
     y0 = generate_grid_tensor(data['shape'])
     time_points = torch.arange(config.time_points) * config.time_steps
