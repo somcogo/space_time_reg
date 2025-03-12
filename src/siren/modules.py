@@ -135,10 +135,11 @@ class SingleBVPNet(MetaModule):
             in_features = self.positional_encoding.out_dim
 
         self.image_downsampling = ImageDownsampling(sidelength=kwargs.get('sidelength', None),
+                                                    device=kwargs.get('device', 'cpu'),
                                                     downsample=kwargs.get('downsample', False))
         self.net = FCBlock(in_features=in_features, out_features=out_features, num_hidden_layers=num_hidden_layers,
                            hidden_features=hidden_features, outermost_linear=True, nonlinearity=type)
-        print(self)
+        # print(self)
 
     def forward(self, model_input, params=None):
         if params is None:
@@ -188,7 +189,7 @@ class PINNet(nn.Module):
 class ImageDownsampling(nn.Module):
     '''Generate samples in u,v plane according to downsampling blur kernel'''
 
-    def __init__(self, sidelength, downsample=False):
+    def __init__(self, sidelength, device, downsample=False):
         super().__init__()
         if isinstance(sidelength, int):
             self.sidelength = (sidelength, sidelength)
@@ -196,7 +197,7 @@ class ImageDownsampling(nn.Module):
             self.sidelength = sidelength
 
         if self.sidelength is not None:
-            self.sidelength = torch.Tensor(self.sidelength).cuda().float()
+            self.sidelength = torch.Tensor(self.sidelength).to(device).float()
         else:
             assert downsample is False
         self.downsample = downsample

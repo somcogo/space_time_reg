@@ -1,8 +1,8 @@
 import torch
 import torch.nn.functional as F
 
-import diff_operators
-import modules
+from src.siren import diff_operators
+from src.siren import modules
 
 
 def image_mse(mask, model_output, gt):
