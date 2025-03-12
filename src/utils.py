@@ -3,8 +3,9 @@ from functools import partial
 from PIL import Image
 import torch
 from torch.utils.data import DataLoader, Dataset
+import numpy as np
 
-from siren import training, dataio, modules, loss_functions
+from src.siren import training, dataio, modules, loss_functions
 
 def fit_neural_reps(data, args):
     n_reps = []
@@ -63,8 +64,19 @@ def generate_grid_tensor(shape):
 
     return grid
 
-def prepare_inputs(config, output):
-    pass
+def prepare_inputs(config):
+    if config.dataset == 'easysyn':
+        data_np = torch.from_numpy(np.load('data/syn/easy.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load('data/syn/easy_nrep_st_dicts.pt')
+
+    models = []
+    for i in range(data_np.shape[0]):
+        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=data_np.shape[1:], device=config.device)
+        model.load_state_dict(st_dicts[i])
+        model.eval()
+        models.append(model)
+
+    return data_np, models
 
 def save_results(config, output):
     pass

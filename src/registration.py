@@ -1,14 +1,14 @@
 import torch
 from torchdiffeq import odeint_adjoint as odeint
 
-from networks import get_func
-from utils import generate_grid_tensor
-from losses import calculate_losses
+from src.networks import get_func
+from src.utils import generate_grid_tensor
+from src.losses import calculate_losses
 
 def registration(config, data, writer):
     func = get_func(config.func_name, config.func_kwargs)
-    y0 = generate_grid_tensor(data['shape'])
-    time_points = torch.arange(config.time_points) * config.time_steps
+    y0 = generate_grid_tensor(data[0].shape[1:])
+    time_points = torch.arange(config.time_points) * config.time_step
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
 
     for epoch in range(1, config.epochs + 1):
