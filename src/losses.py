@@ -1,21 +1,16 @@
 import torch
+from torch import nn
 import torch.nn.functional as F
 
 from src.siren.dataio import get_mgrid
 
 def calculate_losses(phi, data):
-    data_np, neural_reps = data
-    grid = get_mgrid(data_np[0].shape, dim=len(data_np.shape) - 1).view(phi.shape[1:])
+    imgs, neural_reps = data
+    grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:])
     coords = phi + grid
 
     loss = 0.
-    # for i in range(1, data_np.shape[0]-1):
-    #     for j in range(i+1, data_np.shape[0]):
-    #         moving = data_np[i]
-    #         fixed_n_rep = neural_reps[j]
-    #         coord = coords[i - 1]
-    #         loss += similarity_loss(moving, fixed_n_rep, coord)
-    moving = data_np[0]
+    moving = imgs[0]
     fixed_n_rep = neural_reps[-1]
     coord = coords[1]
     loss += similarity_loss(moving, fixed_n_rep, coord)
@@ -23,9 +18,10 @@ def calculate_losses(phi, data):
     return loss
 
 def similarity_loss(moving, fixed_n_rep, coords):
-    model_out = fixed_n_rep({'coords':coords.squeeze(0).permute(1, 2, 0)})
-    fixed = model_out['model_out'].squeeze(2)
-    l2loss = ((fixed - moving) ** 2).mean()
+    loss_fn = nn.MSELoss()
+    model_out = fixed_n_rep.net(coords.squeeze(0).permute(1, 2, 0))
+    fixed = model_out.squeeze(2)
+    l2loss = loss_fn(fixed, moving)
     return l2loss
 
 

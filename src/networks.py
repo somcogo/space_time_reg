@@ -172,7 +172,7 @@ class BrainNet(nn.Module):
         else:
             x = x.view(1, 2, int(math.ceil(imgx / pow(2, self.ds))), int(math.ceil(imgy / pow(2, self.ds))))
         for _ in range(self.ds):
-            x = F.upsample(x, scale_factor=2, mode=interp_mode)
+            x = F.interpolate(x, scale_factor=2, mode=interp_mode)
         # Apply Gaussian/Averaging smoothing
         for _ in range(self.smoothing_pass):
             if self.smoothing_kernel == 'AK':

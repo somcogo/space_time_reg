@@ -1,11 +1,35 @@
 from functools import partial
+import logging
+import logging.handlers
+import math
 
 from PIL import Image
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
+from torchvision.utils import make_grid
 import numpy as np
 
 from src.siren import training, dataio, modules, loss_functions
+
+
+def get_logger(level):
+    logger = logging.getLogger()
+    if level == 'info':
+        level = logging.INFO
+    else:
+        level = logging.DEBUG
+
+    logfmt_str = "%(asctime)s %(levelname)s %(message)s"
+    formatter = logging.Formatter(logfmt_str)
+
+    streamHandler = logging.StreamHandler()
+    streamHandler.setFormatter(formatter)
+    streamHandler.setLevel(level)
+
+    logger.addHandler(streamHandler)
+    logger.setLevel(level)
+    return logger
 
 def fit_neural_reps(data, args):
     n_reps = []
@@ -48,7 +72,7 @@ def generate_grid_tensor(shape):
         x_grid = torch.linspace(-1., 1., shape[0])
         y_grid = torch.linspace(-1., 1., shape[1])
         z_grid = torch.linspace(-1., 1., shape[2])
-        x_grid, y_grid, z_grid = torch.meshgrid(x_grid, y_grid, z_grid)
+        x_grid, y_grid, z_grid = torch.meshgrid(x_grid, y_grid, z_grid, indexing='ij')
 
         # Note that default the dimension in the grid is reversed:
         # z, y, x
@@ -56,7 +80,7 @@ def generate_grid_tensor(shape):
     else:
         x_grid = torch.linspace(-1., 1., shape[0])
         y_grid = torch.linspace(-1., 1., shape[1])
-        x_grid, y_grid = torch.meshgrid(x_grid, y_grid)
+        x_grid, y_grid = torch.meshgrid(x_grid, y_grid, indexing='ij')
 
         # Note that default the dimension in the grid is reversed:
         # y, x
@@ -66,17 +90,48 @@ def generate_grid_tensor(shape):
 
 def prepare_inputs(config):
     if config.dataset == 'easysyn':
-        data_np = torch.from_numpy(np.load('data/syn/easy.npy').transpose((2, 0, 1)))
+        imgs = torch.from_numpy(np.load('data/syn/easy.npy').transpose((2, 0, 1)))
         st_dicts = torch.load('data/syn/easy_nrep_st_dicts.pt')
 
     models = []
-    for i in range(data_np.shape[0]):
-        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=data_np.shape[1:], device=config.device)
+    for i in range(imgs.shape[0]):
+        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=imgs.shape[1:], device=config.device)
         model.load_state_dict(st_dicts[i])
         model.eval()
         models.append(model)
 
-    return data_np, models
+    return imgs, models
+
+def calculate_metrics(loss, phi, data):
+    metrics = {}
+    metrics['total_loss'] = loss
+    return metrics
+
+def log_metrics(metrics, phi, data, writer, epoch):
+    for k, v in metrics.items():
+        writer.add_scalar(k, v, epoch)
+
+    imgs, neural_reps = data
+    scale_factor = torch.tensor(imgs[0].shape).view(1, 1, 2, 1, 1)
+    # new_locs = (phi + 1.) / 2. * scale_factor
+    new_locs = phi
+
+    moved_imgs = []
+    for time in range(phi.shape[0]):
+        grid = new_locs[time].permute(0, 2, 3, 1)
+        input_img = imgs[0].unsqueeze(0).unsqueeze(0)
+        moved_imgs.append(F.grid_sample(input_img, grid, align_corners=True, mode='bilinear'))
+
+    imgs_to_display = [imgs[0].unsqueeze(0), imgs[-1].unsqueeze(0), moved_imgs[0].squeeze(0), moved_imgs[-1].squeeze(0)]
+    img_grid = make_grid(imgs_to_display, nrow=2)
+    moved_grid = make_grid([im.squeeze(0) for im in moved_imgs], )
+
+    writer.add_image('imgs', img_grid, epoch, dataformats='CHW')
+    writer.add_image('flow', moved_grid, epoch, dataformats='CHW')
+    
+    
+
+    
 
 def save_results(config, output):
     pass
