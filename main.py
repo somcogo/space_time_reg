@@ -29,7 +29,7 @@ if __name__ == '__main__':
                         dest="dataset", default='easysyn',
                         help="dataset to use")
     parser.add_argument("--device", type=str,
-                        dest="device", default='cuda',
+                        dest="device", default='cpu',
                         help="device to use")
     parser.add_argument("--func_name", type=str,
                         dest="func_name", default='nodeo',
@@ -55,6 +55,15 @@ if __name__ == '__main__':
     parser.add_argument("--log_cadence", type=int,
                         dest="log_cadence", default=10,
                         help="how ofter on log loss")
+    parser.add_argument("--lambda_negJ", type=float,
+                        dest="lambda_negJ", default=2.5,
+                        help="loss weight for neg J")
+    parser.add_argument("--lambda_smt", type=float,
+                        dest="lambda_smt", default=0.05,
+                        help="loss weight for gradient magnitude")
+    parser.add_argument("--lambda_mag", type=float,
+                        dest="lambda_mag", default=0.0005,
+                        help="loss weight for v magnitude")
     
     config = parser.parse_args()
     config.func_kwargs = {'img_sz':(128, 128),

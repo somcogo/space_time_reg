@@ -4,16 +4,19 @@ import torch.nn.functional as F
 
 from src.siren.dataio import get_mgrid
 
-def calculate_losses(phi, data):
+def calculate_losses(config, phi, data):
     imgs, neural_reps = data
     grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:])
     coords = phi + grid
 
-    loss = 0.
     moving = imgs[0]
     fixed_n_rep = neural_reps[-1]
     coord = coords[1]
-    loss += similarity_loss(moving, fixed_n_rep, coord)
+    loss_sim = similarity_loss(moving, fixed_n_rep, coord)
+    loss_negJ = config.lambda_negJ * neg_Jdet_loss(coords[-1])
+    loss_smt = config.lambda_smt * smoothloss_loss(phi[-1])
+    loss_mag = config.lambda_mag * magnitude_loss(phi[1:] - phi[:-1])
+    loss = loss_sim + loss_negJ + loss_smt + loss_mag
 
     return loss
 
@@ -117,13 +120,23 @@ def neg_Jdet_loss(J):
     return torch.mean(selected_neg_Jdet ** 2)
 
 def smoothloss_loss(df):
-    return (((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2).mean() + \
+    if len(df.shape) == 5:
+        gradient_magnitude = (((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2).mean() + \
      ((df[:, :, :, 1:, :] - df[:, :, :, :-1, :]) ** 2).mean() + \
      ((df[:, :, :, :, 1:] - df[:, :, :, :, :-1]) ** 2).mean())
+    else:
+        gradient_magnitude = (((df[:, :, 1:, :] - df[:, :, :-1, :]) ** 2).mean() + \
+     ((df[:, :, :, 1:] - df[:, :, :, :-1]) ** 2).mean())
+    return gradient_magnitude
 
 def magnitude_loss(all_v):
-    all_v_x_2 = all_v[:, :, 0, :, :, :] * all_v[:, :, 0, :, :, :]
-    all_v_y_2 = all_v[:, :, 1, :, :, :] * all_v[:, :, 1, :, :, :]
-    all_v_z_2 = all_v[:, :, 2, :, :, :] * all_v[:, :, 2, :, :, :]
-    all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2 + all_v_z_2)
+    if len(all_v.shape) == 6:
+        all_v_x_2 = all_v[:, :, 0, :, :, :] * all_v[:, :, 0, :, :, :]
+        all_v_y_2 = all_v[:, :, 1, :, :, :] * all_v[:, :, 1, :, :, :]
+        all_v_z_2 = all_v[:, :, 2, :, :, :] * all_v[:, :, 2, :, :, :]
+        all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2 + all_v_z_2)
+    else:
+        all_v_x_2 = all_v[:, :, 0, :, :] * all_v[:, :, 0, :, :]
+        all_v_y_2 = all_v[:, :, 1, :, :] * all_v[:, :, 1, :, :]
+        all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2)
     return all_v_magnitude

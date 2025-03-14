@@ -16,7 +16,7 @@ def registration(config, data, writer, logger:logging.Logger):
     for epoch in range(1, config.epochs + 1):
         optimizer.zero_grad()
         phi = odeint(func, y0, time_points, method=config.solver)
-        loss = calculate_losses(phi, data)
+        loss = calculate_losses(config, phi, data)
         loss.backward()
         optimizer.step()
 
