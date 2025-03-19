@@ -68,6 +68,14 @@ def create_syn_data(file_name, case):
         cir_angles = np.linspace(0, 0., 20)
         cir_xs = np.linspace(0.2, -0.8, 20)
         cir_ys = np.linspace(0.1, -0.2, 20)
+    elif case == 'rectri':
+        rec_angles = math.pi*np.linspace(0, 0.5, 20)
+        rec_xs = np.linspace(0, -0.75, 20)
+        rec_ys = np.linspace(0, -0.03, 20)
+
+        tri_angles = np.linspace(0, 0., 20)
+        tri_xs = np.linspace(-0.1, 0.1, 20)
+        tri_ys = np.linspace(-0.3, 0.3, 20)
 
     recs = torch.zeros((128, 128, 20))
     for i in range(20):
@@ -90,14 +98,15 @@ def create_syn_data(file_name, case):
         tris[:,:,i] = out.squeeze()
 
     cirs = torch.zeros((128, 128, 20))
-    for i in range(20):
-        phi = cir_angles[i]
-        rot_m = torch.tensor([[math.cos(phi), -math.sin(phi)], [math.sin(phi), math.cos(phi)]])
-        tr = torch.tensor([[cir_xs[i]], [cir_ys[i]]])
-        theta = torch.concat([rot_m, tr], dim=-1).unsqueeze(0).to(torch.float)
-        aff_gird = torch.nn.functional.affine_grid(theta, size=torch.Size([1, 1, 128, 128]), align_corners=False)
-        out = torch.nn.functional.grid_sample(cir, aff_gird, align_corners=False, mode='nearest')
-        cirs[:,:,i] = out.squeeze()
+    if case is not 'rectri':
+        for i in range(20):
+            phi = cir_angles[i]
+            rot_m = torch.tensor([[math.cos(phi), -math.sin(phi)], [math.sin(phi), math.cos(phi)]])
+            tr = torch.tensor([[cir_xs[i]], [cir_ys[i]]])
+            theta = torch.concat([rot_m, tr], dim=-1).unsqueeze(0).to(torch.float)
+            aff_gird = torch.nn.functional.affine_grid(theta, size=torch.Size([1, 1, 128, 128]), align_corners=False)
+            out = torch.nn.functional.grid_sample(cir, aff_gird, align_corners=False, mode='nearest')
+            cirs[:,:,i] = out.squeeze()
 
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     np.save(file_name, recs+tris+cirs)

@@ -1,7 +1,7 @@
 from functools import partial
 import logging
 import logging.handlers
-import math
+import os
 
 from PIL import Image
 import torch
@@ -92,6 +92,13 @@ def prepare_inputs(config):
     if config.dataset == 'easysyn':
         imgs = torch.from_numpy(np.load('data/syn/easy.npy').transpose((2, 0, 1)))
         st_dicts = torch.load('data/syn/easy_nrep_st_dicts.pt')
+    elif config.dataset == 'rectri':
+        imgs = torch.from_numpy(np.load('data/syn/rectri.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load('data/syn/rectri_nrep_st_dicts.pt')
+    elif config.dataset == 'hard':
+        imgs = torch.from_numpy(np.load('data/syn/hard.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load('data/syn/hard_nrep_st_dicts.pt')
+
 
     models = []
     for i in range(imgs.shape[0]):
@@ -100,6 +107,10 @@ def prepare_inputs(config):
         model.eval()
         models.append(model)
 
+    # imgs = torch.stack([imgs[0], imgs[5]])
+    # models = [models[0], models[5]]
+    imgs = imgs[:5]
+    models = models[:5]
     return imgs, models
 
 def calculate_metrics(loss, phi, data):
@@ -112,26 +123,48 @@ def log_metrics(metrics, phi, data, writer, epoch):
         writer.add_scalar(k, v, epoch)
 
     imgs, neural_reps = data
-    scale_factor = torch.tensor(imgs[0].shape).view(1, 1, 2, 1, 1)
+    imgs = imgs.detach().cpu()
+    # scale_factor = torch.tensor(imgs[0].shape).view(1, 1, 2, 1, 1)
     # new_locs = (phi + 1.) / 2. * scale_factor
-    new_locs = phi
+    new_locs = phi.detach().cpu()
 
     moved_imgs = []
     for time in range(phi.shape[0]):
         grid = new_locs[time].permute(0, 2, 3, 1)
+        # channel reversal for grid_sample
+        # if grid.shape[-1] == 2:
+        #     grid = grid[..., [1, 0]]
+        # else:
+        #     grid = grid[..., [2, 1, 0]]
         input_img = imgs[0].unsqueeze(0).unsqueeze(0)
         moved_imgs.append(F.grid_sample(input_img, grid, align_corners=True, mode='bilinear'))
 
     imgs_to_display = [imgs[0].unsqueeze(0), imgs[-1].unsqueeze(0), moved_imgs[0].squeeze(0), moved_imgs[-1].squeeze(0)]
-    img_grid = make_grid(imgs_to_display, nrow=2)
-    moved_grid = make_grid([im.squeeze(0) for im in moved_imgs], )
+    img_grid = make_grid(imgs_to_display, nrow=2, normalize=True)
+    moved_grid = make_grid([im.squeeze(0) for im in moved_imgs], normalize=True)
 
-    writer.add_image('imgs', img_grid, epoch, dataformats='CHW')
-    writer.add_image('flow', moved_grid, epoch, dataformats='CHW')
+    writer.add_image('imgs/imgs', img_grid, epoch, dataformats='CHW', )
+    writer.add_image('imgs/flow', moved_grid, epoch, dataformats='CHW')
+
+
+    moved_nrep_imgs = []
+    net = neural_reps[-1].cpu()
+    for time in range(phi.shape[0]):
+        grid = new_locs[time].squeeze(0).permute(2, 1, 0)
+        moved_nrep_imgs.append(net.net(grid).squeeze(2).detach().cpu())
+
+    imgs_to_display_nrep = [imgs[0].unsqueeze(0), imgs[-1].unsqueeze(0), moved_nrep_imgs[0].unsqueeze(0), moved_nrep_imgs[-1].unsqueeze(0)]
+    img_grid_nrep = make_grid(imgs_to_display_nrep, nrow=2, normalize=True)
+    moved_grid_nrep = make_grid([im.unsqueeze(0) for im in moved_nrep_imgs], normalize=True)
+
+    writer.add_image('nrep/imgs', img_grid_nrep, epoch, dataformats='CHW', )
+    writer.add_image('nrep/flow', moved_grid_nrep, epoch, dataformats='CHW')
     
     
 
     
 
-def save_results(config, output):
-    pass
+def save_results(config, phi):
+    save_path = os.path.join(config.log_path, 'res.pt')
+    save_dict = {'phi':phi.detach().cpu()}
+    torch.save(save_dict, save_path)

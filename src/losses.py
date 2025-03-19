@@ -6,27 +6,57 @@ from src.siren.dataio import get_mgrid
 
 def calculate_losses(config, phi, data):
     imgs, neural_reps = data
-    grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:])
-    coords = phi + grid
+    imgs = imgs.to(config.device)
+    neural_reps = [net.to(config.device) for net in neural_reps]
+    grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:]).to(config.device)
+    coords = phi
 
     moving = imgs[0]
     fixed_n_rep = neural_reps[-1]
-    coord = coords[1]
-    loss_sim = similarity_loss(moving, fixed_n_rep, coord)
-    loss_negJ = config.lambda_negJ * neg_Jdet_loss(coords[-1])
+    coord = coords[-1]
+    loss_sim = n_rep_similarity_loss(moving, fixed_n_rep, coord)
+    # loss_sim = grid_sample_similarity_loss(moving, imgs[-1], phi[-1])
+    loss_negJ = config.lambda_negJ * neg_Jdet_loss(coords[-1] + grid)
     loss_smt = config.lambda_smt * smoothloss_loss(phi[-1])
     loss_mag = config.lambda_mag * magnitude_loss(phi[1:] - phi[:-1])
+    if config.lambda_st > 0:
+        loss_spt = config.lambda_st * space_time_loss(imgs, phi)
+    else:
+        loss_spt = 0.
     loss = loss_sim + loss_negJ + loss_smt + loss_mag
 
-    return loss
+    return [loss_sim, loss_negJ, loss_smt, loss_mag, loss_spt]
 
-def similarity_loss(moving, fixed_n_rep, coords):
+def grid_sample_similarity_loss(moving, fixed, phi):
     loss_fn = nn.MSELoss()
-    model_out = fixed_n_rep.net(coords.squeeze(0).permute(1, 2, 0))
-    fixed = model_out.squeeze(2)
-    l2loss = loss_fn(fixed, moving)
+    # model_out = fixed_n_rep.net(coords.squeeze(0).permute(1, 2, 0))
+    # fixed = model_out.squeeze(2)
+    # reversing channels for grid_sample
+    grid = phi.permute(0, 2, 3, 1)
+    # if grid.shape[-1] == 2:
+    #     grid = grid[..., [1, 0]]
+    # else:
+    #     grid = grid[..., [1, 0]]
+    moved = F.grid_sample(moving.unsqueeze(0).unsqueeze(0), grid, align_corners=True, mode='bilinear')
+    l2loss = loss_fn(fixed, moved.squeeze())
     return l2loss
 
+def n_rep_similarity_loss(moving, fixed_n_rep, coords):
+    loss_fn = nn.MSELoss()
+    model_out = fixed_n_rep.net(coords.squeeze(0).permute(2, 1, 0))
+    fixed = model_out.squeeze(2)
+    fixed = (fixed + 1) / 2
+    l2loss = loss_fn(fixed, moving.squeeze())
+    return l2loss
+
+def space_time_loss(imgs, phi):
+    loss_fn = nn.MSELoss()
+    moving = torch.stack([imgs[0]]*phi.shape[0])
+    grid = phi.squeeze(1).permute(0, 2, 3, 1)
+    fixed = imgs
+    moved = F.grid_sample(moving.unsqueeze(1), grid, align_corners=True, mode='bilinear')
+    l2loss = loss_fn(fixed, moved.squeeze())
+    return l2loss
 
 class NCC(torch.nn.Module):
     """

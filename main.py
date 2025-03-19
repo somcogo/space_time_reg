@@ -1,16 +1,18 @@
 import argparse
 import os
 
+import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from src.utils import prepare_inputs, save_results, get_logger
 from src.registration import registration
 from src.eval import evaluate
-# os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+torch.set_num_threads(8)
 
 def main(config):
     logger = get_logger(config.log_level)
-    writer = SummaryWriter(config.log_path)
+    writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))
     data = prepare_inputs(config)
     output = registration(config, data, writer, logger)
     # evaluate(config, output)
@@ -29,7 +31,7 @@ if __name__ == '__main__':
                         dest="dataset", default='easysyn',
                         help="dataset to use")
     parser.add_argument("--device", type=str,
-                        dest="device", default='cpu',
+                        dest="device", default='cuda',
                         help="device to use")
     parser.add_argument("--func_name", type=str,
                         dest="func_name", default='nodeo',
@@ -56,14 +58,17 @@ if __name__ == '__main__':
                         dest="log_cadence", default=10,
                         help="how ofter on log loss")
     parser.add_argument("--lambda_negJ", type=float,
-                        dest="lambda_negJ", default=2.5,
+                        dest="lambda_negJ", default=0.1,
                         help="loss weight for neg J")
     parser.add_argument("--lambda_smt", type=float,
-                        dest="lambda_smt", default=0.05,
+                        dest="lambda_smt", default=1,
                         help="loss weight for gradient magnitude")
     parser.add_argument("--lambda_mag", type=float,
-                        dest="lambda_mag", default=0.0005,
+                        dest="lambda_mag", default=1,
                         help="loss weight for v magnitude")
+    parser.add_argument("--lambda_st", type=float,
+                        dest="lambda_st", default=1,
+                        help="loss weight for space-time loss")
     
     config = parser.parse_args()
     config.func_kwargs = {'img_sz':(128, 128),
@@ -73,4 +78,5 @@ if __name__ == '__main__':
                           'ds':2,
                           'bs':16}
     config.log_path = os.path.join(config.log_path, config.exp_name)
+    os.makedirs(config.log_path, exist_ok=True)
     main(config)
