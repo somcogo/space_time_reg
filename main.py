@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.utils import prepare_inputs, save_results, get_logger
 from src.registration import registration
 from src.eval import evaluate
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 torch.set_num_threads(8)
 
 def main(config):
@@ -72,6 +72,9 @@ if __name__ == '__main__':
     parser.add_argument("--use_nreps", type=bool,
                         dest="use_nreps", default=True,
                         help="Whether to use neural representations to calculate the similarity losses")
+    parser.add_argument("--use_t", type=bool,
+                        dest="use_t", default=True,
+                        help="Use NODER insead of NODEO")
     
     config = parser.parse_args()
     config.func_kwargs = {'img_sz':(128, 128),
@@ -79,7 +82,8 @@ if __name__ == '__main__':
                           'smoothing_win':15,
                           'smoothing_pass':1,
                           'ds':2,
-                          'bs':16}
+                          'bs':16,
+                          'use_t':config.use_t}
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
     main(config)

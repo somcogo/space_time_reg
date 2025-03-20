@@ -14,7 +14,7 @@ def calculate_losses(config, phi, data):
     grid = grid[:, [1, 0], ...]
 
     loss_sim = config.lambda_st * similarity_loss(imgs, neural_reps, phi, config)
-    loss_negJ = config.lambda_negJ * neg_Jdet_loss(phi[-1] + grid)
+    loss_negJ = config.lambda_negJ * neg_Jdet_loss(phi[-1])
     loss_smt = config.lambda_smt * smoothloss_loss(phi[-1])
     loss_mag = config.lambda_mag * magnitude_loss(phi[1:] - phi[:-1])
     # if config.lambda_st > 0:

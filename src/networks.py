@@ -106,7 +106,7 @@ class AveragingKernel(torch.nn.Module):
 
 
 class BrainNet(nn.Module):
-    def __init__(self, img_sz, smoothing_kernel, smoothing_win, smoothing_pass, ds, bs):
+    def __init__(self, img_sz, smoothing_kernel, smoothing_win, smoothing_pass, ds, bs, use_t):
         super(BrainNet, self).__init__()
         padding_mode = 'replicate'
         bias = True
@@ -116,6 +116,7 @@ class BrainNet(nn.Module):
         self.dim = len(img_sz)
         self.smoothing_kernel = smoothing_kernel
         self.smoothing_pass = smoothing_pass
+        self.use_t = use_t
 
         conv_module = nn.Conv3d if self.dim == 3 else nn.Conv2d
         # self.enc_conv1 = conv_module(3, 32, kernel_size=3, stride=2, padding=1, padding_mode=padding_mode, bias=bias)
@@ -137,6 +138,8 @@ class BrainNet(nn.Module):
             self.downs_sz = 32 * math.ceil(self.img_sz[0] / 64) * math.ceil(self.img_sz[1] / 64) * math.ceil(self.img_sz[2] / 64)
         else:
             self.downs_sz = 32 * math.ceil(self.img_sz[0] / 64) * math.ceil(self.img_sz[1] / 64)
+        if self.use_t:
+            self.downs_sz = self.downs_sz * 2
         
         self.lin1 = nn.Linear(self.downs_sz, self.bs, bias=bias)
         self.lin2 = nn.Linear(self.bs, self.bottleneck_sz * self.dim, bias=bias)
@@ -163,6 +166,12 @@ class BrainNet(nn.Module):
         x = self.relu(self.enc_conv5(x))
         x = self.enc_conv6(x)
         x = x.view(-1)
+
+        # from NODER
+        #x = x + torch.ones_like(x) * t
+        if self.use_t:
+            x =torch.cat((x,torch.ones_like(x) * t),0)
+
         x = self.relu(self.lin1(x))
         x = self.lin2(x)
 
