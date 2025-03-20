@@ -73,7 +73,7 @@ if __name__ == '__main__':
                         dest="use_nreps", default=True,
                         help="Whether to use neural representations to calculate the similarity losses")
     parser.add_argument("--use_t", type=bool,
-                        dest="use_t", default=True,
+                        dest="use_t", default=False,
                         help="Use NODER insead of NODEO")
     
     config = parser.parse_args()
