@@ -3,60 +3,72 @@ from torch import nn
 import torch.nn.functional as F
 
 from src.siren.dataio import get_mgrid
+from src.utils import generate_grid_tensor
 
 def calculate_losses(config, phi, data):
     imgs, neural_reps = data
     imgs = imgs.to(config.device)
     neural_reps = [net.to(config.device) for net in neural_reps]
-    grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:]).to(config.device)
-    coords = phi
+    # grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:]).to(config.device)
+    grid = generate_grid_tensor(data[0].shape[1:]).to(config.device)
+    grid = grid[:, [1, 0], ...]
 
-    moving = imgs[0]
-    fixed_n_rep = neural_reps[-1]
-    coord = coords[-1]
-    loss_sim = n_rep_similarity_loss(moving, fixed_n_rep, coord)
-    # loss_sim = grid_sample_similarity_loss(moving, imgs[-1], phi[-1])
-    loss_negJ = config.lambda_negJ * neg_Jdet_loss(coords[-1] + grid)
+    loss_sim = config.lambda_st * similarity_loss(imgs, neural_reps, phi, config)
+    loss_negJ = config.lambda_negJ * neg_Jdet_loss(phi[-1] + grid)
     loss_smt = config.lambda_smt * smoothloss_loss(phi[-1])
     loss_mag = config.lambda_mag * magnitude_loss(phi[1:] - phi[:-1])
-    if config.lambda_st > 0:
-        loss_spt = config.lambda_st * space_time_loss(imgs, phi)
-    else:
-        loss_spt = 0.
-    loss = loss_sim + loss_negJ + loss_smt + loss_mag
-
-    return [loss_sim, loss_negJ, loss_smt, loss_mag, loss_spt]
-
-def grid_sample_similarity_loss(moving, fixed, phi):
-    loss_fn = nn.MSELoss()
-    # model_out = fixed_n_rep.net(coords.squeeze(0).permute(1, 2, 0))
-    # fixed = model_out.squeeze(2)
-    # reversing channels for grid_sample
-    grid = phi.permute(0, 2, 3, 1)
-    # if grid.shape[-1] == 2:
-    #     grid = grid[..., [1, 0]]
+    # if config.lambda_st > 0:
+    #     loss_spt = config.lambda_st * space_time_loss(imgs, phi)
     # else:
-    #     grid = grid[..., [1, 0]]
-    moved = F.grid_sample(moving.unsqueeze(0).unsqueeze(0), grid, align_corners=True, mode='bilinear')
-    l2loss = loss_fn(fixed, moved.squeeze())
-    return l2loss
+    #     loss_spt = 0.
 
-def n_rep_similarity_loss(moving, fixed_n_rep, coords):
-    loss_fn = nn.MSELoss()
-    model_out = fixed_n_rep.net(coords.squeeze(0).permute(2, 1, 0))
-    fixed = model_out.squeeze(2)
-    fixed = (fixed + 1) / 2
-    l2loss = loss_fn(fixed, moving.squeeze())
-    return l2loss
+    return [loss_sim, loss_negJ, loss_smt, loss_mag]
 
-def space_time_loss(imgs, phi):
+def similarity_loss(imgs, neural_reps, phi, args):
     loss_fn = nn.MSELoss()
-    moving = torch.stack([imgs[0]]*phi.shape[0])
-    grid = phi.squeeze(1).permute(0, 2, 3, 1)
-    fixed = imgs
-    moved = F.grid_sample(moving.unsqueeze(1), grid, align_corners=True, mode='bilinear')
-    l2loss = loss_fn(fixed, moved.squeeze())
-    return l2loss
+    if args.use_nreps:
+        losses = []
+        net = neural_reps[0].net
+        for time in range(imgs.shape[0]):
+            fixed = imgs[time]
+            coords = phi[time].squeeze(0).permute(1, 2, 0)
+            model_out = net(coords)
+            moved = (model_out.squeeze(2) + 1) / 2
+            losses.append(loss_fn(fixed, moved))
+        loss = sum(losses) / len(losses)
+    else:
+        moving = torch.stack([imgs[0]]*phi.shape[0])
+        phi_grid_sample = torch.stack([phi[:, 1], phi[:, 0]], dim=1).squeeze(1).permute(0, 2, 3, 1)
+        moved = F.grid_sample(moving, phi_grid_sample, align_corners=True, mode='bilinear')
+        fixed = imgs
+        loss = loss_fn(fixed, moved)
+    return loss
+
+
+
+# def grid_sample_similarity_loss(moving, fixed, phi):
+#     phi_grid_sample = torch.stack([phi[:, 1], phi[:, 0]], dim=1)
+#     loss_fn = nn.MSELoss()
+#     fixed_preimage = F.grid_sample(fixed.unsqueeze(0).unsqueeze(0), phi_grid_sample, align_corners=True, mode='bilinear')
+#     l2loss = loss_fn(moving, fixed_preimage.squeeze())
+#     return l2loss
+
+# def n_rep_similarity_loss(moving, fixed_n_rep, coords):
+#     loss_fn = nn.MSELoss()
+#     model_out = fixed_n_rep.net(coords.squeeze(0).permute(2, 1, 0))
+#     fixed = model_out.squeeze(2)
+#     fixed = (fixed + 1) / 2
+#     l2loss = loss_fn(fixed, moving.squeeze())
+#     return l2loss
+
+# def space_time_loss(imgs, n_reps, phi):
+#     loss_fn = nn.MSELoss()
+#     moving = torch.stack([imgs[0]]*phi.shape[0])
+#     grid = phi.squeeze(1).permute(0, 2, 3, 1)
+#     fixed = imgs
+#     moved = F.grid_sample(moving.unsqueeze(1), grid, align_corners=True, mode='bilinear')
+#     l2loss = loss_fn(fixed, moved.squeeze())
+#     return l2loss
 
 class NCC(torch.nn.Module):
     """

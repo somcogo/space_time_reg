@@ -70,7 +70,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, loss_fn, val_d
                 pbar.update(1)
 
                 if not total_steps % steps_til_summary:
-                    tqdm.write("Epoch %d, Total loss %0.6f, iteration time %0.6f" % (epoch, train_loss, time.time() - start_time))
+                    # tqdm.write("Epoch %d, Total loss %0.6f, iteration time %0.6f" % (epoch, train_loss, time.time() - start_time))
 
                     if val_dataloader is not None:
                         print("Running validation set...")
