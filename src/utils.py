@@ -98,10 +98,13 @@ def prepare_inputs(config):
     elif config.dataset == 'hard':
         imgs = torch.from_numpy(np.load('data/syn/hard.npy').transpose((2, 0, 1)))
         st_dicts = torch.load('data/syn/hard_nrep_st_dicts.pt')
+    elif config.dataset == 'rot':
+        imgs = torch.from_numpy(np.load('data/syn/rot.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load('data/syn/rot_nrep_st_dicts.pt')
 
 
     models = []
-    for i in range(imgs.shape[0]):
+    for i in range(len(st_dicts)):
         model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=imgs.shape[1:], device=config.device)
         model.load_state_dict(st_dicts[i])
         model.eval()

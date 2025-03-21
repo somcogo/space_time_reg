@@ -77,7 +77,8 @@ if __name__ == '__main__':
                         help="Use NODER insead of NODEO")
     
     config = parser.parse_args()
-    config.func_kwargs = {'img_sz':(128, 128),
+    img_sz = (168, 168) if config.dataset == 'rot' else (128, 128)
+    config.func_kwargs = {'img_sz':img_sz,
                           'smoothing_kernel':'GK',
                           'smoothing_win':15,
                           'smoothing_pass':1,
