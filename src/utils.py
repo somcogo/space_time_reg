@@ -97,28 +97,9 @@ def generate_coord_tensor(dims, device):
     return coordinate_tensor
 
 def prepare_inputs(config):
-    if config.dataset == 'easysyn':
-        imgs = torch.from_numpy(np.load('data/syn/easy.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/easy_nrep_st_dicts.pt')
-    elif config.dataset == 'rectri':
-        imgs = torch.from_numpy(np.load('data/syn/rectri.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/rectri_nrep_st_dicts.pt')
-    elif config.dataset == 'hard':
-        imgs = torch.from_numpy(np.load('data/syn/hard.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/hard_nrep_st_dicts.pt')
-    elif config.dataset == 'rot':
-        imgs = torch.from_numpy(np.load('data/syn/rot.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/rot_nrep_st_dicts.pt')
-    elif config.dataset == 'rot_slow':
-        imgs = torch.from_numpy(np.load('data/syn/rot_slow.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/rot_slow_nrep_st_dicts.pt')
-    elif config.dataset == 'rot_slow2':
-        imgs = torch.from_numpy(np.load('data/syn/rot_slow2.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/rot_slow2_nrep_st_dicts.pt')
-    elif config.dataset == 'rec':
-        imgs = torch.from_numpy(np.load('data/syn/rec.npy').transpose((2, 0, 1)))
-        st_dicts = torch.load('data/syn/rec_nrep_st_dicts.pt')
-
+    if config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec']:
+        imgs = torch.from_numpy(np.load(f'data/syn/{config.dataset}/{config.dataset}.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load(f'data/syn/{config.dataset}/{config.dataset}_nrep_st_dicts.pt')
 
     models = []
     for i in range(len(st_dicts)):
@@ -127,10 +108,6 @@ def prepare_inputs(config):
         model.eval()
         models.append(model)
 
-    # imgs = torch.stack([imgs[0], imgs[5]])
-    # models = [models[0], models[5]]
-    # imgs = imgs[:5]
-    # models = models[:5]
     imgs = imgs[:config.time_points]
     models = models[:config.time_points]
     return imgs, models
@@ -144,53 +121,36 @@ def calculate_metrics(losses, phi, data):
     metrics['losses/magnitude_loss'] = losses[3]
     return metrics
 
-def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel):
+def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, log_imgs):
     for k, v in metrics.items():
         writer.add_scalar(k, v, epoch)
 
-    imgs, neural_reps = data
-    imgs = imgs.detach().cpu()
+    if log_imgs:
+        imgs, neural_reps = data
+        imgs = imgs.detach().cpu()
 
-    imgs_to_display_nrep = [imgs[0].unsqueeze(0), imgs[-1].unsqueeze(0), moved_imgs[0].unsqueeze(0), moved_imgs[-1].unsqueeze(0)]
-    img_grid_nrep = make_grid(imgs_to_display_nrep, nrow=2, normalize=True)
-    moved_grid_nrep = make_grid([im.unsqueeze(0) for im in moved_imgs], nrow=5, normalize=True)
+        imgs_to_display_nrep = [imgs[0].unsqueeze(0), imgs[-1].unsqueeze(0), moved_imgs[0].unsqueeze(0), moved_imgs[-1].unsqueeze(0)]
+        img_grid_nrep = make_grid(imgs_to_display_nrep, nrow=2, normalize=True)
+        moved_grid_nrep = make_grid([im.unsqueeze(0) for im in moved_imgs], nrow=5, normalize=True)
 
-    writer.add_image('imgs/comparison', img_grid_nrep, epoch, dataformats='CHW', )
-    writer.add_image('imgs/all_time', moved_grid_nrep, epoch, dataformats='CHW')
+        writer.add_image('imgs/comparison', img_grid_nrep, epoch, dataformats='CHW', )
+        writer.add_image('imgs/all_time', moved_grid_nrep, epoch, dataformats='CHW')
 
-    points_st_dict = torch.load('data/syn/pts128_nrep_st_dicts.pt')[0]
-    points_nrep = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=imgs.shape[1:], device=phi.device)
-    points_nrep.load_state_dict(points_st_dict)
-    points_nrep = points_nrep.to(phi.device)
-    points_out = points_nrep.net(phi)
-    points_out = (points_out.permute(0, 2, 1).reshape(phi.shape[0], 1, imgs.shape[1], imgs.shape[2]) + 1) / 2
-    points_grid = make_grid(points_out, nrow=5)
+        phi = phi.detach().cpu()
+        coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
+        rel_phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
+        rel_phi = (phi - coord_tensor).reshape(rel_phi_shape).numpy()
+        rel_flow_colors = []
+        for time in range(phi.shape[0]):
+            rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
+        rel_flow_grid = make_grid(rel_flow_colors, nrow=5)
 
-    phi = phi.detach().cpu()
-    rel_phi = phi.detach().cpu()
-    coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
-    rel_phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
-    rel_phi = (rel_phi-coord_tensor).reshape(rel_phi_shape).numpy()
-    abs_phi = phi.reshape(rel_phi_shape).numpy()
-    rel_flow_colors = []
-    abs_flow_colors = []
-    for time in range(phi.shape[0]):
-        rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
-        abs_flow_colors.append(torch.from_numpy(flow_to_color(abs_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
-    rel_flow_grid = make_grid(rel_flow_colors, nrow=5)
-    abs_flow_grid = make_grid(abs_flow_colors, nrow=5)
+        vel_shape = rel_phi_shape[1:]
+        vel = vel.detach().cpu().reshape(vel_shape).numpy()
+        act_velocity_color = torch.from_numpy(flow_to_color(vel, convert_to_bgr=False)).permute(2, 0, 1)
 
-    vel_shape = rel_phi_shape[1:]
-    vel = vel.detach().cpu().reshape(vel_shape).numpy()
-    act_velocity_color = torch.from_numpy(flow_to_color(vel, convert_to_bgr=False)).permute(2, 0, 1)
-    diff_v = rel_phi[-1] - rel_phi[-2]
-    diff_velocity_color = torch.from_numpy(flow_to_color(diff_v, convert_to_bgr=False)).permute(2, 0, 1)
-
-    writer.add_image('imgs/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
-    writer.add_image('imgs/abs_flow_all', abs_flow_grid, epoch, dataformats='CHW', )
-    writer.add_image('imgs/velocity', act_velocity_color, epoch, dataformats='CHW', )
-    writer.add_image('imgs/phi_diff_vel', diff_velocity_color, epoch, dataformats='CHW', )
-    writer.add_image('imgs/points_moved', points_grid.detach().cpu().numpy(), epoch, dataformats='CHW', )
+        writer.add_image('imgs/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
+        writer.add_image('imgs/velocity', act_velocity_color, epoch, dataformats='CHW', )
 
 
     

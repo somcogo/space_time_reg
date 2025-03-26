@@ -28,6 +28,7 @@ def registration(config, data, writer, logger:logging.Logger):
     t7 = time.time()
     t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
     for epoch in range(1, config.epochs + 1):
+        log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
         t1 = time.time()
         phi = odeint(func, coord_tensor, time_points, method=config.solver)
@@ -44,7 +45,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t5 = time.time()
 
         metrics = calculate_metrics(losses, phi, data)
-        log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel)
+        log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, log_epoch)
         t6 = time.time()
 
         # new_phi = phi.detach()
@@ -55,7 +56,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t54 += t5-t4
         t65 += t6-t5
         t67 += t6-t7
-        if epoch == 1 or epoch % config.log_cadence == 0:
+        if epoch == 1 or log_epoch:
             logger.info(f'Epoch {epoch}/{config.epochs}, Sim loss {losses[0]:.3f}, NegJ loss {losses[1]:.3f}, Smooth loss {losses[2]:.3f}, Vmag loss {losses[3]:.3f}')
             logger.info(f'Epoch {epoch}/{config.epochs}, Time: DL {t17/100:.4f}, ODE {t21/100:.4f}, Loss  {t32/100:.4f}, Backward {t43/100:.4f}, Optim  {t54/100:.4f}, Metric {t65/100:.4f}, Total {t67/100:.4f}')
             # last_layer_grad = sum([p.grad.abs() for p in func.parameters()][:-1])
