@@ -34,7 +34,7 @@ if __name__ == '__main__':
                         dest="device", default='cuda',
                         help="device to use")
     parser.add_argument("--func_name", type=str,
-                        dest="func_name", default='nodeo',
+                        dest="func_name", default='siren',
                         help="function to predict the velocity field")
     parser.add_argument("--time_points", type=int,
                         dest="time_points", default=20,
@@ -43,13 +43,13 @@ if __name__ == '__main__':
                         dest="time_step", default=0.001,
                         help="length of time step")
     parser.add_argument("--lr", type=float,
-                        dest="lr", default=0.005,
+                        dest="lr", default=0.01,
                         help="learning rate")
     parser.add_argument("--epochs", type=int,
                         dest="epochs", default=100,
                         help="number of epochs")
     parser.add_argument("--solver", type=str,
-                        dest="solver", default='euler',
+                        dest="solver", default='rk4',
                         help="ode solver method")
     parser.add_argument("--log_level", type=str,
                         dest="log_level", default='info',
@@ -77,14 +77,18 @@ if __name__ == '__main__':
                         help="Use NODER insead of NODEO")
     
     config = parser.parse_args()
-    img_sz = (168, 168) if config.dataset == 'rot' else (128, 128)
-    config.func_kwargs = {'img_sz':img_sz,
-                          'smoothing_kernel':'GK',
-                          'smoothing_win':15,
-                          'smoothing_pass':1,
-                          'ds':2,
-                          'bs':16,
-                          'use_t':config.use_t}
+    img_sz = (168, 168) if config.dataset in ['rot', 'rot_slow', 'rot_slow2'] else (128, 128)
+    if config.func_name == 'nodeo':
+        func_kwargs = {'img_sz':img_sz,
+                       'smoothing_kernel':'GK',
+                       'smoothing_win':15,
+                       'smoothing_pass':1,
+                       'ds':2,
+                       'bs':16,
+                       'use_t':config.use_t}
+    else:
+        func_kwargs = {'layers':[3, 256, 256, 256, 3]}
+    config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
     main(config)

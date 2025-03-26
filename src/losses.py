@@ -3,46 +3,61 @@ from torch import nn
 import torch.nn.functional as F
 
 from src.siren.dataio import get_mgrid
-from src.utils import generate_grid_tensor
+from src.utils import generate_grid_tensor, generate_coord_tensor
 
-def calculate_losses(config, phi, data):
+def calculate_losses(config, phi, data, vel):
     imgs, neural_reps = data
     imgs = imgs.to(config.device)
     neural_reps = [net.to(config.device) for net in neural_reps]
     # grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:]).to(config.device)
-    grid = generate_grid_tensor(data[0].shape[1:]).to(config.device)
-    grid = grid[:, [1, 0], ...]
+    # grid = generate_grid_tensor(data[0].shape[1:]).to(config.device)
+    # grid = grid[:, [1, 0], ...]
+    coord_tensor = generate_coord_tensor(imgs.shape[1:], config.device)
 
-    loss_sim = config.lambda_st * similarity_loss(imgs, neural_reps, phi, config)
-    loss_negJ = config.lambda_negJ * neg_Jdet_loss(phi[-1])
-    loss_smt = config.lambda_smt * smoothloss_loss(phi[-1])
-    loss_mag = config.lambda_mag * magnitude_loss(phi[1:] - phi[:-1])
-    # if config.lambda_st > 0:
-    #     loss_spt = config.lambda_st * space_time_loss(imgs, phi)
-    # else:
-    #     loss_spt = 0.
+    # reshape phi from (-1, 2) to (1, x, y, z, 2)
+    phi_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape)-1]
+    loss_sim, moved_imgs = config.lambda_st * similarity_loss(imgs, neural_reps, phi, config)
+    loss_negJ = config.lambda_negJ * neg_Jdet_loss((phi[-1]-coord_tensor).reshape(phi_shape))
+    loss_smt = config.lambda_smt * smoothloss_loss(phi[-1].reshape(phi_shape))
 
-    return [loss_sim, loss_negJ, loss_smt, loss_mag]
+    vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
+    vel_reshaped = vel.reshape(vel_shape).permute(2, 0, 1).unsqueeze(0)
+    # loss_mag = config.lambda_mag * magnitude_loss((phi[1:] - phi[:-1]).reshape(phi_shape))
+    loss_mag = config.lambda_mag * magnitude_loss(vel_reshaped)
+    # loss_negJ = 0.
+    # loss_smt = 0.
+    # loss_mag = 0.
+
+    return [loss_sim, loss_negJ, loss_smt, loss_mag], moved_imgs
 
 def similarity_loss(imgs, neural_reps, phi, args):
     loss_fn = nn.MSELoss()
     if args.use_nreps:
-        losses = []
+        # losses = []
+        # moving = imgs[0]
+        # for time in range(imgs.shape[0]):
+        #     net = neural_reps[time].net
+        #     coords = phi[time]
+        #     model_out = net(coords)
+        #     fixed_preimage = (model_out.squeeze(1) + 1) / 2
+        #     fixed_preimage = fixed_preimage.reshape(moving.shape)
+        #     losses.append(loss_fn(fixed_preimage, moving))
+        # loss = sum(losses) / len(losses)
+
         net = neural_reps[0].net
-        for time in range(imgs.shape[0]):
-            fixed = imgs[time]
-            coords = phi[time].squeeze(0).permute(1, 2, 0)
-            model_out = net(coords)
-            moved = (model_out.squeeze(2) + 1) / 2
-            losses.append(loss_fn(fixed, moved))
-        loss = sum(losses) / len(losses)
+        fixed = imgs
+        coords = phi
+        model_out = net(coords)
+        moved = (model_out.squeeze(2) + 1) / 2
+        moved = moved.reshape(fixed.shape)
+        loss = loss_fn(fixed, moved)
     else:
         moving = torch.stack([imgs[0]]*phi.shape[0])
         phi_grid_sample = torch.stack([phi[:, 1], phi[:, 0]], dim=1).squeeze(1).permute(0, 2, 3, 1)
         moved = F.grid_sample(moving, phi_grid_sample, align_corners=True, mode='bilinear')
         fixed = imgs
         loss = loss_fn(fixed, moved)
-    return loss
+    return loss, moved.detach().cpu()
 
 
 
@@ -172,13 +187,13 @@ def smoothloss_loss(df):
     return gradient_magnitude
 
 def magnitude_loss(all_v):
-    if len(all_v.shape) == 6:
-        all_v_x_2 = all_v[:, :, 0, :, :, :] * all_v[:, :, 0, :, :, :]
-        all_v_y_2 = all_v[:, :, 1, :, :, :] * all_v[:, :, 1, :, :, :]
-        all_v_z_2 = all_v[:, :, 2, :, :, :] * all_v[:, :, 2, :, :, :]
+    if len(all_v.shape) == 5:
+        all_v_x_2 = all_v[:, 0, :, :, :] * all_v[:, 0, :, :, :]
+        all_v_y_2 = all_v[:, 1, :, :, :] * all_v[:, 1, :, :, :]
+        all_v_z_2 = all_v[:, 2, :, :, :] * all_v[:, 2, :, :, :]
         all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2 + all_v_z_2)
     else:
-        all_v_x_2 = all_v[:, :, 0, :, :] * all_v[:, :, 0, :, :]
-        all_v_y_2 = all_v[:, :, 1, :, :] * all_v[:, :, 1, :, :]
+        all_v_x_2 = all_v[:, 0, :, :] * all_v[:, 0, :, :]
+        all_v_y_2 = all_v[:, 1, :, :] * all_v[:, 1, :, :]
         all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2)
     return all_v_magnitude
