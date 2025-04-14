@@ -17,18 +17,21 @@ def calculate_losses(config, phi, data, vel):
     # reshape phi from (-1, 2) to (1, x, y, z, 2)
     phi_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape)-1]
     loss_sim, moved_imgs = config.lambda_st * similarity_loss(imgs, neural_reps, phi, config)
-    loss_negJ = config.lambda_negJ * neg_Jdet_loss((phi[-1]-coord_tensor).reshape(phi_shape))
-    loss_smt = config.lambda_smt * smoothloss_loss(phi[-1].reshape(phi_shape))
+    neg_Jdet_energy = neg_Jdet_loss((phi[-1]-coord_tensor).reshape(phi_shape))
+    loss_negJ = config.lambda_negJ * neg_Jdet_energy.mean()
+    smoothness_energy = smoothloss_loss(phi[-1].reshape(phi_shape))
+    loss_smt = config.lambda_smt * smoothness_energy.mean()
 
     vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
     vel_reshaped = vel.reshape(vel_shape).permute(2, 0, 1).unsqueeze(0)
     # loss_mag = config.lambda_mag * magnitude_loss((phi[1:] - phi[:-1]).reshape(phi_shape))
-    loss_mag = config.lambda_mag * magnitude_loss(vel_reshaped)
+    magnitude_energy = magnitude_loss(vel_reshaped)
+    loss_mag = config.lambda_mag * magnitude_energy.mean()
     # loss_negJ = 0.
     # loss_smt = 0.
     # loss_mag = 0.
 
-    return [loss_sim, loss_negJ, loss_smt, loss_mag], moved_imgs
+    return [loss_sim, loss_negJ, loss_smt, loss_mag], moved_imgs, [neg_Jdet_energy, smoothness_energy, magnitude_energy]
 
 def similarity_loss(imgs, neural_reps, phi, args):
     loss_fn = nn.MSELoss()
@@ -46,7 +49,15 @@ def similarity_loss(imgs, neural_reps, phi, args):
 
         net = neural_reps[0].net
         fixed = imgs
-        coords = phi
+
+        if args.const_phi:
+            coord_tensor = coord_tensor = generate_coord_tensor(imgs.shape[1:], args.device)
+            rel_phi = (phi-coord_tensor)
+            phi1 = rel_phi[1:2].expand(phi.shape[0], phi.shape[1], 2) * torch.arange(phi.shape[0], device=args.device).unsqueeze(1).unsqueeze(1)
+            coords = phi1 + coord_tensor
+        else:
+            coords = phi
+
         model_out = net(coords)
         moved = (model_out.squeeze(2) + 1) / 2
         moved = moved.reshape(fixed.shape)
@@ -172,28 +183,37 @@ def JacboianDet(phi):
 
 def neg_Jdet_loss(J):
     Jdet = JacboianDet(J)
-    neg_Jdet = -1.0 * (Jdet - 0.5)
+    neg_Jdet = -1.0 * Jdet
     selected_neg_Jdet = F.relu(neg_Jdet)
-    return torch.mean(selected_neg_Jdet ** 2)
+    return selected_neg_Jdet ** 2
 
 def smoothloss_loss(df):
     if len(df.shape) == 5:
-        gradient_magnitude = (((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2).mean() + \
-     ((df[:, :, :, 1:, :] - df[:, :, :, :-1, :]) ** 2).mean() + \
-     ((df[:, :, :, :, 1:] - df[:, :, :, :, :-1]) ** 2).mean())
+    #     gradient_magnitude = (((df[:, 1:, :, :, :] - df[:, :-1, :, :, :]) ** 2).mean() + \
+    #  ((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2).mean() + \
+    #  ((df[:, :, :, 1:, :] - df[:, :, :, :-1, :]) ** 2).mean())
+        x_grad_magnitude = ((df[:, 1:, :, :, :] - df[:, :-1, :, :, :]) ** 2)
+        y_grad_magnitude = ((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2)
+        z_grad_magnitude = ((df[:, :, :, 1:, :] - df[:, :, :, :-1, :]) ** 2)
+        smoothness = x_grad_magnitude + y_grad_magnitude + z_grad_magnitude
     else:
-        gradient_magnitude = (((df[:, :, 1:, :] - df[:, :, :-1, :]) ** 2).mean() + \
-     ((df[:, :, :, 1:] - df[:, :, :, :-1]) ** 2).mean())
-    return gradient_magnitude
+    #     gradient_magnitude = (((df[:, 1:, :, :] - df[:, :-1, :, :]) ** 2).mean() + \
+    #  ((df[:, :, 1:, :] - df[:, :, :-1, :]) ** 2).mean())
+        x_grad_magnitude = ((df[:, 1:, 1:, :] - df[:, :-1, 1:, :]) ** 2)
+        y_grad_magnitude = ((df[:, 1:, 1:, :] - df[:, 1:, :-1, :]) ** 2)
+        smoothness = x_grad_magnitude + y_grad_magnitude
+    return smoothness
 
 def magnitude_loss(all_v):
     if len(all_v.shape) == 5:
         all_v_x_2 = all_v[:, 0, :, :, :] * all_v[:, 0, :, :, :]
         all_v_y_2 = all_v[:, 1, :, :, :] * all_v[:, 1, :, :, :]
         all_v_z_2 = all_v[:, 2, :, :, :] * all_v[:, 2, :, :, :]
-        all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2 + all_v_z_2)
+        # all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2 + all_v_z_2)
+        magnitude = all_v_x_2 + all_v_y_2 + all_v_z_2
     else:
         all_v_x_2 = all_v[:, 0, :, :] * all_v[:, 0, :, :]
         all_v_y_2 = all_v[:, 1, :, :] * all_v[:, 1, :, :]
-        all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2)
-    return all_v_magnitude
+        # all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2)
+        magnitude = all_v_x_2 + all_v_y_2
+    return magnitude

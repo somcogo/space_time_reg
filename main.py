@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.utils import prepare_inputs, save_results, get_logger
 from src.registration import registration
 from src.eval import evaluate
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 torch.set_num_threads(8)
 
 def main(config):
@@ -28,7 +28,7 @@ if __name__ == '__main__':
                         dest="log_path", default='log',
                         help="path to save tensorboard logs")
     parser.add_argument("--dataset", type=str,
-                        dest="dataset", default='easysyn',
+                        dest="dataset", default='easy',
                         help="dataset to use")
     parser.add_argument("--device", type=str,
                         dest="device", default='cuda',
@@ -75,6 +75,18 @@ if __name__ == '__main__':
     parser.add_argument("--use_t", type=bool,
                         dest="use_t", default=False,
                         help="Use NODER insead of NODEO")
+    parser.add_argument("--const_phi", type=bool,
+                        dest="const_phi", default=False,
+                        help="Use constant phi between time points")
+    parser.add_argument("--siren_depth", type=int,
+                        dest="siren_depth", default=3,
+                        help="Number of hidden layers in the siren network")
+    parser.add_argument("--siren_dim", type=int,
+                        dest="siren_dim", default=256,
+                        help="Hidden dimension in the siren network")
+    parser.add_argument("--siren_omega", type=int,
+                        dest="siren_omega", default=32,
+                        help="Omega used in siren network")
     
     config = parser.parse_args()
     img_sz = (168, 168) if config.dataset in ['rot', 'rot_slow', 'rot_slow2'] else (128, 128)
@@ -87,7 +99,9 @@ if __name__ == '__main__':
                        'bs':16,
                        'use_t':config.use_t}
     else:
-        func_kwargs = {'layers':[3, 256, 256, 256, 3]}
+        layers = [3] + config.siren_depth * [config.siren_dim] + [3]
+        func_kwargs = {'layers':layers,
+                       'omega':config.omega}
     config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
