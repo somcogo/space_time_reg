@@ -52,7 +52,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t65 += t6-t5
         t67 += t6-t7
         if epoch == 1 or log_epoch:
-            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim{losses[0]:.3f} NegJ {losses[1]:.3f} Smooth {losses[2]:.3f} Vmag {losses[3]:.3f}, Times DL/ODE/Loss/Back/Optim/Metr/Total {t17/100:.4f}/{t21/100:.4f}/{t32/100:.4f}/{t43/100:.4f}/{t54/100:.4f}/{t65/100:.4f}/{t67/100:.4f}')
+            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.3f} NegJ {losses[1]:.3f} Smooth {losses[2]:.3f} Vmag {losses[3]:.3f}, Times DL/ODE/Loss/Back/Optim/Metr/Total {t17/100:.4f} {t21/100:.4f} {t32/100:.4f} {t43/100:.4f} {t54/100:.4f} {t65/100:.4f} {t67/100:.4f}')
             t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
         
 

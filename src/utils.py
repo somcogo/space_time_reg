@@ -118,7 +118,7 @@ def calculate_metrics(losses, phi, data):
     metrics['losses/sim_loss'] = losses[0]
     metrics['losses/negJ_loss'] = losses[1]
     metrics['losses/smooth_loss'] = losses[2]
-    metrics['losses/magnitude_loss'] = losses[3]
+    metrics['losses/gradient_loss'] = losses[3]
     return metrics
 
 def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, log_imgs):

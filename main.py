@@ -7,16 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.utils import prepare_inputs, save_results, get_logger
 from src.registration import registration
 from src.eval import evaluate
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 torch.set_num_threads(8)
-
-def main(config):
-    logger = get_logger(config.log_level)
-    writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))
-    data = prepare_inputs(config)
-    output = registration(config, data, writer, logger)
-    # evaluate(config, output)
-    save_results(config, output)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -62,13 +53,16 @@ if __name__ == '__main__':
                         help="loss weight for neg J")
     parser.add_argument("--lambda_smt", type=float,
                         dest="lambda_smt", default=1,
-                        help="loss weight for gradient magnitude")
+                        help="loss weight for flow gradient L2 norm")
     parser.add_argument("--lambda_mag", type=float,
                         dest="lambda_mag", default=1,
                         help="loss weight for v magnitude")
     parser.add_argument("--lambda_st", type=float,
                         dest="lambda_st", default=1,
                         help="loss weight for space-time loss")
+    parser.add_argument("--lambda_grd", type=float,
+                        dest="lambda_grd", default=1,
+                        help="loss weight for velocity gradient L2 norm")
     parser.add_argument("--use_nreps", type=bool,
                         dest="use_nreps", default=True,
                         help="Whether to use neural representations to calculate the similarity losses")
@@ -87,8 +81,17 @@ if __name__ == '__main__':
     parser.add_argument("--siren_omega", type=int,
                         dest="siren_omega", default=32,
                         help="Omega used in siren network")
+    parser.add_argument("--loss", type=str,
+                        dest="loss", default='ngf',
+                        help="Loss function to use")
+    parser.add_argument("--gpu_number", type=str,
+                        dest="gpu_number", default="0",
+                        help="Which gpu to use")
     
     config = parser.parse_args()
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu_number
+
     img_sz = (168, 168) if config.dataset in ['rot', 'rot_slow', 'rot_slow2'] else (128, 128)
     if config.func_name == 'nodeo':
         func_kwargs = {'img_sz':img_sz,
@@ -101,8 +104,15 @@ if __name__ == '__main__':
     else:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
-                       'omega':config.omega}
+                       'omega':config.siren_omega}
     config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
-    main(config)
+    
+    logger = get_logger(config.log_level)
+    logger.info(f'Starting experiment with name {config.exp_name}')
+    writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))
+    data = prepare_inputs(config)
+    output = registration(config, data, writer, logger)
+    # evaluate(config, output)
+    save_results(config, output)

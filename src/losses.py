@@ -2,8 +2,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from src.siren.dataio import get_mgrid
-from src.utils import generate_grid_tensor, generate_coord_tensor
+from src.utils import generate_coord_tensor
+from src.normalized_gradient_field import NormalizedGradientField2d, NormalizedGradientField3d
 
 def calculate_losses(config, phi, data, vel):
     imgs, neural_reps = data
@@ -16,25 +16,34 @@ def calculate_losses(config, phi, data, vel):
 
     # reshape phi from (-1, 2) to (1, x, y, z, 2)
     phi_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape)-1]
-    loss_sim, moved_imgs = config.lambda_st * similarity_loss(imgs, neural_reps, phi, config)
+    loss_sim, moved_imgs = similarity_loss(imgs, neural_reps, phi, config)
     neg_Jdet_energy = neg_Jdet_loss((phi[-1]-coord_tensor).reshape(phi_shape))
     loss_negJ = config.lambda_negJ * neg_Jdet_energy.mean()
-    smoothness_energy = smoothloss_loss(phi[-1].reshape(phi_shape))
-    loss_smt = config.lambda_smt * smoothness_energy.mean()
+    phi_grad_energy = grad_loss(phi[-1].reshape(phi_shape))
+    loss_smt = config.lambda_smt * phi_grad_energy.mean()
 
     vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
     vel_reshaped = vel.reshape(vel_shape).permute(2, 0, 1).unsqueeze(0)
     # loss_mag = config.lambda_mag * magnitude_loss((phi[1:] - phi[:-1]).reshape(phi_shape))
-    magnitude_energy = magnitude_loss(vel_reshaped)
-    loss_mag = config.lambda_mag * magnitude_energy.mean()
+    # magnitude_energy = magnitude_loss(vel_reshaped)
+    # loss_mag = config.lambda_mag * magnitude_energy.mean()
+    vel_grad_energy = grad_loss(vel_reshaped)
+    loss_grd = config.lambda_grd * vel_grad_energy.mean()
     # loss_negJ = 0.
     # loss_smt = 0.
     # loss_mag = 0.
 
-    return [loss_sim, loss_negJ, loss_smt, loss_mag], moved_imgs, [neg_Jdet_energy, smoothness_energy, magnitude_energy]
+    return [config.lambda_st * loss_sim, loss_negJ, loss_smt, loss_grd], moved_imgs, [neg_Jdet_energy, phi_grad_energy, vel_grad_energy]
 
 def similarity_loss(imgs, neural_reps, phi, args):
-    loss_fn = nn.MSELoss()
+    if args.loss == 'mse':
+        loss_fn = nn.MSELoss()
+    elif args.loss == 'ngf':
+        if imgs.dim() == 3:
+            loss_fn = NormalizedGradientField2d(mm_spacing=1)
+        else:
+            loss_fn = NormalizedGradientField3d(mm_spacing=1)
+    loss_fn = loss_fn.to(args.device)
     if args.use_nreps:
         # losses = []
         # moving = imgs[0]
@@ -61,7 +70,7 @@ def similarity_loss(imgs, neural_reps, phi, args):
         model_out = net(coords)
         moved = (model_out.squeeze(2) + 1) / 2
         moved = moved.reshape(fixed.shape)
-        loss = loss_fn(fixed, moved)
+        loss = loss_fn(fixed.unsqueeze(1), moved.unsqueeze(1))
     else:
         moving = torch.stack([imgs[0]]*phi.shape[0])
         phi_grid_sample = torch.stack([phi[:, 1], phi[:, 0]], dim=1).squeeze(1).permute(0, 2, 3, 1)
@@ -165,14 +174,14 @@ class NCC(torch.nn.Module):
 
 def JacboianDet(phi):
     if len(phi.shape) == 4:
-        dx = phi[:, 1:, :-1, :] - phi[:, :-1, :-1, :]
-        dy = phi[:, :-1, 1:, :] - phi[:, :-1, :-1, :]
+        dx = phi[:, 1:, 1:, :] - phi[:, :-1, 1:, :]
+        dy = phi[:, 1:, 1:, :] - phi[:, 1:, :-1, :]
 
         det = dx[:, :, :, 0] * dy[:, :, :, 1] - dx[:, :, :, 1] * dy[:, :, :, 0]
     else:
-        dx = phi[:, 1:, :-1, :-1, :] - phi[:, :-1, :-1, :-1, :]
-        dy = phi[:, :-1, 1:, :-1, :] - phi[:, :-1, :-1, :-1, :]
-        dz = phi[:, :-1, :-1, 1:, :] - phi[:, :-1, :-1, :-1, :]
+        dx = phi[:, 1:, 1:, 1:, :] - phi[:, :-1, 1:, 1:, :]
+        dy = phi[:, 1:, 1:, 1:, :] - phi[:, 1:, :-1, 1:, :]
+        dz = phi[:, 1:, 1:, 1:, :] - phi[:, 1:, 1:, :-1, :]
 
         det0 = dx[:, :, :, :, 0] * (dy[:, :, :, :, 1] * dz[:, :, :, :, 2] - dy[:, :, :, :, 2] * dz[:, :, :, :, 1])
         det1 = dx[:, :, :, :, 1] * (dy[:, :, :, :, 0] * dz[:, :, :, :, 2] - dy[:, :, :, :, 2] * dz[:, :, :, :, 0])
@@ -187,22 +196,22 @@ def neg_Jdet_loss(J):
     selected_neg_Jdet = F.relu(neg_Jdet)
     return selected_neg_Jdet ** 2
 
-def smoothloss_loss(df):
-    if len(df.shape) == 5:
-    #     gradient_magnitude = (((df[:, 1:, :, :, :] - df[:, :-1, :, :, :]) ** 2).mean() + \
-    #  ((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2).mean() + \
-    #  ((df[:, :, :, 1:, :] - df[:, :, :, :-1, :]) ** 2).mean())
-        x_grad_magnitude = ((df[:, 1:, :, :, :] - df[:, :-1, :, :, :]) ** 2)
-        y_grad_magnitude = ((df[:, :, 1:, :, :] - df[:, :, :-1, :, :]) ** 2)
-        z_grad_magnitude = ((df[:, :, :, 1:, :] - df[:, :, :, :-1, :]) ** 2)
-        smoothness = x_grad_magnitude + y_grad_magnitude + z_grad_magnitude
+def grad_loss(f):
+    if len(f.shape) == 5:
+    #     gradient_magnitude = (((f[:, 1:, :, :, :] - f[:, :-1, :, :, :]) ** 2).mean() + \
+    #  ((f[:, :, 1:, :, :] - f[:, :, :-1, :, :]) ** 2).mean() + \
+    #  ((f[:, :, :, 1:, :] - f[:, :, :, :-1, :]) ** 2).mean())
+        x_grad_magnitude = ((f[:, 1:, :, :, :] - f[:, :-1, :, :, :]) ** 2)
+        y_grad_magnitude = ((f[:, :, 1:, :, :] - f[:, :, :-1, :, :]) ** 2)
+        z_grad_magnitude = ((f[:, :, :, 1:, :] - f[:, :, :, :-1, :]) ** 2)
+        grad_magnitude = x_grad_magnitude + y_grad_magnitude + z_grad_magnitude
     else:
-    #     gradient_magnitude = (((df[:, 1:, :, :] - df[:, :-1, :, :]) ** 2).mean() + \
-    #  ((df[:, :, 1:, :] - df[:, :, :-1, :]) ** 2).mean())
-        x_grad_magnitude = ((df[:, 1:, 1:, :] - df[:, :-1, 1:, :]) ** 2)
-        y_grad_magnitude = ((df[:, 1:, 1:, :] - df[:, 1:, :-1, :]) ** 2)
-        smoothness = x_grad_magnitude + y_grad_magnitude
-    return smoothness
+    #     gradient_magnitude = (((f[:, 1:, :, :] - f[:, :-1, :, :]) ** 2).mean() + \
+    #  ((f[:, :, 1:, :] - f[:, :, :-1, :]) ** 2).mean())
+        x_grad_magnitude = ((f[:, 1:, 1:, :] - f[:, :-1, 1:, :]) ** 2)
+        y_grad_magnitude = ((f[:, 1:, 1:, :] - f[:, 1:, :-1, :]) ** 2)
+        grad_magnitude = x_grad_magnitude + y_grad_magnitude
+    return grad_magnitude
 
 def magnitude_loss(all_v):
     if len(all_v.shape) == 5:
