@@ -1,5 +1,6 @@
 import logging
 import time
+import math
 
 import torch
 from torchdiffeq import odeint_adjoint as odeint
@@ -10,7 +11,7 @@ from src.losses import calculate_losses
 from src.siren.dataio import get_mgrid
 
 def registration(config, data, writer, logger:logging.Logger):
-    img_shape = data[0].shape[1:] 
+    img_shape = data[0].shape[1:]
     dims = len(img_shape)
     config.func_kwargs['layers'][0] = dims
     config.func_kwargs['layers'][-1] = dims
@@ -20,15 +21,19 @@ def registration(config, data, writer, logger:logging.Logger):
     time_points = torch.arange(config.time_points, device=config.device) * config.time_step
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
 
+    siren_st_dict = torch.load('data/gt_state_dicts/rot_slow2_x_is_zero_siren_state_dict.pt')
+    func.load_state_dict(siren_st_dict)
+
     best_loss = 1e8
     t7 = time.time()
     t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
     for epoch in range(1, config.epochs + 1):
+        func.load_state_dict(siren_st_dict)
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
         t1 = time.time()
         phi = odeint(func, coord_tensor, time_points, method=config.solver)
-        vel = func(time_points[-1], coord_tensor)
+        vel = func(time_points[1], coord_tensor)
         phi = torch.relu(phi+1) - 1
         phi = -torch.relu(-phi+1) + 1
         t2 = time.time()
@@ -41,7 +46,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t5 = time.time()
 
         metrics = calculate_metrics(losses, phi, data)
-        log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, log_epoch)
+        log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, func)
         t6 = time.time()
 
         t17 += t1-t7
@@ -62,4 +67,4 @@ def registration(config, data, writer, logger:logging.Logger):
             best_vel = vel
         t7 = time.time()
     
-    return best_phi, best_vel
+    return best_phi, best_vel, coord_tensor

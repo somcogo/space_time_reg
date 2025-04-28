@@ -1,7 +1,7 @@
 from functools import partial
 import logging
-import logging.handlers
 import os
+import math
 
 from PIL import Image
 import torch
@@ -91,7 +91,7 @@ def generate_grid_tensor(shape):
 
 def generate_coord_tensor(dims, device):
     coordinate_tensor = [torch.linspace(-1, 1, dims[i]) for i in range(len(dims))]
-    coordinate_tensor = torch.meshgrid(*coordinate_tensor)
+    coordinate_tensor = torch.meshgrid(*coordinate_tensor, indexing='ij')
     coordinate_tensor = torch.stack(coordinate_tensor, dim=-1)
     coordinate_tensor = coordinate_tensor.view([np.prod(dims), len(dims)]).to(device)
     return coordinate_tensor
@@ -121,11 +121,32 @@ def calculate_metrics(losses, phi, data):
     metrics['losses/gradient_loss'] = losses[3]
     return metrics
 
-def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, log_imgs):
+def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, func):
     for k, v in metrics.items():
         writer.add_scalar(k, v, epoch)
 
-    if log_imgs:
+    with torch.no_grad():
+        grads = torch.tensor([p.grad.norm() for p in func.parameters()])
+        names = [n for n, p in func.named_parameters()]
+        writer.add_scalar('grad_stats/mean_grad', grads.mean(), epoch)
+        writer.add_scalar('grad_stats/min_grad', grads.min(), epoch)
+        writer.add_scalar('grad_stats/max_grad', grads.max(), epoch)
+
+        for i in range(len(names)):
+            writer.add_scalar(f'all_grads/{names[i]}', grads[i], epoch)
+
+        writer.add_scalar('phi_stats/max', phi.max(), epoch)
+        writer.add_scalar('phi_stats/min', phi.min(), epoch)
+        phi_11 = (phi == torch.tensor([1, 1], device=phi.device)).sum()
+        phi_m1m1 = (phi == torch.tensor([-1, -1], device=phi.device)).sum()
+        phi_1m1 = (phi == torch.tensor([1, -1], device=phi.device)).sum()
+        phi_m11 = (phi == torch.tensor([-1, 1], device=phi.device)).sum()
+        phi_boundary = phi_11 + phi_m1m1 + phi_1m1 + phi_m11
+        all_phi = math.prod(list(phi.shape))
+        writer.add_scalar('phi_stats/boundary_ratio', phi_boundary/all_phi, epoch)
+        writer.add_scalar('phi_stats/boundary_absolute', phi_boundary, epoch)
+
+    if epoch % 1 == 0:
         imgs, neural_reps = data
         imgs = imgs.detach().cpu()
 
@@ -158,5 +179,6 @@ def save_results(config, output):
     save_path = os.path.join(config.log_path, 'res.pt')
     save_dict = {'phi':output[0].detach().cpu(),
                  'vel':output[1].detach().cpu(),
+                 'coord_tensor':output[2].detach().cpu(),
                  'config':vars(config)}
     torch.save(save_dict, save_path)

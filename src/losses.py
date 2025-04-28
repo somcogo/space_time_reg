@@ -9,9 +9,6 @@ def calculate_losses(config, phi, data, vel):
     imgs, neural_reps = data
     imgs = imgs.to(config.device)
     neural_reps = [net.to(config.device) for net in neural_reps]
-    # grid = get_mgrid(imgs[0].shape, dim=len(imgs.shape) - 1).view(phi.shape[1:]).to(config.device)
-    # grid = generate_grid_tensor(data[0].shape[1:]).to(config.device)
-    # grid = grid[:, [1, 0], ...]
     coord_tensor = generate_coord_tensor(imgs.shape[1:], config.device)
 
     # reshape phi from (-1, 2) to (1, x, y, z, 2)
@@ -24,59 +21,26 @@ def calculate_losses(config, phi, data, vel):
 
     vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
     vel_reshaped = vel.reshape(vel_shape).permute(2, 0, 1).unsqueeze(0)
-    # loss_mag = config.lambda_mag * magnitude_loss((phi[1:] - phi[:-1]).reshape(phi_shape))
-    # magnitude_energy = magnitude_loss(vel_reshaped)
-    # loss_mag = config.lambda_mag * magnitude_energy.mean()
     vel_grad_energy = grad_loss(vel_reshaped)
     loss_grd = config.lambda_grd * vel_grad_energy.mean()
-    # loss_negJ = 0.
-    # loss_smt = 0.
-    # loss_mag = 0.
 
     return [config.lambda_st * loss_sim, loss_negJ, loss_smt, loss_grd], moved_imgs, [neg_Jdet_energy, phi_grad_energy, vel_grad_energy]
 
 def similarity_loss(imgs, neural_reps, phi, args):
     if args.loss == 'mse':
-        loss_fn = nn.MSELoss()
+        loss_fn = nn.MSELoss(reduction='mean')
     elif args.loss == 'ngf':
         if imgs.dim() == 3:
-            loss_fn = NormalizedGradientField2d(mm_spacing=1)
+            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=1e-5, reduction='mean')
         else:
-            loss_fn = NormalizedGradientField3d(mm_spacing=1)
+            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=1e-5, reduction='mean')
     loss_fn = loss_fn.to(args.device)
-    if args.use_nreps:
-        # losses = []
-        # moving = imgs[0]
-        # for time in range(imgs.shape[0]):
-        #     net = neural_reps[time].net
-        #     coords = phi[time]
-        #     model_out = net(coords)
-        #     fixed_preimage = (model_out.squeeze(1) + 1) / 2
-        #     fixed_preimage = fixed_preimage.reshape(moving.shape)
-        #     losses.append(loss_fn(fixed_preimage, moving))
-        # loss = sum(losses) / len(losses)
+    net = neural_reps[0].net
 
-        net = neural_reps[0].net
-        fixed = imgs
-
-        if args.const_phi:
-            coord_tensor = coord_tensor = generate_coord_tensor(imgs.shape[1:], args.device)
-            rel_phi = (phi-coord_tensor)
-            phi1 = rel_phi[1:2].expand(phi.shape[0], phi.shape[1], 2) * torch.arange(phi.shape[0], device=args.device).unsqueeze(1).unsqueeze(1)
-            coords = phi1 + coord_tensor
-        else:
-            coords = phi
-
-        model_out = net(coords)
-        moved = (model_out.squeeze(2) + 1) / 2
-        moved = moved.reshape(fixed.shape)
-        loss = loss_fn(fixed.unsqueeze(1), moved.unsqueeze(1))
-    else:
-        moving = torch.stack([imgs[0]]*phi.shape[0])
-        phi_grid_sample = torch.stack([phi[:, 1], phi[:, 0]], dim=1).squeeze(1).permute(0, 2, 3, 1)
-        moved = F.grid_sample(moving, phi_grid_sample, align_corners=True, mode='bilinear')
-        fixed = imgs
-        loss = loss_fn(fixed, moved)
+    model_out = net(phi)
+    moved = (model_out.squeeze(2) + 1) / 2
+    moved = moved.reshape(imgs.shape)
+    loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
     return loss, moved.detach().cpu()
 
 
