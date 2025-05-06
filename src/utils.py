@@ -103,8 +103,8 @@ def prepare_inputs(config):
     elif config.dataset == 'test':
         imgs = torch.from_numpy(np.load(f'data/syn/rec/rec.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/rec/rec_nrep_st_dicts.pt')
-        imgs = imgs[[0, -1]]
-        st_dicts = [st_dicts[0], st_dicts[-1]]
+        imgs = imgs[[0, 3]]
+        st_dicts = [st_dicts[0], st_dicts[3]]
         config.time_points = 2
     elif config.dataset == 'const':
         imgs = torch.from_numpy(np.load(f'data/syn/rec/rec.npy').transpose((2, 0, 1)))
@@ -147,8 +147,8 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         for i in range(len(names)):
             writer.add_scalar(f'all_grads/{names[i]}', grads[i], epoch)
 
-        writer.add_scalar('phi_stats/max', abs_phi.max(), epoch)
-        writer.add_scalar('phi_stats/min', abs_phi.min(), epoch)
+        writer.add_scalar('phi_stats/abs_max', abs_phi.max(), epoch)
+        writer.add_scalar('phi_stats/abs_min', abs_phi.min(), epoch)
         phi_11 = (abs_phi == torch.tensor([1, 1], device=abs_phi.device)).sum()
         phi_m1m1 = (abs_phi == torch.tensor([-1, -1], device=abs_phi.device)).sum()
         phi_1m1 = (abs_phi == torch.tensor([1, -1], device=abs_phi.device)).sum()
@@ -158,16 +158,21 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         writer.add_scalar('phi_stats/boundary_ratio', phi_boundary/all_phi, epoch)
         writer.add_scalar('phi_stats/boundary_absolute', phi_boundary, epoch)
 
+
+        writer.add_scalar('vel_stats/rel_max', rel_vel.max(), epoch)
+        writer.add_scalar('vel_stats/rel_min', rel_vel.min(), epoch)
+        writer.add_scalar('vel_stats/rel_mean', rel_vel.mean(), epoch)
+
     if epoch % 100 == 0 or epoch == 1:
         imgs, neural_reps = data
         imgs = imgs.detach().cpu()
 
-        imgs_to_display_nrep = [imgs[0].unsqueeze(0), imgs[-1].unsqueeze(0), moved_imgs[0].unsqueeze(0), moved_imgs[-1].unsqueeze(0)]
-        img_grid_nrep = make_grid(imgs_to_display_nrep, nrow=2, normalize=True)
-        moved_grid_nrep = make_grid([im.unsqueeze(0) for im in moved_imgs], nrow=5, normalize=True)
+        imgs_to_display = [torch.stack([imgs[0], torch.zeros_like(imgs[0]), moved_imgs[0]]), torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])]
+        img_grid = make_grid(imgs_to_display, nrow=2, normalize=True)
+        moved_grid = make_grid([im.unsqueeze(0) for im in moved_imgs], nrow=5, normalize=True)
 
-        writer.add_image('imgs/comparison', img_grid_nrep, epoch, dataformats='CHW', )
-        writer.add_image('imgs/all_time', moved_grid_nrep, epoch, dataformats='CHW')
+        writer.add_image('imgs/comparison', img_grid, epoch, dataformats='CHW', )
+        writer.add_image('imgs/all_time', moved_grid, epoch, dataformats='CHW')
 
         abs_phi = abs_phi.detach().cpu()
         coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
