@@ -100,6 +100,18 @@ def prepare_inputs(config):
     if config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec']:
         imgs = torch.from_numpy(np.load(f'data/syn/{config.dataset}/{config.dataset}.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/{config.dataset}/{config.dataset}_nrep_st_dicts.pt')
+    elif config.dataset == 'test':
+        imgs = torch.from_numpy(np.load(f'data/syn/rec/rec.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load(f'data/syn/rec/rec_nrep_st_dicts.pt')
+        imgs = imgs[[0, -1]]
+        st_dicts = [st_dicts[0], st_dicts[-1]]
+        config.time_points = 2
+    elif config.dataset == 'const':
+        imgs = torch.from_numpy(np.load(f'data/syn/rec/rec.npy').transpose((2, 0, 1)))
+        st_dicts = torch.load(f'data/syn/rec/rec_nrep_st_dicts.pt')
+        imgs = imgs[[0, 0]]
+        st_dicts = [st_dicts[0], st_dicts[0]]
+        config.time_points = 2
 
     models = []
     for i in range(len(st_dicts)):
@@ -121,7 +133,7 @@ def calculate_metrics(losses, phi, data):
     metrics['losses/gradient_loss'] = losses[3]
     return metrics
 
-def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, func):
+def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, energies):
     for k, v in metrics.items():
         writer.add_scalar(k, v, epoch)
 
@@ -135,18 +147,18 @@ def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, func):
         for i in range(len(names)):
             writer.add_scalar(f'all_grads/{names[i]}', grads[i], epoch)
 
-        writer.add_scalar('phi_stats/max', phi.max(), epoch)
-        writer.add_scalar('phi_stats/min', phi.min(), epoch)
-        phi_11 = (phi == torch.tensor([1, 1], device=phi.device)).sum()
-        phi_m1m1 = (phi == torch.tensor([-1, -1], device=phi.device)).sum()
-        phi_1m1 = (phi == torch.tensor([1, -1], device=phi.device)).sum()
-        phi_m11 = (phi == torch.tensor([-1, 1], device=phi.device)).sum()
+        writer.add_scalar('phi_stats/max', abs_phi.max(), epoch)
+        writer.add_scalar('phi_stats/min', abs_phi.min(), epoch)
+        phi_11 = (abs_phi == torch.tensor([1, 1], device=abs_phi.device)).sum()
+        phi_m1m1 = (abs_phi == torch.tensor([-1, -1], device=abs_phi.device)).sum()
+        phi_1m1 = (abs_phi == torch.tensor([1, -1], device=abs_phi.device)).sum()
+        phi_m11 = (abs_phi == torch.tensor([-1, 1], device=abs_phi.device)).sum()
         phi_boundary = phi_11 + phi_m1m1 + phi_1m1 + phi_m11
-        all_phi = math.prod(list(phi.shape))
+        all_phi = math.prod(list(abs_phi.shape))
         writer.add_scalar('phi_stats/boundary_ratio', phi_boundary/all_phi, epoch)
         writer.add_scalar('phi_stats/boundary_absolute', phi_boundary, epoch)
 
-    if epoch % 1 == 0:
+    if epoch % 100 == 0 or epoch == 1:
         imgs, neural_reps = data
         imgs = imgs.detach().cpu()
 
@@ -157,22 +169,44 @@ def log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, func):
         writer.add_image('imgs/comparison', img_grid_nrep, epoch, dataformats='CHW', )
         writer.add_image('imgs/all_time', moved_grid_nrep, epoch, dataformats='CHW')
 
-        phi = phi.detach().cpu()
+        abs_phi = abs_phi.detach().cpu()
         coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
-        rel_phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
-        rel_phi = (phi - coord_tensor).reshape(rel_phi_shape).numpy()
+        phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
+        rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
         rel_flow_colors = []
-        for time in range(phi.shape[0]):
+        for time in range(abs_phi.shape[0]):
             rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
         rel_flow_grid = make_grid(rel_flow_colors, nrow=5)
+        # abs_phi = (abs_phi).reshape(phi_shape).numpy()
+        # abs_flow_colors = []
+        # for time in range(abs_phi.shape[0]):
+        #     abs_flow_colors.append(torch.from_numpy(flow_to_color(abs_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
+        # abs_flow_grid = make_grid(abs_flow_colors, nrow=5)
 
-        vel_shape = rel_phi_shape[1:]
-        vel = vel.detach().cpu().reshape(vel_shape).numpy()
-        act_velocity_color = torch.from_numpy(flow_to_color(vel, convert_to_bgr=False)).permute(2, 0, 1)
+        vel_shape = phi_shape[1:]
+        rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape).numpy()
+        rel_act_velocity_color = torch.from_numpy(flow_to_color(rel_vel, convert_to_bgr=False)).permute(2, 0, 1)
+        # abs_vel = (rel_vel + coord_tensor.reshape(vel_shape).numpy())
+        # abs_act_velocity_color = torch.from_numpy(flow_to_color(abs_vel, convert_to_bgr=False)).permute(2, 0, 1)
 
-        writer.add_image('imgs/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
-        writer.add_image('imgs/velocity', act_velocity_color, epoch, dataformats='CHW', )
+        writer.add_image('flows/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
+        # writer.add_image('flows/abs_flow_all', abs_flow_grid, epoch, dataformats='CHW', )
+        writer.add_image('flows/rel_velocity', rel_act_velocity_color, epoch, dataformats='CHW', )
+        # writer.add_image('flows/abs_velocity', abs_act_velocity_color, epoch, dataformats='CHW', )
 
+
+        sim_grid = make_grid([im for im in energies[0]], nrow=5, normalize=True)
+        negJ_grid = energies[1]
+        phi_grad_grid_x = energies[2][..., 0]
+        phi_grad_grid_y = energies[2][..., 1]
+        vel_grad_grid_x = energies[3][..., 0]
+        vel_grad_grid_y = energies[3][..., 1]
+        writer.add_image('energies/sim', sim_grid, epoch, dataformats='CHW', )
+        writer.add_image('energies/negJ', negJ_grid, epoch, dataformats='CHW', )
+        writer.add_image('energies/phi_grad_x', phi_grad_grid_x, epoch, dataformats='CHW', )
+        writer.add_image('energies/phi_grad_y', phi_grad_grid_y, epoch, dataformats='CHW', )
+        writer.add_image('energies/vel_grad_x', vel_grad_grid_x, epoch, dataformats='CHW', )
+        writer.add_image('energies/vel_grad_y', vel_grad_grid_y, epoch, dataformats='CHW', )
 
     
 def save_results(config, output):
@@ -180,5 +214,6 @@ def save_results(config, output):
     save_dict = {'phi':output[0].detach().cpu(),
                  'vel':output[1].detach().cpu(),
                  'coord_tensor':output[2].detach().cpu(),
+                 'moved_imgs':output[3].detach().cpu(),
                  'config':vars(config)}
     torch.save(save_dict, save_path)

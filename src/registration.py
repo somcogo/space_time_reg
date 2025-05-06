@@ -21,23 +21,24 @@ def registration(config, data, writer, logger:logging.Logger):
     time_points = torch.arange(config.time_points, device=config.device) * config.time_step
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
 
-    siren_st_dict = torch.load('data/gt_state_dicts/rot_slow2_x_is_zero_siren_state_dict.pt')
-    func.load_state_dict(siren_st_dict)
+    # siren_st_dict = torch.load('data/gt_state_dicts/rot_slow2_siren_state_dict_v2.pt')
+    # func.load_state_dict(siren_st_dict)
 
     best_loss = 1e8
     t7 = time.time()
     t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
+    torch.autograd.set_detect_anomaly(True)
     for epoch in range(1, config.epochs + 1):
-        func.load_state_dict(siren_st_dict)
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
         t1 = time.time()
-        phi = odeint(func, coord_tensor, time_points, method=config.solver)
-        vel = func(time_points[1], coord_tensor)
-        phi = torch.relu(phi+1) - 1
-        phi = -torch.relu(-phi+1) + 1
+        with torch.no_grad():
+            rel_vel = func(time_points[1], coord_tensor)
+        abs_phi = odeint(func, coord_tensor, time_points, method=config.solver)
+        abs_phi = torch.relu(abs_phi+1) - 1
+        abs_phi = -torch.relu(-abs_phi+1) + 1
         t2 = time.time()
-        losses, moved_imgs, energies = calculate_losses(config, phi, data, vel)
+        losses, moved_imgs, energies = calculate_losses(config, abs_phi, data, rel_vel)
         loss = sum(losses)
         t3 = time.time()
         loss.backward()
@@ -45,17 +46,17 @@ def registration(config, data, writer, logger:logging.Logger):
         optimizer.step()
         t5 = time.time()
 
-        metrics = calculate_metrics(losses, phi, data)
-        log_metrics(metrics, phi, data, writer, epoch, moved_imgs, vel, func)
+        metrics = calculate_metrics(losses, abs_phi, data)
+        log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, energies)
         t6 = time.time()
 
-        t17 += t1-t7
-        t21 += t2-t1
-        t32 += t3-t2
-        t43 += t4-t3
-        t54 += t5-t4
-        t65 += t6-t5
-        t67 += t6-t7
+        t17 = t17 + t1-t7
+        t21 = t21 + t2-t1
+        t32 = t32 + t3-t2
+        t43 = t43 + t4-t3
+        t54 = t54 + t5-t4
+        t65 = t65 + t6-t5
+        t67 = t67 + t6-t7
         if epoch == 1 or log_epoch:
             logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.3f} NegJ {losses[1]:.3f} Smooth {losses[2]:.3f} Vmag {losses[3]:.3f}, Times DL/ODE/Loss/Back/Optim/Metr/Total {t17/100:.4f} {t21/100:.4f} {t32/100:.4f} {t43/100:.4f} {t54/100:.4f} {t65/100:.4f} {t67/100:.4f}')
             t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
@@ -63,8 +64,9 @@ def registration(config, data, writer, logger:logging.Logger):
 
         if sum(losses) < best_loss:
             best_loss = sum(losses)
-            best_phi = phi
-            best_vel = vel
+            best_phi = abs_phi
+            best_vel = rel_vel
+            best_moved = moved_imgs
         t7 = time.time()
     
-    return best_phi, best_vel, coord_tensor
+    return best_phi, best_vel, coord_tensor, best_moved

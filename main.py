@@ -79,7 +79,7 @@ if __name__ == '__main__':
                         dest="siren_dim", default=256,
                         help="Hidden dimension in the siren network")
     parser.add_argument("--siren_omega", type=int,
-                        dest="siren_omega", default=32,
+                        dest="siren_omega", default=30,
                         help="Omega used in siren network")
     parser.add_argument("--loss", type=str,
                         dest="loss", default='ngf',

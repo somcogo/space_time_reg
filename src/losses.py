@@ -5,39 +5,43 @@ import torch.nn.functional as F
 from src.utils import generate_coord_tensor
 from src.normalized_gradient_field import NormalizedGradientField2d, NormalizedGradientField3d
 
-def calculate_losses(config, phi, data, vel):
+def calculate_losses(config, abs_phi, data, rel_vel):
     imgs, neural_reps = data
     imgs = imgs.to(config.device)
     neural_reps = [net.to(config.device) for net in neural_reps]
     coord_tensor = generate_coord_tensor(imgs.shape[1:], config.device)
+    rel_phi = abs_phi - coord_tensor
 
     # reshape phi from (-1, 2) to (1, x, y, z, 2)
     phi_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape)-1]
-    loss_sim, moved_imgs = similarity_loss(imgs, neural_reps, phi, config)
-    neg_Jdet_energy = neg_Jdet_loss((phi[-1]-coord_tensor).reshape(phi_shape))
+    sim_energy, moved_imgs = similarity_loss(imgs, neural_reps, abs_phi, config)
+    loss_sim = config.lambda_st * sim_energy.mean()
+
+    neg_Jdet_energy = neg_Jdet_loss(abs_phi[-1].reshape(phi_shape))
     loss_negJ = config.lambda_negJ * neg_Jdet_energy.mean()
-    phi_grad_energy = grad_loss(phi[-1].reshape(phi_shape))
+
+    phi_grad_energy = grad_loss(rel_phi[-1].reshape(phi_shape))
     loss_smt = config.lambda_smt * phi_grad_energy.mean()
 
     vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
-    vel_reshaped = vel.reshape(vel_shape).permute(2, 0, 1).unsqueeze(0)
+    vel_reshaped = rel_vel.reshape(vel_shape).unsqueeze(0)
     vel_grad_energy = grad_loss(vel_reshaped)
     loss_grd = config.lambda_grd * vel_grad_energy.mean()
 
-    return [config.lambda_st * loss_sim, loss_negJ, loss_smt, loss_grd], moved_imgs, [neg_Jdet_energy, phi_grad_energy, vel_grad_energy]
+    return [loss_sim, loss_negJ, loss_smt, loss_grd], moved_imgs, [sim_energy, neg_Jdet_energy, phi_grad_energy, vel_grad_energy]
 
-def similarity_loss(imgs, neural_reps, phi, args):
+def similarity_loss(imgs, neural_reps, abs_phi, args):
     if args.loss == 'mse':
-        loss_fn = nn.MSELoss(reduction='mean')
+        loss_fn = nn.MSELoss(reduction='none')
     elif args.loss == 'ngf':
         if imgs.dim() == 3:
-            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=1e-5, reduction='mean')
+            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=None, reduction='none')
         else:
-            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=1e-5, reduction='mean')
+            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=None, reduction='none')
     loss_fn = loss_fn.to(args.device)
     net = neural_reps[0].net
 
-    model_out = net(phi)
+    model_out = net(abs_phi)
     moved = (model_out.squeeze(2) + 1) / 2
     moved = moved.reshape(imgs.shape)
     loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
