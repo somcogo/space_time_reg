@@ -4,7 +4,7 @@ lossfn="mse"
 gpu="3"
 # depth="2"
 # dim="32"
-tp="20"
+tp="5"
 epochs="2000"
 solver="euler"
 ts="0.01"
@@ -12,8 +12,8 @@ netw="sirent"
 
 folder="sirent"
 
-comm="logreluJdet"
-lr="1e-3"
+comm="esqlogJdet"
+lr="1e-4"
 lam_negJ=1
 lam_smt=10
 lam_grd=1000

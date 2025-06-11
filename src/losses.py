@@ -160,11 +160,16 @@ def JacboianDet(phi):
 
 def neg_Jdet_loss(J):
     Jdet = JacboianDet(J)
-    neg_Jdet = -1.0 * Jdet
-    neg_Jdet = F.relu(neg_Jdet) + 0.1
-    selected_neg_Jdet = torch.log(neg_Jdet)
-    # minus_log_Jdet = - torch.log(Jdet)
-    return selected_neg_Jdet
+    # neg_Jdet = -1.0 * Jdet
+    # neg_Jdet = F.relu(neg_Jdet) + 0.1
+    # out = torch.log(neg_Jdet)
+
+    # out = - torch.log(Jdet)
+
+    out = torch.exp( torch.log(Jdet) ** 2) - 1
+    out = torch.abs(out).sum()
+
+    return out
 
 def grad_loss(f):
     if len(f.shape) == 5:
