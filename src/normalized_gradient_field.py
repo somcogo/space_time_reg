@@ -346,6 +346,7 @@ class NormalizedGradientField2d(_Loss):
         if self.eps is None:
             with torch.no_grad():
                 self.eps = torch.mean(torch.abs(tar_grad_u) + torch.abs(tar_grad_v))
+        # print(self.eps, torch.abs(tar_grad_u)[torch.abs(tar_grad_u)<0.5].mean(), torch.abs(tar_grad_v)[torch.abs(tar_grad_v)<0.5].mean())
 
         # gradient norm
         src_grad_norm = src_grad_u ** 2 + src_grad_v ** 2 + self.eps ** 2

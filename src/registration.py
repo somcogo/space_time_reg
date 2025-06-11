@@ -33,10 +33,16 @@ def registration(config, data, writer, logger:logging.Logger):
         optimizer.zero_grad()
         t1 = time.time()
         with torch.no_grad():
-            rel_vel = func(time_points[1], coord_tensor)
+            if config.func_name == 'siren':
+                rel_vel = func(time_points[1], coord_tensor).unsqueeze(0)
+            elif config.func_name == 'sirent':
+                rel_vel = []
+                for t in time_points:
+                    rel_vel.append(func(t, coord_tensor))
+                rel_vel = torch.stack(rel_vel)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver)
-        abs_phi = torch.relu(abs_phi+1) - 1
-        abs_phi = -torch.relu(-abs_phi+1) + 1
+        # abs_phi = torch.relu(abs_phi+1) - 1
+        # abs_phi = -torch.relu(-abs_phi+1) + 1
         t2 = time.time()
         losses, moved_imgs, energies = calculate_losses(config, abs_phi, data, rel_vel)
         loss = sum(losses)
@@ -62,8 +68,8 @@ def registration(config, data, writer, logger:logging.Logger):
             t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
         
 
-        if sum(losses) < best_loss:
-            best_loss = sum(losses)
+        if losses[0] < best_loss:
+            best_loss = losses[0]
             best_phi = abs_phi
             best_vel = rel_vel
             best_moved = moved_imgs

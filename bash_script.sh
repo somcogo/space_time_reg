@@ -1,26 +1,26 @@
 #!/bin/bash
-dset="test"
-lossfn="ngf"
-gpu="0"
-depth="0"
-dim="32"
-# lr="1e-5"
+dset="easy"
+lossfn="mse"
+gpu="3"
+# depth="2"
+# dim="32"
 tp="20"
 epochs="2000"
 solver="euler"
-ts="0.1"
+ts="0.01"
+netw="sirent"
 
-comm="ngf_test_small_net_nom_eps"
-for lr in "1e-1"
+folder="sirent"
+
+comm="logreluJdet"
+lr="1e-3"
+lam_negJ=1
+lam_smt=10
+lam_grd=1000
+for dim in 64
 do
-    for lam_negJ in 0
+    for depth in 3
     do
-        for lam_smt in 0
-        do
-            for lam_grd in 0
-            do
-                python main.py --epochs=$epochs --exp_name="after_ngf_fix/${comm}_${dset}_lr${lr}_negJ${lam_negJ}_smt${lam_smt}_grd${lam_grd}_dep${depth}_dim${dim}_tp_${tp}_e${epochs}_${solver}_ts${ts}"  --log_cadence=500 --lr=$lr --dataset=$dset --time_step=$ts --loss=$lossfn --lambda_negJ=$lam_negJ --lambda_smt=$lam_smt --lambda_grd=$lam_grd --gpu_number=$gpu --siren_depth=$depth --siren_dim=$dim --time_points=$tp --solver=$solver
-            done
-        done
+        python main.py --epochs=$epochs --exp_name="${folder}/${comm}-${dset}-lr${lr}-negJ${lam_negJ}-smt${lam_smt}-grd${lam_grd}-dep${depth}-dim${dim}-tp_${tp}-e${epochs}-${solver}-ts${ts}-${netw}"  --log_cadence=500 --lr=$lr --dataset=$dset --time_step=$ts --loss=$lossfn --lambda_negJ=$lam_negJ --lambda_smt=$lam_smt --lambda_grd=$lam_grd --gpu_number=$gpu --siren_depth=$depth --siren_dim=$dim --time_points=$tp --solver=$solver --func_name=$netw
     done
 done

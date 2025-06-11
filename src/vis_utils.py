@@ -130,20 +130,20 @@ def create_syn_data(file_name, case):
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     np.save(file_name, recs+tris+cirs)
 
-def get_imgs_from_tensorboard(event_path, out_size, step_cadence, img_tag):
+def get_imgs_from_tensorboard(event_path, epoch, img_tag):
     image_str = tf.placeholder(tf.string)
     im_tf = tf.image.decode_image(image_str)
 
     sess = tf.InteractiveSession()
-    tf_ims = []
     with sess.as_default():
         for e in tf.train.summary_iterator(event_path):
-            if e.step % step_cadence == 0:
+            if e.step == epoch:
                 for v in e.summary.value:
                     if v.tag == img_tag:
                         im = im_tf.eval({image_str: v.image.encoded_image_string})
-                        tf_ims.append(im)
+                        tf_im = im
     sess.close()
+    return tf_im
 
 def fit_INR(data, device):
     # data shape (C, H, W) or (C, H, W, D)

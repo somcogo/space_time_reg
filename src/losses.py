@@ -23,8 +23,8 @@ def calculate_losses(config, abs_phi, data, rel_vel):
     phi_grad_energy = grad_loss(rel_phi[-1].reshape(phi_shape))
     loss_smt = config.lambda_smt * phi_grad_energy.mean()
 
-    vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
-    vel_reshaped = rel_vel.reshape(vel_shape).unsqueeze(0)
+    vel_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape) - 1]
+    vel_reshaped = rel_vel.reshape(vel_shape)
     vel_grad_energy = grad_loss(vel_reshaped)
     loss_grd = config.lambda_grd * vel_grad_energy.mean()
 
@@ -35,9 +35,9 @@ def similarity_loss(imgs, neural_reps, abs_phi, args):
         loss_fn = nn.MSELoss(reduction='none')
     elif args.loss == 'ngf':
         if imgs.dim() == 3:
-            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=None, reduction='none')
+            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=1e-6, reduction='none')
         else:
-            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=None, reduction='none')
+            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=1e-6, reduction='none')
     loss_fn = loss_fn.to(args.device)
     net = neural_reps[0].net
 
@@ -142,8 +142,8 @@ class NCC(torch.nn.Module):
 
 def JacboianDet(phi):
     if len(phi.shape) == 4:
-        dx = phi[:, 1:, 1:, :] - phi[:, :-1, 1:, :]
-        dy = phi[:, 1:, 1:, :] - phi[:, 1:, :-1, :]
+        dx = phi[:, 1:, :-1, :] - phi[:, :-1, :-1, :]
+        dy = phi[:, :-1, 1:, :] - phi[:, :-1, :-1, :]
 
         det = dx[:, :, :, 0] * dy[:, :, :, 1] - dx[:, :, :, 1] * dy[:, :, :, 0]
     else:
@@ -161,8 +161,10 @@ def JacboianDet(phi):
 def neg_Jdet_loss(J):
     Jdet = JacboianDet(J)
     neg_Jdet = -1.0 * Jdet
-    selected_neg_Jdet = F.relu(neg_Jdet)
-    return selected_neg_Jdet ** 2
+    neg_Jdet = F.relu(neg_Jdet) + 0.1
+    selected_neg_Jdet = torch.log(neg_Jdet)
+    # minus_log_Jdet = - torch.log(Jdet)
+    return selected_neg_Jdet
 
 def grad_loss(f):
     if len(f.shape) == 5:

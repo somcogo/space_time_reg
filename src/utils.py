@@ -167,9 +167,9 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         imgs, neural_reps = data
         imgs = imgs.detach().cpu()
 
-        imgs_to_display = [torch.stack([imgs[0], torch.zeros_like(imgs[0]), moved_imgs[0]]), torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])]
+        imgs_to_display = [torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])]
         img_grid = make_grid(imgs_to_display, nrow=2, normalize=True)
-        moved_grid = make_grid([im.unsqueeze(0) for im in moved_imgs], nrow=5, normalize=True)
+        moved_grid = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
 
         writer.add_image('imgs/comparison', img_grid, epoch, dataformats='CHW', )
         writer.add_image('imgs/all_time', moved_grid, epoch, dataformats='CHW')
@@ -188,15 +188,18 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         #     abs_flow_colors.append(torch.from_numpy(flow_to_color(abs_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
         # abs_flow_grid = make_grid(abs_flow_colors, nrow=5)
 
-        vel_shape = phi_shape[1:]
+        vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
         rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape).numpy()
-        rel_act_velocity_color = torch.from_numpy(flow_to_color(rel_vel, convert_to_bgr=False)).permute(2, 0, 1)
+        rel_act_velocity_color = []
+        for time in range(rel_vel.shape[0]):
+            rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time], convert_to_bgr=False)).permute(2, 0, 1))
+        rel_vel_grid = make_grid(rel_act_velocity_color, nrow=5)
         # abs_vel = (rel_vel + coord_tensor.reshape(vel_shape).numpy())
         # abs_act_velocity_color = torch.from_numpy(flow_to_color(abs_vel, convert_to_bgr=False)).permute(2, 0, 1)
 
         writer.add_image('flows/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
         # writer.add_image('flows/abs_flow_all', abs_flow_grid, epoch, dataformats='CHW', )
-        writer.add_image('flows/rel_velocity', rel_act_velocity_color, epoch, dataformats='CHW', )
+        writer.add_image('flows/rel_velocity', rel_vel_grid, epoch, dataformats='CHW', )
         # writer.add_image('flows/abs_velocity', abs_act_velocity_color, epoch, dataformats='CHW', )
 
 
@@ -204,8 +207,11 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         negJ_grid = energies[1]
         phi_grad_grid_x = energies[2][..., 0]
         phi_grad_grid_y = energies[2][..., 1]
-        vel_grad_grid_x = energies[3][..., 0]
-        vel_grad_grid_y = energies[3][..., 1]
+        vel_grad_grid_x = energies[3][1:2, ..., 0]
+        vel_grad_grid_y = energies[3][1:2, ..., 1]
+        # vel_grad_grid_x = vel_grad_grid_x[1]
+        # vel_grad_grid_y = vel_grad_grid_y[1]
+        # print(vel_grad_grid_x.shape, vel_grad_grid_y.shape)
         writer.add_image('energies/sim', sim_grid, epoch, dataformats='CHW', )
         writer.add_image('energies/negJ', negJ_grid, epoch, dataformats='CHW', )
         writer.add_image('energies/phi_grad_x', phi_grad_grid_x, epoch, dataformats='CHW', )

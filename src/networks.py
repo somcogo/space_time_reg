@@ -302,5 +302,7 @@ def get_func(func_name, network_kwargs):
         func = BrainNet(**network_kwargs)
     elif func_name == 'siren':
         func = Siren(**network_kwargs)
+    elif func_name == 'sirent':
+        func = SirenT(**network_kwargs)
 
     return func
