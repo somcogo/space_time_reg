@@ -129,8 +129,8 @@ def calculate_metrics(losses, phi, data):
     metrics['losses/total_loss'] = sum(losses)
     metrics['losses/sim_loss'] = losses[0]
     metrics['losses/negJ_loss'] = losses[1]
-    metrics['losses/smooth_loss'] = losses[2]
-    metrics['losses/gradient_loss'] = losses[3]
+    # metrics['losses/smooth_loss'] = losses[2]
+    metrics['losses/gradient_loss'] = losses[2]
     return metrics
 
 def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, energies):
@@ -189,35 +189,39 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         # abs_flow_grid = make_grid(abs_flow_colors, nrow=5)
 
         vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
-        rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape).numpy()
+        rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
         rel_act_velocity_color = []
+        rel_vel_norm = []
         for time in range(rel_vel.shape[0]):
-            rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time], convert_to_bgr=False)).permute(2, 0, 1))
+            rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
+            rel_vel_norm.append(torch.linalg.norm(rel_vel[time], ord=2, dim=-1).unsqueeze(0))
         rel_vel_grid = make_grid(rel_act_velocity_color, nrow=5)
+        rel_vel_norm_grid = make_grid(rel_vel_norm, nrow=5, value_range=(0, 2))
         # abs_vel = (rel_vel + coord_tensor.reshape(vel_shape).numpy())
         # abs_act_velocity_color = torch.from_numpy(flow_to_color(abs_vel, convert_to_bgr=False)).permute(2, 0, 1)
 
         writer.add_image('flows/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
         # writer.add_image('flows/abs_flow_all', abs_flow_grid, epoch, dataformats='CHW', )
         writer.add_image('flows/rel_velocity', rel_vel_grid, epoch, dataformats='CHW', )
+        writer.add_image('flows/rel_vel_norm', rel_vel_norm_grid, epoch, dataformats='CHW', )
         # writer.add_image('flows/abs_velocity', abs_act_velocity_color, epoch, dataformats='CHW', )
 
 
-        sim_grid = make_grid([im for im in energies[0]], nrow=5, normalize=True)
-        negJ_grid = energies[1]
-        phi_grad_grid_x = energies[2][..., 0]
-        phi_grad_grid_y = energies[2][..., 1]
-        vel_grad_grid_x = energies[3][1:2, ..., 0]
-        vel_grad_grid_y = energies[3][1:2, ..., 1]
+        sim_grid = make_grid([im for im in energies], nrow=5, normalize=True)
+        # negJ_grid = energies[1]
+        # phi_grad_grid_x = energies[2][..., 0]
+        # phi_grad_grid_y = energies[2][..., 1]
+        # vel_grad_grid_x = energies[3][1:2, ..., 0]
+        # vel_grad_grid_y = energies[3][1:2, ..., 1]
         # vel_grad_grid_x = vel_grad_grid_x[1]
         # vel_grad_grid_y = vel_grad_grid_y[1]
         # print(vel_grad_grid_x.shape, vel_grad_grid_y.shape)
         writer.add_image('energies/sim', sim_grid, epoch, dataformats='CHW', )
-        writer.add_image('energies/negJ', negJ_grid, epoch, dataformats='CHW', )
-        writer.add_image('energies/phi_grad_x', phi_grad_grid_x, epoch, dataformats='CHW', )
-        writer.add_image('energies/phi_grad_y', phi_grad_grid_y, epoch, dataformats='CHW', )
-        writer.add_image('energies/vel_grad_x', vel_grad_grid_x, epoch, dataformats='CHW', )
-        writer.add_image('energies/vel_grad_y', vel_grad_grid_y, epoch, dataformats='CHW', )
+        # writer.add_image('energies/negJ', negJ_grid, epoch, dataformats='CHW', )
+        # writer.add_image('energies/phi_grad_x', phi_grad_grid_x, epoch, dataformats='CHW', )
+        # writer.add_image('energies/phi_grad_y', phi_grad_grid_y, epoch, dataformats='CHW', )
+        # writer.add_image('energies/vel_grad_x', vel_grad_grid_x, epoch, dataformats='CHW', )
+        # writer.add_image('energies/vel_grad_y', vel_grad_grid_y, epoch, dataformats='CHW', )
 
     
 def save_results(config, output):

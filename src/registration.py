@@ -44,7 +44,7 @@ def registration(config, data, writer, logger:logging.Logger):
         # abs_phi = torch.relu(abs_phi+1) - 1
         # abs_phi = -torch.relu(-abs_phi+1) + 1
         t2 = time.time()
-        losses, moved_imgs, energies = calculate_losses(config, abs_phi, data, rel_vel)
+        losses, moved_imgs, sim_energy = calculate_losses(config, abs_phi, data, rel_vel, func, time_points)
         loss = sum(losses)
         t3 = time.time()
         loss.backward()
@@ -53,7 +53,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t5 = time.time()
 
         metrics = calculate_metrics(losses, abs_phi, data)
-        log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, energies)
+        log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, sim_energy)
         t6 = time.time()
 
         t17 = t17 + t1-t7
@@ -64,7 +64,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t65 = t65 + t6-t5
         t67 = t67 + t6-t7
         if epoch == 1 or log_epoch:
-            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.3f} NegJ {losses[1]:.3f} Smooth {losses[2]:.3f} Vmag {losses[3]:.3f}, Times DL/ODE/Loss/Back/Optim/Metr/Total {t17/100:.4f} {t21/100:.4f} {t32/100:.4f} {t43/100:.4f} {t54/100:.4f} {t65/100:.4f} {t67/100:.4f}')
+            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.3f} NegJ {losses[1]:.3f} Vmag {losses[2]:.3f}, Times DL/ODE/Loss/Back/Optim/Metr/Total {t17/100:.4f} {t21/100:.4f} {t32/100:.4f} {t43/100:.4f} {t54/100:.4f} {t65/100:.4f} {t67/100:.4f}')
             t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
         
 
