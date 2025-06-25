@@ -18,7 +18,7 @@ def registration(config, data, writer, logger:logging.Logger):
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
     coord_tensor = generate_coord_tensor(img_shape, config.device)
-    time_points = torch.arange(config.time_points, device=config.device) * config.time_step
+    time_points = torch.arange(config.time_points, device=config.device) / 19
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
 
     # siren_st_dict = torch.load('data/gt_state_dicts/rot_slow2_siren_state_dict_v2.pt')
@@ -32,19 +32,18 @@ def registration(config, data, writer, logger:logging.Logger):
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
         t1 = time.time()
-        with torch.no_grad():
-            if config.func_name == 'siren':
-                rel_vel = func(time_points[1], coord_tensor).unsqueeze(0)
-            elif config.func_name == 'sirent':
-                rel_vel = []
-                for t in time_points:
-                    rel_vel.append(func(t, coord_tensor))
-                rel_vel = torch.stack(rel_vel)
-        abs_phi = odeint(func, coord_tensor, time_points, method=config.solver)
+        if config.func_name == 'siren':
+            rel_vel = func(time_points[1], coord_tensor).unsqueeze(0)
+        elif config.func_name == 'sirent':
+            rel_vel = []
+            for t in time_points:
+                rel_vel.append(func(t, coord_tensor))
+            rel_vel = torch.stack(rel_vel)
+        abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
         # abs_phi = torch.relu(abs_phi+1) - 1
         # abs_phi = -torch.relu(-abs_phi+1) + 1
         t2 = time.time()
-        losses, moved_imgs, sim_energy = calculate_losses(config, abs_phi, data, rel_vel, func, time_points)
+        losses, moved_imgs, visuals = calculate_losses(config, abs_phi, data, rel_vel, func, time_points)
         loss = sum(losses)
         t3 = time.time()
         loss.backward()
@@ -53,7 +52,7 @@ def registration(config, data, writer, logger:logging.Logger):
         t5 = time.time()
 
         metrics = calculate_metrics(losses, abs_phi, data)
-        log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, sim_energy)
+        imgs_to_save = log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, visuals)
         t6 = time.time()
 
         t17 = t17 + t1-t7
@@ -73,6 +72,7 @@ def registration(config, data, writer, logger:logging.Logger):
             best_phi = abs_phi
             best_vel = rel_vel
             best_moved = moved_imgs
+            best_st_dict = func.state_dict()
         t7 = time.time()
     
-    return best_phi, best_vel, coord_tensor, best_moved
+    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, imgs_to_save

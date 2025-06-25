@@ -2,6 +2,7 @@ from functools import partial
 import logging
 import os
 import math
+import io
 
 from PIL import Image
 import torch
@@ -10,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import make_grid
 import numpy as np
 from flow_vis import flow_to_color
+import matplotlib.pyplot as plt
 
 from src.siren import training, dataio, modules, loss_functions
 
@@ -163,7 +165,7 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         writer.add_scalar('vel_stats/rel_min', rel_vel.min(), epoch)
         writer.add_scalar('vel_stats/rel_mean', rel_vel.mean(), epoch)
 
-    if epoch % 100 == 0 or epoch == 1:
+    if epoch % 25 == 0 or epoch == 1:
         imgs, neural_reps = data
         imgs = imgs.detach().cpu()
 
@@ -182,11 +184,6 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         for time in range(abs_phi.shape[0]):
             rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
         rel_flow_grid = make_grid(rel_flow_colors, nrow=5)
-        # abs_phi = (abs_phi).reshape(phi_shape).numpy()
-        # abs_flow_colors = []
-        # for time in range(abs_phi.shape[0]):
-        #     abs_flow_colors.append(torch.from_numpy(flow_to_color(abs_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
-        # abs_flow_grid = make_grid(abs_flow_colors, nrow=5)
 
         vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
         rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
@@ -197,31 +194,56 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
             rel_vel_norm.append(torch.linalg.norm(rel_vel[time], ord=2, dim=-1).unsqueeze(0))
         rel_vel_grid = make_grid(rel_act_velocity_color, nrow=5)
         rel_vel_norm_grid = make_grid(rel_vel_norm, nrow=5, value_range=(0, 2))
-        # abs_vel = (rel_vel + coord_tensor.reshape(vel_shape).numpy())
-        # abs_act_velocity_color = torch.from_numpy(flow_to_color(abs_vel, convert_to_bgr=False)).permute(2, 0, 1)
 
         writer.add_image('flows/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
-        # writer.add_image('flows/abs_flow_all', abs_flow_grid, epoch, dataformats='CHW', )
         writer.add_image('flows/rel_velocity', rel_vel_grid, epoch, dataformats='CHW', )
         writer.add_image('flows/rel_vel_norm', rel_vel_norm_grid, epoch, dataformats='CHW', )
-        # writer.add_image('flows/abs_velocity', abs_act_velocity_color, epoch, dataformats='CHW', )
 
 
-        sim_grid = make_grid([im for im in energies], nrow=5, normalize=True)
-        # negJ_grid = energies[1]
-        # phi_grad_grid_x = energies[2][..., 0]
-        # phi_grad_grid_y = energies[2][..., 1]
-        # vel_grad_grid_x = energies[3][1:2, ..., 0]
-        # vel_grad_grid_y = energies[3][1:2, ..., 1]
-        # vel_grad_grid_x = vel_grad_grid_x[1]
-        # vel_grad_grid_y = vel_grad_grid_y[1]
-        # print(vel_grad_grid_x.shape, vel_grad_grid_y.shape)
+        sim_grid = make_grid([im for im in energies[0]], nrow=5, normalize=True)
+
+        fin_J_det = torch.det(energies[1])
+        pos_fin_J = torch.relu(fin_J_det)
+        neg_fin_J = torch.relu(-fin_J_det)
+        rgb_fin_J = [torch.stack([p, torch.zeros_like(p), n]) for p, n in zip(pos_fin_J, neg_fin_J)]
+        fin_J_det_grid = make_grid(rgb_fin_J, nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
+        fin_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).unsqueeze(0) for im in energies[1]], nrow=5, normalize=True, value_range=(0, 0.1))
+
+        if len(energies[2].shape) < 4:
+            energies[2] = energies[2].unsqueeze(0)
+        energies[2] = energies[2] / abs_phi.shape[0]
+        auto_J_det = torch.det(energies[2])
+        pos_auto_J = torch.relu(auto_J_det)
+        neg_auto_J = torch.relu(-auto_J_det)
+        rgb_auto_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_J, neg_auto_J)]
+        auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.1))
+        auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 1))
+
         writer.add_image('energies/sim', sim_grid, epoch, dataformats='CHW', )
-        # writer.add_image('energies/negJ', negJ_grid, epoch, dataformats='CHW', )
-        # writer.add_image('energies/phi_grad_x', phi_grad_grid_x, epoch, dataformats='CHW', )
-        # writer.add_image('energies/phi_grad_y', phi_grad_grid_y, epoch, dataformats='CHW', )
-        # writer.add_image('energies/vel_grad_x', vel_grad_grid_x, epoch, dataformats='CHW', )
-        # writer.add_image('energies/vel_grad_y', vel_grad_grid_y, epoch, dataformats='CHW', )
+        writer.add_image('J_det/fin_diff', fin_J_det_grid, epoch, dataformats='CHW', )
+        writer.add_image('J_det/auto_grad', auto_J_det_grid, epoch, dataformats='CHW', )
+        writer.add_image('grad_norm/fin_diff', fin_grad_norm, epoch, dataformats='CHW', )
+        writer.add_image('grad_norm/auto_grad', auto_grad_norm, epoch, dataformats='CHW', )
+
+        phi = abs_phi.reshape(phi_shape)[-1]
+        fig, ax = plt.subplots()
+        for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/64)):
+            ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
+        for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/64)):
+            ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
+        ax.axis('off')
+        ax.set_aspect('equal')
+        fig.tight_layout()
+        
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png')
+        buf.seek(0)
+        image = Image.open(buf)
+        np_image = np.array(image).transpose(2, 0, 1)
+        writer.add_image('grid_deform/last_step', np_image, epoch, dataformats='CHW', )
+        plt.close(fig)
+
+        return [img_grid, moved_grid, rel_flow_grid, rel_vel_grid, rel_vel_norm_grid, sim_grid.cpu(), fin_J_det_grid.cpu(), auto_J_det_grid.cpu(), fin_grad_norm.cpu(), auto_grad_norm.cpu(), torch.from_numpy(np_image)]
 
     
 def save_results(config, output):
@@ -230,5 +252,21 @@ def save_results(config, output):
                  'vel':output[1].detach().cpu(),
                  'coord_tensor':output[2].detach().cpu(),
                  'moved_imgs':output[3].detach().cpu(),
+                 'st_dict':output[4],
+                 'images':output[5],
                  'config':vars(config)}
+    one_img, all_imgs, flow, vel_col, vel_norm, sim_loss, fin_J_det, auto_J_det, fin_grad_norm, auto_grad_norm, grid_def = output[5]
+    img_dict = os.path.join(config.log_path, 'imgs')
+    os.makedirs(img_dict, exist_ok=True)
+    Image.fromarray((one_img*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'reg_last.png'))
+    Image.fromarray((all_imgs*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'reg_all.png'))
+    Image.fromarray(flow.numpy().transpose(1, 2, 0)).save(os.path.join(img_dict, 'flow.png'))
+    Image.fromarray(vel_col.numpy().transpose(1, 2, 0)).save(os.path.join(img_dict, 'vel_col.png'))
+    Image.fromarray((vel_norm*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'vel_norm.png'))
+    Image.fromarray((sim_loss*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'sim_loss.png'))
+    Image.fromarray((fin_J_det*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'fin_J_det.png'))
+    Image.fromarray((auto_J_det*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'auto_J_det.png'))
+    Image.fromarray((fin_grad_norm*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'fin_grad_norm.png'))
+    Image.fromarray((auto_grad_norm*255).numpy().astype(np.uint8).transpose(1, 2, 0)).save(os.path.join(img_dict, 'auto_grad_norm.png'))
+    Image.fromarray(grid_def.numpy().transpose(1, 2, 0)).save(os.path.join(img_dict, 'grid_def.png'))
     torch.save(save_dict, save_path)

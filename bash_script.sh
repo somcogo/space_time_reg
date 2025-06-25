@@ -1,24 +1,35 @@
 #!/bin/bash
-dset="easy"
 lossfn="mse"
-gpu="3"
 depth="3"
 dim="64"
-tp="5"
-epochs="2000"
+epochs="500"
+tp="20"
+ts=0
+
+dset="rot_slow2"
+gpu="4"
 solver="euler"
-ts="0.01"
-netw="siren"
+netw="sirent"
 
-folder="autograd"
+folder="sirent_vis_circle"
+comm="euler_autograd_v2_grid"
 
-comm="siren_logreluJdet_oldreg"
 lr="1e-4"
-lam_negJ=1
+lam_negJ=1e-2
 lam_smt=0
-# lam_grd=100
+lam_grd=1e-5
 lam_sim=1
-for lam_grd in 1 1e2 1e4 1e6 1e8
+
+atol=1e-8
+rtol=1e-6
+
+seed="0"
+fin_diff_grad=no-
+use_grid=
+autograd_grid=
+
+
+for lr in 1e-4 1e-3
 do
-    python main.py --epochs=$epochs --exp_name="${folder}/${comm}-${dset}-lr${lr}-negJ${lam_negJ}-smt${lam_smt}-grd${lam_grd}-sim${lam_sim}-dep${depth}-dim${dim}-tp_${tp}-e${epochs}-${solver}-ts${ts}-${netw}"  --log_cadence=500 --lr=$lr --dataset=$dset --time_step=$ts --loss=$lossfn --lambda_negJ=$lam_negJ --lambda_smt=$lam_smt --lambda_grd=$lam_grd --lambda_st=$lam_sim --gpu_number=$gpu --siren_depth=$depth --siren_dim=$dim --time_points=$tp --solver=$solver --func_name=$netw
+        python main.py --epochs=$epochs --exp_name="${folder}/${comm}-${dset}-lr${lr}-negJ${lam_negJ}-smt${lam_smt}-grd${lam_grd}-sim${lam_sim}-dep${depth}-dim${dim}-tp_${tp}-e${epochs}-${solver}-ts${ts}-${netw}-${fin_diff_grad}findif-${autograd_grid}aggrid-${use_grid}grid-rtol${rtol}-atol${atol}"  --log_cadence=50 --lr=$lr --dataset=$dset --loss=$lossfn --lambda_negJ=$lam_negJ --lambda_smt=$lam_smt --lambda_grd=$lam_grd --lambda_st=$lam_sim --gpu_number=$gpu --siren_depth=$depth --siren_dim=$dim --time_points=$tp --solver=$solver --func_name=$netw --seed=$seed --rtol=$rtol --atol=$atol --${fin_diff_grad}fin_diff_grad --${use_grid}use_grid --${autograd_grid}autograd_grid --step_size=$ts
 done
