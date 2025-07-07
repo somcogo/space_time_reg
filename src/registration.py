@@ -18,16 +18,14 @@ def registration(config, data, writer, logger:logging.Logger):
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
     coord_tensor = generate_coord_tensor(img_shape, config.device)
+    coord_tensor.requires_grad = True
     time_points = torch.arange(config.time_points, device=config.device) / 19
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
-
-    # siren_st_dict = torch.load('data/gt_state_dicts/rot_slow2_siren_state_dict_v2.pt')
-    # func.load_state_dict(siren_st_dict)
 
     best_loss = 1e8
     t7 = time.time()
     t17, t21, t32, t43, t54, t65, t67 = 0., 0., 0., 0., 0., 0., 0.
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
     for epoch in range(1, config.epochs + 1):
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
@@ -43,7 +41,7 @@ def registration(config, data, writer, logger:logging.Logger):
         # abs_phi = torch.relu(abs_phi+1) - 1
         # abs_phi = -torch.relu(-abs_phi+1) + 1
         t2 = time.time()
-        losses, moved_imgs, visuals = calculate_losses(config, abs_phi, data, rel_vel, func, time_points)
+        losses, moved_imgs, visuals = calculate_losses(config, abs_phi, data, rel_vel, func, time_points, coord_tensor)
         loss = sum(losses)
         t3 = time.time()
         loss.backward()

@@ -133,6 +133,8 @@ def calculate_metrics(losses, phi, data):
     metrics['losses/negJ_loss'] = losses[1]
     # metrics['losses/smooth_loss'] = losses[2]
     metrics['losses/gradient_loss'] = losses[2]
+    metrics['losses/laplacian_loss'] = losses[3]
+    metrics['losses/phi_grad_loss'] = losses[4]
     return metrics
 
 def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func, energies):
@@ -216,8 +218,8 @@ def log_metrics(metrics, abs_phi, data, writer, epoch, moved_imgs, rel_vel, func
         pos_auto_J = torch.relu(auto_J_det)
         neg_auto_J = torch.relu(-auto_J_det)
         rgb_auto_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_J, neg_auto_J)]
-        auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.1))
-        auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 1))
+        auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.005))
+        auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 0.5))
 
         writer.add_image('energies/sim', sim_grid, epoch, dataformats='CHW', )
         writer.add_image('J_det/fin_diff', fin_J_det_grid, epoch, dataformats='CHW', )

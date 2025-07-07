@@ -52,6 +52,7 @@ if __name__ == '__main__':
     parser.add_argument("--log_cadence", type=int,
                         dest="log_cadence", default=10,
                         help="how ofter on log loss")
+    
     parser.add_argument("--lambda_negJ", type=float,
                         dest="lambda_negJ", default=0.1,
                         help="loss weight for neg J")
@@ -67,6 +68,13 @@ if __name__ == '__main__':
     parser.add_argument("--lambda_grd", type=float,
                         dest="lambda_grd", default=1,
                         help="loss weight for velocity gradient L2 norm")
+    parser.add_argument("--lambda_lap", type=float,
+                        dest="lambda_lap", default=1,
+                        help="loss weight for velocity laplacian L2 norm")
+    parser.add_argument("--lambda_pgr", type=float,
+                        dest="lambda_pgr", default=1,
+                        help="loss weight for flow gradient L2 norm")
+    
     parser.add_argument("--use_nreps", action=argparse.BooleanOptionalAction,
                         dest="use_nreps", default=True,
                         help="Whether to use neural representations to calculate the similarity losses")
@@ -111,7 +119,6 @@ if __name__ == '__main__':
                         help="Relative tolerance for the ODE solver")
     
     config = parser.parse_args()
-    print(config)
 
     torch.manual_seed(config.seed)
     random.seed(config.seed + 1)
