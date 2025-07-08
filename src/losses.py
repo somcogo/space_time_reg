@@ -98,8 +98,8 @@ def fin_diff_Jacobian(f):
     return J
 
 def fin_Laplacian_from_Jac(J):
-    ddxys = torch.stack([fin_diff_gradient(J[..., i, :], i) for i in range(J.shape[-1])], dim=-2)
-    return ddxys.sum(dim=-1)
+    lap = sum([fin_diff_gradient(J[..., i], i) for i in range(J.shape[-1])])
+    return lap
 
 def fin_diff_gradient(f, axis):
     dims = len(f.shape) - 2
