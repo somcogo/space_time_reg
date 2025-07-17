@@ -109,7 +109,7 @@ if __name__ == '__main__':
                         dest="use_grid", default=True,
                         help="Use grid to evaluate the similarity loss. If False, use random points")
     parser.add_argument("--autograd_grid", action=argparse.BooleanOptionalAction,
-                        dest="autograd_grid", default=False,
+                        dest="autograd_grid", default=True,
                         help="Use grid to evaluate the grad loss. If False, use random points. Only for autograd")
     parser.add_argument("--atol", type=float,
                         dest="atol", default=1e-9,
@@ -117,6 +117,9 @@ if __name__ == '__main__':
     parser.add_argument("--rtol", type=float,
                         dest="rtol", default=1e-7,
                         help="Relative tolerance for the ODE solver")
+    parser.add_argument("--debug", action=argparse.BooleanOptionalAction,
+                        dest="debug", default=False,
+                        help="Use debug mode. Increases runtime significantly")
     
     config = parser.parse_args()
 
@@ -135,10 +138,13 @@ if __name__ == '__main__':
                        'ds':2,
                        'bs':16,
                        'use_t':config.use_t}
-    else:
+    elif config.func_name in ['siren', 'sirent']:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega}
+    elif config.func_name in ['wire', 'wiret']:
+        func_kwargs = {'hidden_features':config.siren_dim,
+                       'hidden_layers':config.siren_depth}
     config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
