@@ -1,6 +1,6 @@
 import logging
 import time
-import math
+import copy
 
 import numpy as np
 import torch
@@ -14,7 +14,7 @@ from src.siren.dataio import get_mgrid
 def registration(config, data, writer, logger:logging.Logger):
     img_shape = data[0].shape[1:]
     dims = len(img_shape)
-    if config.func_name in ['siren', 'sirent']:
+    if 'siren' in config.func_name:
         config.func_kwargs['layers'][0] = dims
         config.func_kwargs['layers'][-1] = dims
     elif config.func_name in ['wire', 'wiret']:
@@ -41,7 +41,7 @@ def registration(config, data, writer, logger:logging.Logger):
             rel_vel = func(time_points[1], coord_tensor)
             if config.func_name == 'siren' and config.debug:
                 rel_vel = rel_vel.unsqueeze(0)
-            elif config.func_name == 'sirent':
+            elif config.func_name == 'sirent' or config.func_name == 'sirenlatet':
                 if config.debug:
                     rel_vel = []
                     for t in time_points:
@@ -92,6 +92,14 @@ def registration(config, data, writer, logger:logging.Logger):
 
         if epoch < config.epochs:
             time_stamps[6, epoch] = time.time()
+
+    # Log images even if not in debug mode
+    if not config.debug:
+        with torch.no_grad():
+            best_func = copy.deepcopy(func).load_state_dict(best_st_dict)
+            losses, moved_imgs, visuals, loss_time, losses_to_log = calculate_losses(config, best_phi, data, best_vel, best_func, time_points, coord_tensor)
+            metrics, imgs_to_save = calculate_metrics(losses, config, best_phi, best_vel, data, moved_imgs, best_func, visuals, True, True)
+            log_metrics(config, metrics, writer, epoch + 1, losses_to_log, imgs_to_save, True)
 
     logger.info('-------------------------------------------------')
     logger.info(f'Time spent (sec) over {config.epochs} iterations')

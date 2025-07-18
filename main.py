@@ -138,7 +138,7 @@ if __name__ == '__main__':
                        'ds':2,
                        'bs':16,
                        'use_t':config.use_t}
-    elif config.func_name in ['siren', 'sirent']:
+    elif 'siren' in config.func_name:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega}

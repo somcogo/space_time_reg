@@ -144,7 +144,7 @@ def prepare_inputs(config):
     models = models[:config.time_points]
     return imgs, models
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs):
+def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs, last_val):
     metrics = {}
     metrics['losses/total_loss'] = sum(losses)
     metrics['losses/sim_loss'] = losses[0]
@@ -154,7 +154,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
     metrics['losses/laplacian_loss'] = losses[3]
     metrics['losses/phi_grad_loss'] = losses[4]
 
-    if config.debug:
+    if config.debug or last_val:
         grads = torch.tensor([p.grad.norm() for p in func.parameters()])
         names = [n for n, p in func.named_parameters()]
         metrics['grad_stats/mean_grad'] = grads.mean()
@@ -205,7 +205,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
                         }
 
 
-        if config.debug:
+        if config.debug or last_val:
             vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
             rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
             rel_act_velocity_color = []
@@ -293,14 +293,14 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
 
     return metrics, imgs_to_save
 
-def log_metrics(config, metrics, writer, epoch, losses_to_log, imgs_to_log):
+def log_metrics(config, metrics, writer, epoch, losses_to_log, imgs_to_log, last_val):
     for k, v in metrics.items():
         writer.add_scalar(k, v, epoch)
 
     for k, v in losses_to_log.items():
         writer.add_scalar(f'debug_losses/{k}', v, epoch)
     
-    if imgs_to_log is not None and config.debug:
+    if imgs_to_log is not None and (config.debug or last_val):
         for k, v in imgs_to_log.items():
             writer.add_image(k, v, epoch, dataformats='HWC', )
 

@@ -297,6 +297,65 @@ class SirenT(nn.Module):
         # Propagate through final layer and return the output
         return self.layers[-1](x)
     
+class SirenLateT(nn.Module):
+    # from IDIR https://github.com/MIAGroupUT/IDIR/tree/main
+    """This is a dense neural network with sine activation functions.
+
+    Arguments:
+    layers -- ([*int]) amount of nodes in each layer of the network, e.g. [2, 16, 16, 1]
+    gpu -- (boolean) use GPU when True, CPU when False
+    weight_init -- (boolean) use special weight initialization if True
+    omega -- (float) parameter used in the forward function
+    """
+
+    def __init__(self, layers, weight_init=True, omega=30):
+        """Initialize the network."""
+
+        super().__init__()
+        # layers[-2] = layers[-2] + 1
+        self.n_layers = len(layers) - 1
+        self.omega = omega
+
+        # Make the layers
+        self.layers = []
+        for i in range(self.n_layers):
+            if i == self.n_layers - 1:
+                self.layers.append(nn.Linear(layers[i] + 1, layers[i + 1]))
+            else:
+                self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+
+            # Weight Initialization
+            if weight_init:
+                with torch.no_grad():
+                    if i == 0:
+                        self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
+                    elif i == self.n_layers - 1:
+                        self.layers[-1].weight.uniform_(
+                            -np.sqrt(6 / (layers[i] + 1)) / self.omega,
+                            np.sqrt(6 / (layers[i] + 1)) / self.omega,
+                        )
+                    else:
+                        self.layers[-1].weight.uniform_(
+                            -np.sqrt(6 / layers[i]) / self.omega,
+                            np.sqrt(6 / layers[i]) / self.omega,
+                        )
+
+        # Combine all layers to one model
+        self.layers = nn.Sequential(*self.layers)
+
+    def forward(self, t, x):
+        """The forward function of the network."""
+
+        # Perform relu on all layers except for the last one
+        for layer in self.layers[:-1]:
+            x = torch.sin(self.omega * layer(x))
+        
+        # Add time coordinate before last layer
+        x = torch.concat([t.unsqueeze(0).expand(x.shape[0], 1), x], dim=-1)
+
+        # Propagate through final layer and return the output
+        return self.layers[-1](x)
+    
 class ComplexGaborLayer(nn.Module):
     '''
         Implicit representation with complex Gabor nonlinearity
@@ -457,6 +516,8 @@ def get_func(func_name, network_kwargs):
         func = Siren(**network_kwargs)
     elif func_name == 'sirent':
         func = SirenT(**network_kwargs)
+    elif func_name == 'sirenlatet':
+        func = SirenLateT(**network_kwargs)
     elif func_name == 'wire':
         func = Wire(**network_kwargs)
     elif func_name == 'wiret':
