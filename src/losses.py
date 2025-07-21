@@ -1,196 +1,263 @@
+import time
+
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 from src.utils import generate_coord_tensor
-from src.normalized_gradient_field import NormalizedGradientField2d, NormalizedGradientField3d
+from src.normalized_gradient_field import NormalizedGradientField2d, NormalizedGradientField3d, spatial_filter_nd, _grad_param
 
-def calculate_losses(config, abs_phi, data, rel_vel):
+def calculate_losses(config, abs_phi, data, rel_vel, func, time_series, coord_tensor):
+    # abs_phi: [T, H*W, D]
+    # rel_vel: [T or 1, H*W, D]
     imgs, neural_reps = data
     imgs = imgs.to(config.device)
     neural_reps = [net.to(config.device) for net in neural_reps]
-    coord_tensor = generate_coord_tensor(imgs.shape[1:], config.device)
-    rel_phi = abs_phi - coord_tensor
+    times = np.zeros(10) if config.debug else np.zeros(5)
+    vel_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape) - 1]
 
-    # reshape phi from (-1, 2) to (1, x, y, z, 2)
-    phi_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape)-1]
+    times[0] = time.time()
     sim_energy, moved_imgs = similarity_loss(imgs, neural_reps, abs_phi, config)
     loss_sim = config.lambda_st * sim_energy.mean()
+    t_series_for_autograd = time_series if config.func_name == 'sirent' else time_series[:1]
 
-    neg_Jdet_energy = neg_Jdet_loss(abs_phi[-1].reshape(phi_shape))
-    loss_negJ = config.lambda_negJ * neg_Jdet_energy.mean()
+    times[1] = time.time()
 
-    phi_grad_energy = grad_loss(rel_phi[-1].reshape(phi_shape))
-    loss_smt = config.lambda_smt * phi_grad_energy.mean()
+    if config.debug:
+        vel_reshaped = rel_vel.reshape(vel_shape)
+        rel_phi = abs_phi - coord_tensor
+        phi_reshaped = rel_phi.reshape(vel_shape)
+        findiff_J =  fin_diff_Jacobian(vel_reshaped)
+        times[2] = time.time()
+        autograd_grid_J = get_Jacobian(func, t_series_for_autograd, dims=len(imgs.shape)-1, img_shape=imgs.shape[1:], coord_tensor=coord_tensor)
+        times[3] = time.time()
+        autograd_rand_J = get_Jacobian(func, t_series_for_autograd, dims=len(imgs.shape)-1, img_shape=imgs.shape[1:], coord_tensor=None)
+        times[4] = time.time()
+        fin_laplacian = fin_Laplacian_from_Jac(findiff_J)
+        times[5] = time.time()
+        auto_grid_laplacian = get_Laplacian(func, t_series_for_autograd, dims=len(imgs.shape)-1, coord_tensor=coord_tensor)
+        times[6] = time.time()
+        auto_rand_laplacian = get_Laplacian(func, t_series_for_autograd, dims=len(imgs.shape)-1, coord_tensor=None)
+        times[7] = time.time()
+        phi_fin_J = fin_diff_Jacobian(phi_reshaped)
+        times[8] = time.time()
+        # phi_auto_grid_J = get_phi_Jacobian(rel_phi, imgs.shape[1:], coords=coord_tensor)
+        times[9] = time.time()
 
-    vel_shape = list(imgs.shape[1:]) + [len(imgs.shape) - 1]
-    vel_reshaped = rel_vel.reshape(vel_shape).unsqueeze(0)
-    vel_grad_energy = grad_loss(vel_reshaped)
-    loss_grd = config.lambda_grd * vel_grad_energy.mean()
+        phi_J = phi_fin_J
+        if config.fin_diff_grad:
+            J = findiff_J
+            lap = fin_laplacian
+            # phi_J = phi_fin_J
+        elif config.autograd_grid:
+            J = autograd_grid_J
+            lap = auto_grid_laplacian
+            # phi_J = phi_auto_grid_J
+        else:
+            J = autograd_rand_J
+            lap = auto_rand_laplacian
+            # phi_J = phi_auto_grid_J
+        # findiff_J: [T or 1, H, W, D, D]
+        # autograd_J: [T or 1, H*W, D, D]
+        neg_Jdet_energy = neg_Jdet_loss(J).mean()
+        vel_grad_l2 = torch.linalg.vector_norm(J, dim=-1).mean()
+        lap_l2 = torch.linalg.vector_norm(lap, dim=-1).mean()
+        phi_grad_l2 = torch.linalg.vector_norm(phi_J, dim=-1).mean()
 
-    return [loss_sim, loss_negJ, loss_smt, loss_grd], moved_imgs, [sim_energy, neg_Jdet_energy, phi_grad_energy, vel_grad_energy]
+        energies = [sim_energy.detach(), findiff_J.detach(), autograd_grid_J.detach(), fin_laplacian.detach(), auto_grid_laplacian.detach(), phi_fin_J.detach()]
+        loss_values = {'sim':sim_energy.detach().mean().cpu(),
+                       
+                       'fin_diff_vel_grad_norm':torch.linalg.vector_norm(findiff_J.detach(), dim=-1).mean().cpu(),
+                       'auto_grid_vel_grad_norm':torch.linalg.vector_norm(autograd_grid_J.detach(), dim=-1).mean().cpu(),
+                       'auto_rand_vel_grad_norm':torch.linalg.vector_norm(autograd_rand_J.detach(), dim=-1).mean().cpu(),
+
+                       'fin_diff_vel_neg_det_J':neg_Jdet_loss(findiff_J.detach()).mean().cpu(),
+                       'auto_grid_vel_neg_det_J':neg_Jdet_loss(autograd_grid_J.detach()).mean().cpu(),
+                       'auto_rand_vel_neg_det_J':neg_Jdet_loss(autograd_rand_J.detach()).mean().cpu(),
+
+                       'fin_diff_vel_lap_norm':torch.linalg.vector_norm(fin_laplacian.detach(), dim=-1).mean().cpu(),
+                       'auto_grid_vel_lap_norm':torch.linalg.vector_norm(auto_grid_laplacian.detach(), dim=-1).mean().cpu(),
+                       'auto_rand_vel_lap_norm':torch.linalg.vector_norm(auto_rand_laplacian.detach(), dim=-1).mean().cpu(),
+
+                       'fin_diff_phi_grad_norm':torch.linalg.vector_norm(phi_fin_J.detach(), dim=-1).mean().cpu()}
+    else:
+
+        if config.lambda_negJ > 0 or config.lambda_grd > 0:
+            if config.fin_diff_grad:
+                vel_reshaped = rel_vel.reshape(vel_shape)
+                J = fin_diff_Jacobian(vel_reshaped)
+            elif config.autograd_grid:
+                J = get_Jacobian(func, t_series_for_autograd, dims=len(imgs.shape)-1, img_shape=imgs.shape[1:], coord_tensor=coord_tensor)
+            else:
+                J = get_Jacobian(func, t_series_for_autograd, dims=len(imgs.shape)-1, img_shape=imgs.shape[1:], coord_tensor=None)
+            neg_Jdet_energy = neg_Jdet_loss(J).mean()
+            vel_grad_l2 = torch.linalg.vector_norm(J, dim=-1).mean()
+        else:
+            neg_Jdet_energy = torch.tensor(0)
+            vel_grad_l2 = torch.tensor(0)
+        times[2] = time.time()
+        
+        if config.lambda_lap > 0:
+            if config.fin_diff_grad:
+                vel_reshaped = rel_vel.reshape(vel_shape)
+                J = fin_diff_Jacobian(vel_reshaped)
+                lap = fin_Laplacian_from_Jac(J)
+            elif config.autograd_grid:
+                lap = get_Laplacian(func, t_series_for_autograd, dims=len(imgs.shape)-1, coord_tensor=coord_tensor)
+            else:
+                lap = get_Laplacian(func, t_series_for_autograd, dims=len(imgs.shape)-1, coord_tensor=None)
+            lap_l2 = torch.linalg.vector_norm(lap, dim=-1).mean()
+        else:
+            lap_l2 = torch.tensor(0)
+        times[3] = time.time()
+        
+        if config.lambda_pgr > 0:
+            rel_phi = abs_phi - coord_tensor
+            phi_reshaped = rel_phi.reshape(vel_shape)
+            # if config.fin_diff_grad:
+            phi_J = fin_diff_Jacobian(phi_reshaped)
+            # else:
+            #     phi_J = get_phi_Jacobian(rel_phi, imgs.shape[1:], coords=coord_tensor)
+            phi_grad_l2 = torch.linalg.vector_norm(phi_J, dim=-1).mean()
+        else:
+            phi_grad_l2 = torch.tensor(0)
+        times[4] = time.time()
+        
+        energies = [sim_energy.detach()]
+        loss_values = {'sim':sim_energy.detach().mean().cpu(),
+                       'vel_neg_det_J':neg_Jdet_energy.detach().cpu(),
+                       'vel_grad_norm':vel_grad_l2.detach().cpu(),
+                       'vel_lap_norm':lap_l2.detach().cpu(),
+                       'phi_grad_norm':phi_grad_l2.detach().cpu()}
+
+    loss_negJ = config.lambda_negJ * neg_Jdet_energy
+    loss_grd = config.lambda_grd * vel_grad_l2
+    loss_lap = config.lambda_lap * lap_l2
+    loss_pgr = config.lambda_pgr * phi_grad_l2
+
+    return [loss_sim, loss_negJ, loss_grd, loss_lap, loss_pgr], moved_imgs, energies, times, loss_values
 
 def similarity_loss(imgs, neural_reps, abs_phi, args):
     if args.loss == 'mse':
         loss_fn = nn.MSELoss(reduction='none')
     elif args.loss == 'ngf':
         if imgs.dim() == 3:
-            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=None, reduction='none')
+            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=1e-6, reduction='none')
         else:
-            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=None, reduction='none')
+            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=1e-6, reduction='none')
     loss_fn = loss_fn.to(args.device)
-    net = neural_reps[0].net
 
-    model_out = net(abs_phi)
-    moved = (model_out.squeeze(2) + 1) / 2
-    moved = moved.reshape(imgs.shape)
-    loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
+    if args.use_nreps:
+        if args.dataset in ['rot_slow2_large', 'rot_slow2_64']:
+            net = neural_reps[0]
+            model_out = net(torch.tensor([], device=abs_phi.device), abs_phi) # T, H, W, 2
+            moved = model_out.squeeze(2)
+            moved = moved.reshape(imgs.shape)
+            loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
+        else:
+            net = neural_reps[0].net
+            model_out = net(abs_phi)
+            moved = (model_out.squeeze(2) + 1) / 2
+            moved = moved.reshape(imgs.shape)
+            loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
+    else:
+        img = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, imgs.shape[1], imgs.shape[2])
+        grid = abs_phi.reshape(abs_phi.shape[0], imgs.shape[1], imgs.shape[2], 2)
+        moved = F.grid_sample(img, grid)
+        loss = loss_fn(imgs.unsqueeze(1), moved)
+        moved = moved.squeeze(1)
+    
     return loss, moved.detach().cpu()
 
-
-
-# def grid_sample_similarity_loss(moving, fixed, phi):
-#     phi_grid_sample = torch.stack([phi[:, 1], phi[:, 0]], dim=1)
-#     loss_fn = nn.MSELoss()
-#     fixed_preimage = F.grid_sample(fixed.unsqueeze(0).unsqueeze(0), phi_grid_sample, align_corners=True, mode='bilinear')
-#     l2loss = loss_fn(moving, fixed_preimage.squeeze())
-#     return l2loss
-
-# def n_rep_similarity_loss(moving, fixed_n_rep, coords):
-#     loss_fn = nn.MSELoss()
-#     model_out = fixed_n_rep.net(coords.squeeze(0).permute(2, 1, 0))
-#     fixed = model_out.squeeze(2)
-#     fixed = (fixed + 1) / 2
-#     l2loss = loss_fn(fixed, moving.squeeze())
-#     return l2loss
-
-# def space_time_loss(imgs, n_reps, phi):
-#     loss_fn = nn.MSELoss()
-#     moving = torch.stack([imgs[0]]*phi.shape[0])
-#     grid = phi.squeeze(1).permute(0, 2, 3, 1)
-#     fixed = imgs
-#     moved = F.grid_sample(moving.unsqueeze(1), grid, align_corners=True, mode='bilinear')
-#     l2loss = loss_fn(fixed, moved.squeeze())
-#     return l2loss
-
-class NCC(torch.nn.Module):
-    """
-    NCC with cumulative sum implementation for acceleration. local (over window) normalized cross correlation.
-    """
-
-    def __init__(self, win=21, eps=1e-5):
-        super(NCC, self).__init__()
-        self.eps = eps
-        self.win = win
-        self.win_raw = win
-
-    def window_sum_cs3D(self, I, win_size):
-        half_win = int(win_size / 2)
-        pad = [half_win + 1, half_win] * 3
-
-        I_padded = F.pad(I, pad=pad, mode='constant', value=0)  # [x+pad, y+pad, z+pad]
-
-        # Run the cumulative sum across all 3 dimensions
-        I_cs_x = torch.cumsum(I_padded, dim=2)
-        I_cs_xy = torch.cumsum(I_cs_x, dim=3)
-        I_cs_xyz = torch.cumsum(I_cs_xy, dim=4)
-
-        x, y, z = I.shape[2:]
-
-        # Use subtraction to calculate the window sum
-        I_win = I_cs_xyz[:, :, win_size:, win_size:, win_size:] \
-                - I_cs_xyz[:, :, win_size:, win_size:, :z] \
-                - I_cs_xyz[:, :, win_size:, :y, win_size:] \
-                - I_cs_xyz[:, :, :x, win_size:, win_size:] \
-                + I_cs_xyz[:, :, win_size:, :y, :z] \
-                + I_cs_xyz[:, :, :x, win_size:, :z] \
-                + I_cs_xyz[:, :, :x, :y, win_size:] \
-                - I_cs_xyz[:, :, :x, :y, :z]
-
-        return I_win
-
-    def forward(self, I, J):
-        # compute CC squares
-        I = I.double()
-        J = J.double()
-
-        I2 = I * I
-        J2 = J * J
-        IJ = I * J
-
-        # compute local sums via cumsum trick
-        I_sum_cs = self.window_sum_cs3D(I, self.win)
-        J_sum_cs = self.window_sum_cs3D(J, self.win)
-        I2_sum_cs = self.window_sum_cs3D(I2, self.win)
-        J2_sum_cs = self.window_sum_cs3D(J2, self.win)
-        IJ_sum_cs = self.window_sum_cs3D(IJ, self.win)
-
-        win_size_cs = (self.win * 1.) ** 3
-
-        u_I_cs = I_sum_cs / win_size_cs
-        u_J_cs = J_sum_cs / win_size_cs
-
-        cross_cs = IJ_sum_cs - u_J_cs * I_sum_cs - u_I_cs * J_sum_cs + u_I_cs * u_J_cs * win_size_cs
-        I_var_cs = I2_sum_cs - 2 * u_I_cs * I_sum_cs + u_I_cs * u_I_cs * win_size_cs
-        J_var_cs = J2_sum_cs - 2 * u_J_cs * J_sum_cs + u_J_cs * u_J_cs * win_size_cs
-
-        cc_cs = cross_cs * cross_cs / (I_var_cs * J_var_cs + self.eps)
-        cc2 = cc_cs  # cross correlation squared
-
-        # return negative cc.
-        return 1. - torch.mean(cc2).float()
-
-def JacboianDet(phi):
-    if len(phi.shape) == 4:
-        dx = phi[:, 1:, 1:, :] - phi[:, :-1, 1:, :]
-        dy = phi[:, 1:, 1:, :] - phi[:, 1:, :-1, :]
-
-        det = dx[:, :, :, 0] * dy[:, :, :, 1] - dx[:, :, :, 1] * dy[:, :, :, 0]
-    else:
-        dx = phi[:, 1:, 1:, 1:, :] - phi[:, :-1, 1:, 1:, :]
-        dy = phi[:, 1:, 1:, 1:, :] - phi[:, 1:, :-1, 1:, :]
-        dz = phi[:, 1:, 1:, 1:, :] - phi[:, 1:, 1:, :-1, :]
-
-        det0 = dx[:, :, :, :, 0] * (dy[:, :, :, :, 1] * dz[:, :, :, :, 2] - dy[:, :, :, :, 2] * dz[:, :, :, :, 1])
-        det1 = dx[:, :, :, :, 1] * (dy[:, :, :, :, 0] * dz[:, :, :, :, 2] - dy[:, :, :, :, 2] * dz[:, :, :, :, 0])
-        det2 = dx[:, :, :, :, 2] * (dy[:, :, :, :, 0] * dz[:, :, :, :, 1] - dy[:, :, :, :, 1] * dz[:, :, :, :, 0])
-
-        det = det0 - det1 + det2
-    return det
-
 def neg_Jdet_loss(J):
-    Jdet = JacboianDet(J)
+    Jdet = torch.det(J)
+    # Jdet = JacboianDet(J)
     neg_Jdet = -1.0 * Jdet
-    selected_neg_Jdet = F.relu(neg_Jdet)
-    return selected_neg_Jdet ** 2
+    neg_Jdet = F.relu(neg_Jdet) + 1
+    out = torch.log(neg_Jdet)
 
-def grad_loss(f):
-    if len(f.shape) == 5:
-    #     gradient_magnitude = (((f[:, 1:, :, :, :] - f[:, :-1, :, :, :]) ** 2).mean() + \
-    #  ((f[:, :, 1:, :, :] - f[:, :, :-1, :, :]) ** 2).mean() + \
-    #  ((f[:, :, :, 1:, :] - f[:, :, :, :-1, :]) ** 2).mean())
-        x_grad_magnitude = ((f[:, 1:, :, :, :] - f[:, :-1, :, :, :]) ** 2)
-        y_grad_magnitude = ((f[:, :, 1:, :, :] - f[:, :, :-1, :, :]) ** 2)
-        z_grad_magnitude = ((f[:, :, :, 1:, :] - f[:, :, :, :-1, :]) ** 2)
-        grad_magnitude = x_grad_magnitude + y_grad_magnitude + z_grad_magnitude
-    else:
-    #     gradient_magnitude = (((f[:, 1:, :, :] - f[:, :-1, :, :]) ** 2).mean() + \
-    #  ((f[:, :, 1:, :] - f[:, :, :-1, :]) ** 2).mean())
-        x_grad_magnitude = ((f[:, 1:, 1:, :] - f[:, :-1, 1:, :]) ** 2)
-        y_grad_magnitude = ((f[:, 1:, 1:, :] - f[:, 1:, :-1, :]) ** 2)
-        grad_magnitude = x_grad_magnitude + y_grad_magnitude
-    return grad_magnitude
+    # out = - torch.log(Jdet)
 
-def magnitude_loss(all_v):
-    if len(all_v.shape) == 5:
-        all_v_x_2 = all_v[:, 0, :, :, :] * all_v[:, 0, :, :, :]
-        all_v_y_2 = all_v[:, 1, :, :, :] * all_v[:, 1, :, :, :]
-        all_v_z_2 = all_v[:, 2, :, :, :] * all_v[:, 2, :, :, :]
-        # all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2 + all_v_z_2)
-        magnitude = all_v_x_2 + all_v_y_2 + all_v_z_2
+    # out = torch.log(Jdet)
+    # # out = out ** 2
+    # out = torch.abs(out)
+    # out = torch.exp(out)
+    # out = out - 1
+    # out = torch.abs(out)
+
+    return out
+
+def fin_diff_Jacobian(f):
+    partial_grads = [fin_diff_gradient(f, dim) for dim in range(len(f.shape)-2)]
+    J = torch.stack(partial_grads, dim=-1)
+    # J shape: [T or 1, H, W, f_dim, spatial_dim]
+    return J
+
+def fin_Laplacian_from_Jac(J):
+    lap = sum([fin_diff_gradient(J[..., i], i) for i in range(J.shape[-1])])
+    return lap
+
+def fin_diff_gradient(f, axis):
+    dims = len(f.shape) - 2
+    if dims == 2:
+        f = f.permute(0, 3, 1, 2)
+    elif dims == 3:
+        f = f.permute(0, 4, 1, 2, 3)
+    b, c = f.shape[:2]
+    spatial_shape = f.shape[2:]
+
+    # [B*N, H, W]
+    f = f.reshape(b * c, 1, *spatial_shape)
+    grad_kernel = _grad_param(dims, 'default', axis=axis).to(f.device)
+    grad = spatial_filter_nd(f, grad_kernel)
+    grad = grad.view(b, c, *spatial_shape)
+    if dims == 2:
+        grad = grad.permute(0, 2, 3, 1)
+    elif dims == 3:
+        grad = grad.permute(0, 2, 3, 4, 1)
+    return grad
+
+def get_Jacobian(func, time_series, dims, img_shape, coord_tensor=None):
+    if coord_tensor is not None:
+        coords = coord_tensor
     else:
-        all_v_x_2 = all_v[:, 0, :, :] * all_v[:, 0, :, :]
-        all_v_y_2 = all_v[:, 1, :, :] * all_v[:, 1, :, :]
-        # all_v_magnitude = torch.mean(all_v_x_2 + all_v_y_2)
-        magnitude = all_v_x_2 + all_v_y_2
-    return magnitude
+        coords = torch.rand((1024, dims), requires_grad=True, device=time_series.device)*2 - 1
+    rel_vel = []
+    for t in time_series:
+        vel = func(t, coords)
+        rel_vel.append(vel)
+    rel_vel = torch.concat(rel_vel)
+    # J shape: [T or 1, N, f_dim, spatial_dim]
+    return torch.stack([gradient(input=coords, output=rel_vel[:, i]) for i in range(dims)], dim=1)
+
+def get_Laplacian(func, time_series, dims, coord_tensor=None):
+    if coord_tensor is not None:
+        coords = coord_tensor
+    else:
+        coords = torch.rand((1024, dims), requires_grad=True, device=time_series.device)*2 - 1
+    rel_vel = []
+    for t in time_series:
+        vel = func(t, coords)
+        rel_vel.append(vel)
+    rel_vel = torch.concat(rel_vel) # [T or 1, N, f_dim]
+    # J shape: [N, f_dim, spatial_dim]
+    J = torch.stack([gradient(input=coords, output=rel_vel[:, i]) for i in range(dims)], dim=1)
+
+    dxdxy = [gradient(input=coords, output=J[..., i, 0]) for i in range(dims)]
+    ddxx = torch.stack([dxy[..., 0] for dxy in dxdxy], dim=-1)
+    dydxy = [gradient(input=coords, output=J[..., i, 1]) for i in range(dims)]
+    ddyy = torch.stack([dxy[..., 1] for dxy in dydxy], dim=-1)
+    return ddxx + ddyy
+
+def get_phi_Jacobian(phi, img_shape, coords):
+    return torch.stack([gradient(input=coords, output=phi[-1][..., i]) for i in range(len(img_shape))], dim=1)
+
+def gradient(input, output, grad_outputs=None):
+    """Compute the gradient of the output wrt the input."""
+
+    grad_outputs = torch.ones_like(output)
+    grad = torch.autograd.grad(
+        output, [input], grad_outputs=grad_outputs, create_graph=True
+    )[0]
+    return grad
