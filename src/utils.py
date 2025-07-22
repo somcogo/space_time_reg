@@ -144,7 +144,7 @@ def prepare_inputs(config):
     models = models[:config.time_points]
     return imgs, models
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs, last_val):
+def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs, last_val=False):
     metrics = {}
     metrics['losses/total_loss'] = sum(losses)
     metrics['losses/sim_loss'] = losses[0]
@@ -293,7 +293,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
 
     return metrics, imgs_to_save
 
-def log_metrics(config, metrics, writer, epoch, losses_to_log, imgs_to_log, last_val):
+def log_metrics(config, metrics, writer, epoch, losses_to_log, imgs_to_log, last_val=False):
     for k, v in metrics.items():
         writer.add_scalar(k, v, epoch)
 
