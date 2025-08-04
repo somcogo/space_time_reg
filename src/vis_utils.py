@@ -7,8 +7,8 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from IPython.display import HTML
-import tensorflow.compat.v1 as tf
-tf.disable_eager_execution()
+# import tensorflow.compat.v1 as tf
+# tf.disable_eager_execution()
 
 from src.utils import SingleImgDataset, DataLoader, dataio, modules, partial, loss_functions, training
 
@@ -117,7 +117,7 @@ def create_syn_data(file_name, case):
         tris[:,:,i] = out.squeeze()
 
     cirs = torch.zeros((128, 128, 20))
-    if case is not 'rectri':
+    if case != 'rectri':
         for i in range(20):
             phi = cir_angles[i]
             rot_m = torch.tensor([[math.cos(phi), -math.sin(phi)], [math.sin(phi), math.cos(phi)]])
@@ -130,20 +130,20 @@ def create_syn_data(file_name, case):
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     np.save(file_name, recs+tris+cirs)
 
-def get_imgs_from_tensorboard(event_path, epoch, img_tag):
-    image_str = tf.placeholder(tf.string)
-    im_tf = tf.image.decode_image(image_str)
+# def get_imgs_from_tensorboard(event_path, epoch, img_tag):
+#     image_str = tf.placeholder(tf.string)
+#     im_tf = tf.image.decode_image(image_str)
 
-    sess = tf.InteractiveSession()
-    with sess.as_default():
-        for e in tf.train.summary_iterator(event_path):
-            if e.step == epoch:
-                for v in e.summary.value:
-                    if v.tag == img_tag:
-                        im = im_tf.eval({image_str: v.image.encoded_image_string})
-                        tf_im = im
-    sess.close()
-    return tf_im
+#     sess = tf.InteractiveSession()
+#     with sess.as_default():
+#         for e in tf.train.summary_iterator(event_path):
+#             if e.step == epoch:
+#                 for v in e.summary.value:
+#                     if v.tag == img_tag:
+#                         im = im_tf.eval({image_str: v.image.encoded_image_string})
+#                         tf_im = im
+#     sess.close()
+#     return tf_im
 
 def fit_INR(data, device):
     # data shape (C, H, W) or (C, H, W, D)

@@ -14,12 +14,9 @@ from src.siren.dataio import get_mgrid
 def registration(config, data, writer, logger:logging.Logger):
     img_shape = data[0].shape[1:]
     dims = len(img_shape)
-    if 'siren' in config.func_name:
+    if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
         config.func_kwargs['layers'][-1] = dims
-    elif config.func_name in ['wire', 'wiret']:
-        config.func_kwargs['in_features'] = dims
-        config.func_kwargs['out_features'] = dims
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
     coord_tensor = generate_coord_tensor(img_shape, config.device)
@@ -39,9 +36,9 @@ def registration(config, data, writer, logger:logging.Logger):
         time_stamps[0, epoch-1] = time.time()
         if config.debug or (config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap > 0):
             rel_vel = func(time_points[1], coord_tensor)
-            if config.func_name == 'siren' and config.debug:
+            if (config.func_name == 'siren' or config.func_name == 'wire') and config.debug:
                 rel_vel = rel_vel.unsqueeze(0)
-            elif config.func_name == 'sirent' or config.func_name == 'sirenlatet':
+            elif ('siren' in config.func_name or 'wire' in config.func_name) and 't' in config.func_name:
                 if config.debug:
                     rel_vel = []
                     for t in time_points:
@@ -50,10 +47,6 @@ def registration(config, data, writer, logger:logging.Logger):
                 else:
                     for t in time_points[2:]:
                         rel_vel = rel_vel + func(t, coord_tensor)
-                    rel_vel = []
-                    for t in time_points:
-                        rel_vel.append(func(t, coord_tensor))
-                    rel_vel = torch.stack(rel_vel)
         else:
             rel_vel = None
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
@@ -95,11 +88,11 @@ def registration(config, data, writer, logger:logging.Logger):
 
     # Log images even if not in debug mode
     if not config.debug:
-        with torch.no_grad():
-            best_func = copy.deepcopy(func).load_state_dict(best_st_dict)
-            losses, moved_imgs, visuals, loss_time, losses_to_log = calculate_losses(config, best_phi, data, best_vel, best_func, time_points, coord_tensor)
-            metrics, imgs_to_save = calculate_metrics(losses, config, best_phi, best_vel, data, moved_imgs, best_func, visuals, True, True)
-            log_metrics(config, metrics, writer, epoch + 1, losses_to_log, imgs_to_save, True)
+        best_func = copy.deepcopy(func)
+        best_func.load_state_dict(best_st_dict)
+        losses, moved_imgs, visuals, loss_time, losses_to_log = calculate_losses(config, best_phi, data, best_vel, best_func, time_points, coord_tensor, True)
+        metrics, imgs_to_save = calculate_metrics(losses, config, best_phi, best_vel, data, moved_imgs, best_func, visuals, True, True)
+        log_metrics(config, metrics, writer, epoch + 1, losses_to_log, imgs_to_save, True)
 
     logger.info('-------------------------------------------------')
     logger.info(f'Time spent (sec) over {config.epochs} iterations')

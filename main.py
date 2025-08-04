@@ -93,6 +93,9 @@ if __name__ == '__main__':
     parser.add_argument("--siren_omega", type=int,
                         dest="siren_omega", default=30,
                         help="Omega used in siren network")
+    parser.add_argument("--wire_scale", type=int,
+                        dest="wire_scale", default=10,
+                        help="Scale used in wire network")
     parser.add_argument("--loss", type=str,
                         dest="loss", default='ngf',
                         help="Loss function to use")
@@ -142,9 +145,11 @@ if __name__ == '__main__':
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega}
-    elif config.func_name in ['wire', 'wiret']:
-        func_kwargs = {'hidden_features':config.siren_dim,
-                       'hidden_layers':config.siren_depth}
+    elif 'wire' in config.func_name:
+        layers = [3] + config.siren_depth * [config.siren_dim] + [3]
+        func_kwargs = {'layers':layers,
+                       'omega':config.siren_omega,
+                       'scale':config.wire_scale}
     config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)

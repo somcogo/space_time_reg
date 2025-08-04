@@ -8,13 +8,13 @@ import torch.nn.functional as F
 from src.utils import generate_coord_tensor
 from src.normalized_gradient_field import NormalizedGradientField2d, NormalizedGradientField3d, spatial_filter_nd, _grad_param
 
-def calculate_losses(config, abs_phi, data, rel_vel, func, time_series, coord_tensor):
+def calculate_losses(config, abs_phi, data, rel_vel, func, time_series, coord_tensor, last_val=False):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
-    imgs, neural_reps = data
+    imgs, neural_reps, _ = data
     imgs = imgs.to(config.device)
     neural_reps = [net.to(config.device) for net in neural_reps]
-    times = np.zeros(10) if config.debug else np.zeros(5)
+    times = np.zeros(10) if config.debug or last_val else np.zeros(5)
     vel_shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape) - 1]
 
     times[0] = time.time()
@@ -24,7 +24,7 @@ def calculate_losses(config, abs_phi, data, rel_vel, func, time_series, coord_te
 
     times[1] = time.time()
 
-    if config.debug:
+    if config.debug or last_val:
         vel_reshaped = rel_vel.reshape(vel_shape)
         rel_phi = abs_phi - coord_tensor
         phi_reshaped = rel_phi.reshape(vel_shape)
@@ -149,7 +149,7 @@ def similarity_loss(imgs, neural_reps, abs_phi, args):
     loss_fn = loss_fn.to(args.device)
 
     if args.use_nreps:
-        if args.dataset in ['rot_slow2_large', 'rot_slow2_64']:
+        if args.dataset in ['rot_slow2_large', 'rot_slow2_64', 'mouse']:
             net = neural_reps[0]
             model_out = net(torch.tensor([], device=abs_phi.device), abs_phi) # T, H, W, 2
             moved = model_out.squeeze(2)
@@ -163,8 +163,8 @@ def similarity_loss(imgs, neural_reps, abs_phi, args):
             loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
     else:
         img = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, imgs.shape[1], imgs.shape[2])
-        grid = abs_phi.reshape(abs_phi.shape[0], imgs.shape[1], imgs.shape[2], 2)
-        moved = F.grid_sample(img, grid)
+        grid = abs_phi.reshape(abs_phi.shape[0], imgs.shape[1], imgs.shape[2], 2).permute(0, 2, 1, 3)
+        moved = F.grid_sample(img, grid, align_corners=False)
         loss = loss_fn(imgs.unsqueeze(1), moved)
         moved = moved.squeeze(1)
     

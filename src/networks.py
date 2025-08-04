@@ -355,159 +355,298 @@ class SirenLateT(nn.Module):
 
         # Propagate through final layer and return the output
         return self.layers[-1](x)
-    
-class ComplexGaborLayer(nn.Module):
-    '''
-        Implicit representation with complex Gabor nonlinearity
-        
-        Inputs;
-            in_features: Input features
-            out_features; Output features
-            bias: if True, enable bias for the linear operation
-            is_first: Legacy SIREN parameter
-            omega_0: Legacy SIREN parameter
-            omega0: Frequency of Gabor sinusoid term
-            sigma0: Scaling of Gabor Gaussian term
-            trainable: If True, omega and sigma are trainable parameters
-    '''
-    
-    def __init__(self, in_features, out_features, bias=True,
-                 is_first=False, omega0=10.0, sigma0=40.0,
-                 trainable=False):
-        super().__init__()
-        self.omega_0 = omega0
-        self.scale_0 = sigma0
-        self.is_first = is_first
-        
-        self.in_features = in_features 
-        
-        if self.is_first:
-            dtype = torch.float
-        else:
-            dtype = torch.cfloat
-            
-        # Set trainable parameters if they are to be simultaneously optimized
-        self.omega_0 = nn.Parameter(self.omega_0*torch.ones(1), trainable)
-        self.scale_0 = nn.Parameter(self.scale_0*torch.ones(1), trainable)
-        
-        self.linear = nn.Linear(in_features,
-                                out_features,
-                                bias=bias,
-                                dtype=dtype)
-    
-    def forward(self, input):
-        lin = self.linear(input)
-        omega = self.omega_0 * lin
-        scale = self.scale_0 * lin
-        
-        return torch.exp(1j*omega - scale.abs().square())
-    
-class Wire(nn.Module):
-    def __init__(self, in_features, hidden_features, 
-                 hidden_layers, 
-                 out_features, outermost_linear=True,
-                 first_omega_0=30, hidden_omega_0=30., scale=10.0,
-                 pos_encode=False, sidelength=512, fn_samples=None,
-                 use_nyquist=True):
-        super().__init__()
-        
-        # All results in the paper were with the default complex 'gabor' nonlinearity
-        self.nonlin = ComplexGaborLayer
-        
-        # Since complex numbers are two real numbers, reduce the number of 
-        # hidden parameters by 2
-        hidden_features = int(hidden_features/np.sqrt(2))
-        dtype = torch.cfloat
-        self.complex = True
-        self.wavelet = 'gabor'    
-        
-        # Legacy parameter
-        self.pos_encode = False
-            
-        self.net = []
-        self.net.append(self.nonlin(in_features,
-                                    hidden_features, 
-                                    omega0=first_omega_0,
-                                    sigma0=scale,
-                                    is_first=True,
-                                    trainable=False))
 
-        for i in range(hidden_layers):
-            self.net.append(self.nonlin(hidden_features,
-                                        hidden_features, 
-                                        omega0=hidden_omega_0,
-                                        sigma0=scale))
 
-        final_linear = nn.Linear(hidden_features,
-                                 out_features,
-                                 dtype=dtype)            
-        self.net.append(final_linear)
-        
-        self.net = nn.Sequential(*self.net)
+class WireReal(nn.Module):
+    def __init__(self, layers, weight_init=True, omega=30., scale=10.):
+        """Initialize the network."""
+        super().__init__()
+        self.n_layers = len(layers) - 1
+        self.omega = omega
+        self.scale = scale
+
+        # Make the layers
+        self.layers = []
+        for i in range(self.n_layers):
+            self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+
+            # Weight Initialization
+            if weight_init:
+                with torch.no_grad():
+                    if i == 0:
+                        self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
+                    else:
+                        self.layers[-1].weight.uniform_(
+                            -np.sqrt(6 / layers[i]) / self.omega,
+                            np.sqrt(6 / layers[i]) / self.omega,
+                        )
+
+        # Combine all layers to one model
+        self.layers = nn.Sequential(*self.layers)
+
+    def forward(self, t, x):
+        """The forward function of the network."""
+
+        # Perform relu on all layers except for the last one
+        for layer in self.layers[:-1]:
+            lin = layer(x)
+            omega = self.omega * lin
+            scale = self.scale * lin
+            x = torch.sin(omega) * torch.exp(-scale.abs().square())
+
+        # Propagate through final layer and return the output
+        return self.layers[-1](x)
+
+
+class WireRealT(nn.Module):
+    def __init__(self, layers, weight_init=True, omega=30., scale=10.):
+        """Initialize the network."""
+
+        super().__init__()
+        layers[0] = layers[0] + 1
+        self.n_layers = len(layers) - 1
+        self.omega = omega
+        self.scale = scale
+
+        # Make the layers
+        self.layers = []
+        for i in range(self.n_layers):
+            self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+
+            # Weight Initialization
+            if weight_init:
+                with torch.no_grad():
+                    if i == 0:
+                        self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
+                    else:
+                        self.layers[-1].weight.uniform_(
+                            -np.sqrt(6 / layers[i]) / self.omega,
+                            np.sqrt(6 / layers[i]) / self.omega,
+                        )
+
+        # Combine all layers to one model
+        self.layers = nn.Sequential(*self.layers)
+
+    def forward(self, t, x):
+        """The forward function of the network."""
+
+        x = torch.concat([t.unsqueeze(0).expand(x.shape[0], 1), x], dim=-1)
+        # Perform relu on all layers except for the last one
+        for layer in self.layers[:-1]:
+            lin = layer(x)
+            omega = self.omega * lin
+            scale = self.scale * lin
+            x = torch.sin(omega) * torch.exp(-scale.abs().square())
+
+        # Propagate through final layer and return the output
+        return self.layers[-1](x)
     
-    def forward(self, t, coords):
-        if self.net[0].linear.weight.dtype == torch.float32 and coords.dtype == torch.complex64 and coords.imag.abs().sum() == 0:
-            coords = coords.real
-        output = self.net(coords)
+    
+class WireRealLateT(nn.Module):
+    def __init__(self, layers, weight_init=True, omega=30., scale=10.):
+        """Initialize the network."""
+
+        super().__init__()
+        # layers[-2] = layers[-2] + 1
+        self.n_layers = len(layers) - 1
+        self.omega = omega
+        self.scale = scale
+
+        # Make the layers
+        self.layers = []
+        for i in range(self.n_layers):
+            if i == self.n_layers - 1:
+                self.layers.append(nn.Linear(layers[i] + 1, layers[i + 1]))
+            else:
+                self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+
+            # Weight Initialization
+            if weight_init:
+                with torch.no_grad():
+                    if i == 0:
+                        self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
+                    elif i == self.n_layers - 1:
+                        self.layers[-1].weight.uniform_(
+                            -np.sqrt(6 / (layers[i] + 1)) / self.omega,
+                            np.sqrt(6 / (layers[i] + 1)) / self.omega,
+                        )
+                    else:
+                        self.layers[-1].weight.uniform_(
+                            -np.sqrt(6 / layers[i]) / self.omega,
+                            np.sqrt(6 / layers[i]) / self.omega,
+                        )
+
+        # Combine all layers to one model
+        self.layers = nn.Sequential(*self.layers)
+
+    def forward(self, t, x):
+        """The forward function of the network."""
+
+        # Perform relu on all layers except for the last one
+        for layer in self.layers[:-1]:
+            lin = layer(x)
+            omega = self.omega * lin
+            scale = self.scale * lin
+            x = torch.sin(omega) * torch.exp(-scale.abs().square())
         
-        if self.wavelet == 'gabor':
-            return output.real
+        # Add time coordinate before last layer
+        x = torch.concat([t.unsqueeze(0).expand(x.shape[0], 1), x], dim=-1)
+
+        # Propagate through final layer and return the output
+        return self.layers[-1](x)
+    
+# class ComplexGaborLayer(nn.Module):
+#     '''
+#         Implicit representation with complex Gabor nonlinearity
+        
+#         Inputs;
+#             in_features: Input features
+#             out_features; Output features
+#             bias: if True, enable bias for the linear operation
+#             is_first: Legacy SIREN parameter
+#             omega_0: Legacy SIREN parameter
+#             omega0: Frequency of Gabor sinusoid term
+#             sigma0: Scaling of Gabor Gaussian term
+#             trainable: If True, omega and sigma are trainable parameters
+#     '''
+    
+#     def __init__(self, in_features, out_features, bias=True,
+#                  is_first=False, omega0=10.0, sigma0=40.0,
+#                  trainable=False):
+#         super().__init__()
+#         self.omega_0 = omega0
+#         self.scale_0 = sigma0
+#         self.is_first = is_first
+        
+#         self.in_features = in_features 
+        
+#         if self.is_first:
+#             dtype = torch.float
+#         else:
+#             dtype = torch.cfloat
+            
+#         # Set trainable parameters if they are to be simultaneously optimized
+#         self.omega_0 = nn.Parameter(self.omega_0*torch.ones(1), trainable)
+#         self.scale_0 = nn.Parameter(self.scale_0*torch.ones(1), trainable)
+        
+#         self.linear = nn.Linear(in_features,
+#                                 out_features,
+#                                 bias=bias,
+#                                 dtype=dtype)
+    
+#     def forward(self, input):
+#         lin = self.linear(input)
+#         omega = self.omega_0 * lin
+#         scale = self.scale_0 * lin
+        
+#         return torch.exp(1j*omega - scale.abs().square())
+    
+# class Wire(nn.Module):
+#     def __init__(self, in_features, hidden_features, 
+#                  hidden_layers, 
+#                  out_features, outermost_linear=True,
+#                  first_omega_0=30, hidden_omega_0=30., scale=10.0,
+#                  pos_encode=False, sidelength=512, fn_samples=None,
+#                  use_nyquist=True):
+#         super().__init__()
+        
+#         # All results in the paper were with the default complex 'gabor' nonlinearity
+#         self.nonlin = ComplexGaborLayer
+        
+#         # Since complex numbers are two real numbers, reduce the number of 
+#         # hidden parameters by 2
+#         hidden_features = int(hidden_features/np.sqrt(2))
+#         dtype = torch.cfloat
+#         self.complex = True
+#         self.wavelet = 'gabor'    
+        
+#         # Legacy parameter
+#         self.pos_encode = False
+            
+#         self.net = []
+#         self.net.append(self.nonlin(in_features,
+#                                     hidden_features, 
+#                                     omega0=first_omega_0,
+#                                     sigma0=scale,
+#                                     is_first=True,
+#                                     trainable=False))
+
+#         for i in range(hidden_layers):
+#             self.net.append(self.nonlin(hidden_features,
+#                                         hidden_features, 
+#                                         omega0=hidden_omega_0,
+#                                         sigma0=scale))
+
+#         final_linear = nn.Linear(hidden_features,
+#                                  out_features,
+#                                  dtype=dtype)            
+#         self.net.append(final_linear)
+        
+#         self.net = nn.Sequential(*self.net)
+    
+#     def forward(self, t, coords):
+#         if self.net[0].linear.weight.dtype == torch.float32 and coords.dtype == torch.complex64 and coords.imag.abs().sum() == 0:
+#             coords = coords.real
+#         output = self.net(coords)
+        
+#         if self.wavelet == 'gabor':
+#             return output.real
          
-        return output
+#         return output
     
-class WireT(nn.Module):
-    def __init__(self, in_features, hidden_features, 
-                 hidden_layers, 
-                 out_features, outermost_linear=True,
-                 first_omega_0=30, hidden_omega_0=30., scale=10.0,
-                 pos_encode=False, sidelength=512, fn_samples=None,
-                 use_nyquist=True):
-        super().__init__()
-        # We have an extra t
-        in_features = in_features + 1
+# class WireT(nn.Module):
+#     def __init__(self, in_features, hidden_features, 
+#                  hidden_layers, 
+#                  out_features, outermost_linear=True,
+#                  first_omega_0=30, hidden_omega_0=30., scale=10.0,
+#                  pos_encode=False, sidelength=512, fn_samples=None,
+#                  use_nyquist=True):
+#         super().__init__()
+#         # We have an extra t
+#         in_features = in_features + 1
         
-        # All results in the paper were with the default complex 'gabor' nonlinearity
-        self.nonlin = ComplexGaborLayer
+#         # All results in the paper were with the default complex 'gabor' nonlinearity
+#         self.nonlin = ComplexGaborLayer
         
-        # Since complex numbers are two real numbers, reduce the number of 
-        # hidden parameters by 2
-        hidden_features = int(hidden_features/np.sqrt(2))
-        dtype = torch.cfloat
-        self.complex = True
-        self.wavelet = 'gabor'    
+#         # Since complex numbers are two real numbers, reduce the number of 
+#         # hidden parameters by 2
+#         hidden_features = int(hidden_features/np.sqrt(2))
+#         dtype = torch.cfloat
+#         self.complex = True
+#         self.wavelet = 'gabor'    
         
-        # Legacy parameter
-        self.pos_encode = False
+#         # Legacy parameter
+#         self.pos_encode = False
             
-        self.net = []
-        self.net.append(self.nonlin(in_features,
-                                    hidden_features, 
-                                    omega0=first_omega_0,
-                                    sigma0=scale,
-                                    is_first=True,
-                                    trainable=False))
+#         self.net = []
+#         self.net.append(self.nonlin(in_features,
+#                                     hidden_features, 
+#                                     omega0=first_omega_0,
+#                                     sigma0=scale,
+#                                     is_first=True,
+#                                     trainable=False))
 
-        for i in range(hidden_layers):
-            self.net.append(self.nonlin(hidden_features,
-                                        hidden_features, 
-                                        omega0=hidden_omega_0,
-                                        sigma0=scale))
+#         for i in range(hidden_layers):
+#             self.net.append(self.nonlin(hidden_features,
+#                                         hidden_features, 
+#                                         omega0=hidden_omega_0,
+#                                         sigma0=scale))
 
-        final_linear = nn.Linear(hidden_features,
-                                 out_features,
-                                 dtype=dtype)            
-        self.net.append(final_linear)
+#         final_linear = nn.Linear(hidden_features,
+#                                  out_features,
+#                                  dtype=dtype)            
+#         self.net.append(final_linear)
         
-        self.net = nn.Sequential(*self.net)
+#         self.net = nn.Sequential(*self.net)
     
-    def forward(self, t, coords):
-        coords = torch.concat([t.unsqueeze(0).expand(coords.shape[0], 1), coords], dim=-1)
-        output = self.net(coords)
+#     def forward(self, t, coords):
+#         coords = torch.concat([t.unsqueeze(0).expand(coords.shape[0], 1), coords], dim=-1)
+#         output = self.net(coords)
         
-        if self.wavelet == 'gabor':
-            return output.real
+#         if self.wavelet == 'gabor':
+#             return output.real
          
-        return output
+#         return output
     
 def get_func(func_name, network_kwargs):
     if func_name == 'nodeo':
@@ -519,8 +658,10 @@ def get_func(func_name, network_kwargs):
     elif func_name == 'sirenlatet':
         func = SirenLateT(**network_kwargs)
     elif func_name == 'wire':
-        func = Wire(**network_kwargs)
+        func = WireReal(**network_kwargs)
     elif func_name == 'wiret':
-        func = WireT(**network_kwargs)
+        func = WireRealT(**network_kwargs)
+    elif func_name == 'wirelatet':
+        func = WireRealLateT(**network_kwargs)
 
     return func

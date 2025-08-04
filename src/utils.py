@@ -1,3 +1,4 @@
+import copy
 from functools import partial
 import logging
 import os
@@ -7,6 +8,7 @@ import io
 from PIL import Image
 import torch
 import torch.nn.functional as F
+from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import make_grid
 import numpy as np
@@ -58,6 +60,36 @@ def fit_neural_reps(data, args):
                     steps_til_summary=steps_til_summary, loss_fn=loss_fn, device=args.device)
         n_reps.append(n_rep)
     return n_reps
+
+def fit_siren_to_img(img, num_epochs=2000, lr=1e-4, device='cuda', layers=[2, 256, 256, 256, 1], min_coord=-1, max_coord=1, omega=30):
+    img_shape = img.shape
+    rep = Siren(layers=layers, omega=omega)
+    rep.to(device)
+    optim = Adam(params=rep.parameters(), lr=lr)
+    loss_fn = torch.nn.MSELoss()
+
+    coord_tensor = generate_coord_tensor(img_shape, device, min_coord=min_coord, max_coord=max_coord)
+    gt = torch.from_numpy(img).to(device)
+
+    min_loss = 1e10
+    best_epoch = 0
+    for epoch in range(num_epochs):
+        pred = rep(torch.tensor([], device=device), coord_tensor)
+        pred = pred.reshape(img_shape)
+        loss = loss_fn(pred, gt.float())
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
+        if loss < min_loss:
+            min_loss = loss
+            best_st_dict = rep.state_dict()
+            best_epoch = epoch
+        if (epoch + 1) % 500 == 0 or epoch == 0:
+            print(f'Epoch {epoch+1}/{num_epochs}, curr loss {loss}, best loss {min_loss} from epoch {best_epoch}')
+    best_nrep = copy.deepcopy(rep)
+    best_nrep.load_state_dict(best_st_dict)
+
+    return best_nrep, best_st_dict
         
 class SingleImgDataset(Dataset):
     def __init__(self, img):
@@ -103,27 +135,36 @@ def prepare_inputs(config):
     if config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec']:
         imgs = torch.from_numpy(np.load(f'data/syn/{config.dataset}/{config.dataset}.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/{config.dataset}/{config.dataset}_nrep_st_dicts.pt')
+        segs = None
     elif config.dataset == 'test':
         imgs = torch.from_numpy(np.load(f'data/syn/rec/rec.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/rec/rec_nrep_st_dicts.pt')
         imgs = imgs[[0, 3]]
         st_dicts = [st_dicts[0], st_dicts[3]]
         config.time_points = 2
+        segs = None
     elif config.dataset == 'const':
         imgs = torch.from_numpy(np.load(f'data/syn/rec/rec.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/rec/rec_nrep_st_dicts.pt')
         imgs = imgs[[0, 0]]
         st_dicts = [st_dicts[0], st_dicts[0]]
         config.time_points = 2
+        segs = None
     elif config.dataset == 'rot_slow2_large':
         imgs = torch.from_numpy(np.load(f'data/syn/rot_slow2/rot_slow2.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/rot_slow2/rot_slow2_nrep_st_dicts_large.pt')
+        segs = None
     elif config.dataset == 'rot_slow2_64':
         imgs = torch.from_numpy(np.load(f'data/syn/rot_slow2/rot_slow2.npy').transpose((2, 0, 1)))
         st_dicts = torch.load(f'data/syn/rot_slow2/rot_slow2_nrep_st_dicts_64x64x64.pt')
+        segs = None
+    elif config.dataset == 'mouse':
+        imgs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_small.npy').transpose((2, 0, 1))).float()
+        st_dicts = torch.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_small_nrep.npy')[0]
+        segs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_st_seg_small.npy').transpose((2, 0, 1)))
 
     models = []
-    if config.dataset == 'rot_slow2_large':
+    if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
         model = Siren([2, 256, 256, 256, 1])
         model.load_state_dict(st_dicts)
         model.eval()
@@ -142,7 +183,8 @@ def prepare_inputs(config):
 
     imgs = imgs[:config.time_points]
     models = models[:config.time_points]
-    return imgs, models
+    segs = segs[:config.time_points] if segs is not None else None
+    return imgs, models, segs
 
 def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs, last_val=False):
     metrics = {}
@@ -154,15 +196,21 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
     metrics['losses/laplacian_loss'] = losses[3]
     metrics['losses/phi_grad_loss'] = losses[4]
 
+    imgs, neural_reps, segs = data
+    phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
+    abs_phi = abs_phi.detach().cpu()
+    coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
+    rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
     if config.debug or last_val:
-        grads = torch.tensor([p.grad.norm() for p in func.parameters()])
-        names = [n for n, p in func.named_parameters()]
-        metrics['grad_stats/mean_grad'] = grads.mean()
-        metrics['grad_stats/min_grad'] = grads.min()
-        metrics['grad_stats/max_grad'] = grads.max()
+        if not last_val:
+            grads = torch.tensor([p.grad.norm() for p in func.parameters()])
+            names = [n for n, p in func.named_parameters()]
+            metrics['grad_stats/mean_grad'] = grads.mean()
+            metrics['grad_stats/min_grad'] = grads.min()
+            metrics['grad_stats/max_grad'] = grads.max()
 
-        for i in range(len(names)):
-            metrics[f'all_grads/{names[i]}'] = grads[i]
+            for i in range(len(names)):
+                metrics[f'all_grads/{names[i]}'] = grads[i]
 
         metrics['phi_stats/abs_max'] = abs_phi.max()
         metrics['phi_stats/abs_min'] = abs_phi.min()
@@ -178,19 +226,27 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
         metrics['vel_stats/rel_min'] = rel_vel.min()
         metrics['vel_stats/rel_mean'] = rel_vel.mean()
 
+        if segs is not None:
+            dices = np.zeros(int(segs.max()))
+            input_segs = segs[:1].expand(segs.shape).unsqueeze(1).float()
+            grid = abs_phi.reshape(phi_shape).permute(0, 2, 1, 3)
+            pred_segs = F.grid_sample(input_segs, grid, mode='nearest').squeeze()
+            for i in range(1, int(segs.max()) + 1):
+                gt_mask = segs == i
+                pred_mask = pred_segs == i
+                intersect = (gt_mask * pred_mask).sum()
+                union = (gt_mask.sum() + pred_mask.sum())
+                dices[i - 1] = 2*intersect/union if union > 0 else 0
+            metrics['dices/mean dice'] = dices.mean()
+
 
     if collect_imgs:
         imgs_to_save = {}
-        imgs, neural_reps = data
         imgs = imgs.detach().cpu()
 
         registration_last = make_grid([torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])], nrow=2, normalize=True)
         registration_all = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
 
-        abs_phi = abs_phi.detach().cpu()
-        coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
-        phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
-        rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
         rel_flow_colors = []
         for time in range(abs_phi.shape[0]):
             rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
@@ -206,6 +262,14 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
 
 
         if config.debug or last_val:
+            if segs is not None:
+                gt_mask = (segs > 0).float()
+                pred_mask = (pred_segs > 0).float()
+                seg_comb_last = make_grid([torch.stack([gt_mask[-1], torch.zeros_like(gt_mask[-1]), pred_mask[-1]])], nrow=2, normalize=True)
+                seg_comb_all = make_grid([torch.stack([s, torch.zeros_like(s), pr]) for s, pr in zip(gt_mask, pred_mask)], nrow=5, normalize=True)
+                imgs_to_save['segmentations/seg_last'] = (seg_comb_last*255).to(torch.uint8).permute(1, 2, 0)
+                imgs_to_save['segmentations/seg_all'] = (seg_comb_all*255).to(torch.uint8).permute(1, 2, 0)
+
             vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
             rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
             rel_act_velocity_color = []
@@ -234,7 +298,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
             auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 0.5))
 
             fin_lap = energies[3] # T/1, H, W, 2
-            fin_lap_norm = torch.linalg.norm(fin_lap, ord=2, dim=-1)
+            fin_lap_norm = torch.linalg.norm(fin_lap, ord=2, dim=-1).unsqueeze(1)
             fin_lap_grid = make_grid(fin_lap_norm, nrow=5, normalize=True, value_range=(0, 0.09))
             auto_lap = energies[4] # H*W, 2
             auto_lap_norm = torch.linalg.norm(auto_lap, ord=2, dim=-1).reshape(imgs.shape[1:]).unsqueeze(0)
@@ -245,7 +309,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
             neg_fin_phi_J = torch.relu(-fin_phi_J_det)
             rgb_fin_phi_J = [torch.stack([p, torch.zeros_like(p), n]) for p, n in zip(pos_fin_phi_J, neg_fin_phi_J)]
             fin_phi_J_det_grid = make_grid(rgb_fin_phi_J, nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
-            fin_phi_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).unsqueeze(0) for im in energies[1]], nrow=5, normalize=True, value_range=(0, 0.1))
+            fin_phi_grad_norm = make_grid(torch.linalg.norm(energies[1], dim=(-2, -1)).unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.1))
 
             # if len(energies[6].shape) < 4:
             #     energies[6] = energies[6].unsqueeze(0)
