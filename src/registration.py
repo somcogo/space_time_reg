@@ -21,7 +21,7 @@ def registration(config, data, writer, logger:logging.Logger):
     func = func.to(config.device)
     coord_tensor = generate_coord_tensor(img_shape, config.device)
     coord_tensor.requires_grad = True
-    time_points = torch.arange(config.time_points, device=config.device) / 19
+    time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
 
     best_loss = 1e8
@@ -47,6 +47,7 @@ def registration(config, data, writer, logger:logging.Logger):
                 else:
                     for t in time_points[2:]:
                         rel_vel = rel_vel + func(t, coord_tensor)
+                    rel_vel = rel_vel.unsqueeze(0)
         else:
             rel_vel = None
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
@@ -72,7 +73,7 @@ def registration(config, data, writer, logger:logging.Logger):
 
         time_stamps[5, epoch-1] = time.time()
         if epoch == 1 or log_epoch:
-            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.3f}    NegJ {losses[1]:.3f}    VGrad {losses[2]:.3f}    Lap {losses[3]:.3f}    PhiGrad {losses[4]:.3f}')
+            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.5f}    NegJ {losses[1]:.5f}    VGrad {losses[2]:.5f}    Lap {losses[3]:.5f}    PhiGrad {losses[4]:.5f}')
         if losses[0] < best_loss:
             best_loss = losses[0]
             best_phi = abs_phi

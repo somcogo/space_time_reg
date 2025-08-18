@@ -34,6 +34,9 @@ if __name__ == '__main__':
     parser.add_argument("--time_points", type=int,
                         dest="time_points", default=20,
                         help="number of time points")
+    parser.add_argument("--start_frame", type=int,
+                        dest="start_frame", default=0,
+                        help="Index of first time frame")
     parser.add_argument("--step_size", type=float,
                         dest="step_size", default=0.001,
                         help="size of time step")

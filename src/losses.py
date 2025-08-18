@@ -163,7 +163,8 @@ def similarity_loss(imgs, neural_reps, abs_phi, args):
             loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
     else:
         img = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, imgs.shape[1], imgs.shape[2])
-        grid = abs_phi.reshape(abs_phi.shape[0], imgs.shape[1], imgs.shape[2], 2).permute(0, 2, 1, 3)
+        grid = abs_phi.reshape(abs_phi.shape[0], imgs.shape[1], imgs.shape[2], 2)
+        grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
         moved = F.grid_sample(img, grid, align_corners=False)
         loss = loss_fn(imgs.unsqueeze(1), moved)
         moved = moved.squeeze(1)

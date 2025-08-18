@@ -162,6 +162,14 @@ def prepare_inputs(config):
         imgs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_small.npy').transpose((2, 0, 1))).float()
         st_dicts = torch.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_small_nrep.npy')[0]
         segs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_st_seg_small.npy').transpose((2, 0, 1)))
+    elif config.dataset == 'mouse_large':
+        imgs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem.npy').transpose((2, 0, 1))).float()
+        st_dicts = None
+        segs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_st_seg.npy').transpose((2, 0, 1)))
+    elif config.dataset == 'mouse_corner':
+        imgs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_corner.npy').transpose((2, 0, 1))).float()
+        st_dicts = None
+        segs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_corner_seg.npy').transpose((2, 0, 1)))
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
@@ -169,6 +177,8 @@ def prepare_inputs(config):
         model.load_state_dict(st_dicts)
         model.eval()
         models = [model]
+    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner':
+        models = [None]
     elif config.dataset == 'rot_slow2_64':
         model = Siren([2, 64, 64, 64, 1])
         model.load_state_dict(st_dicts)
@@ -181,9 +191,9 @@ def prepare_inputs(config):
             model.eval()
             models.append(model)
 
-    imgs = imgs[:config.time_points]
-    models = models[:config.time_points]
-    segs = segs[:config.time_points] if segs is not None else None
+    imgs = imgs[config.start_frame:config.start_frame + config.time_points]
+    models = models[config.start_frame:config.start_frame + config.time_points]
+    segs = segs[config.start_frame:config.start_frame + config.time_points] if segs is not None else None
     return imgs, models, segs
 
 def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs, last_val=False):
@@ -227,16 +237,20 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
         metrics['vel_stats/rel_mean'] = rel_vel.mean()
 
         if segs is not None:
-            dices = np.zeros(int(segs.max()))
+
+            present_classes = [i for i in range(1, int(segs.max()) + 1) if (segs == i).sum() > 0]
+
+            dices = np.zeros(len(present_classes))
             input_segs = segs[:1].expand(segs.shape).unsqueeze(1).float()
-            grid = abs_phi.reshape(phi_shape).permute(0, 2, 1, 3)
+            grid = abs_phi.reshape(imgs.shape[0], imgs.shape[1], imgs.shape[2], 2)
+            grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
             pred_segs = F.grid_sample(input_segs, grid, mode='nearest').squeeze()
-            for i in range(1, int(segs.max()) + 1):
-                gt_mask = segs == i
-                pred_mask = pred_segs == i
+            for i, cls in enumerate(present_classes):
+                gt_mask = segs == cls
+                pred_mask = pred_segs == cls
                 intersect = (gt_mask * pred_mask).sum()
                 union = (gt_mask.sum() + pred_mask.sum())
-                dices[i - 1] = 2*intersect/union if union > 0 else 0
+                dices[i] = 2*intersect/union if union > 0 else 1
             metrics['dices/mean dice'] = dices.mean()
 
 
@@ -294,7 +308,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
             pos_auto_J = torch.relu(auto_J_det)
             neg_auto_J = torch.relu(-auto_J_det)
             rgb_auto_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_J, neg_auto_J)]
-            auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.005))
+            auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.05))
             auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 0.5))
 
             fin_lap = energies[3] # T/1, H, W, 2
