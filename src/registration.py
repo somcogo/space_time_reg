@@ -7,93 +7,85 @@ import torch
 from torchdiffeq import odeint_adjoint as odeint
 
 from src.networks import get_func
-from src.utils import generate_grid_tensor, calculate_metrics, log_metrics, generate_coord_tensor
+from src.utils import calculate_metrics, log_metrics, generate_coord_tensor, get_relevant_loss_names, get_relative_vel, upsample_img_seg
 from src.losses import calculate_losses
-from src.siren.dataio import get_mgrid
 
 def registration(config, data, writer, logger:logging.Logger):
-    img_shape = data[0].shape[1:]
-    dims = len(img_shape)
+    dims = len(data[0].shape[1:])
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
         config.func_kwargs['layers'][-1] = dims
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
-    coord_tensor = generate_coord_tensor(img_shape, config.device)
-    coord_tensor.requires_grad = True
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
+    og_img, neural_reps, og_seg = data
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
-    loss_times = np.zeros((10, config.epochs)) if config.debug else np.zeros((5, config.epochs))
+    losses_to_calc = get_relevant_loss_names(config)
 
     for epoch in range(1, config.epochs + 1):
+        if len(config.schedule) > 1  and epoch in config.schedule:
+            imgs, segs = upsample_img_seg(og_img, og_seg, config, epoch)
+
+        coord_tensor = generate_coord_tensor(imgs.shape[1:], config.device)
+        coord_tensor.requires_grad = True
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
 
         time_stamps[0, epoch-1] = time.time()
-        if config.debug or (config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap > 0):
-            rel_vel = func(time_points[1], coord_tensor)
-            if (config.func_name == 'siren' or config.func_name == 'wire') and config.debug:
-                rel_vel = rel_vel.unsqueeze(0)
-            elif ('siren' in config.func_name or 'wire' in config.func_name) and 't' in config.func_name:
-                if config.debug:
-                    rel_vel = []
-                    for t in time_points:
-                        rel_vel.append(func(t, coord_tensor))
-                    rel_vel = torch.stack(rel_vel)
-                else:
-                    for t in time_points[2:]:
-                        rel_vel = rel_vel + func(t, coord_tensor)
-                    rel_vel = rel_vel.unsqueeze(0)
-        else:
-            rel_vel = None
+        rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-        # abs_phi = torch.relu(abs_phi+1) - 1
-        # abs_phi = -torch.relu(-abs_phi+1) + 1
 
         time_stamps[1, epoch-1] = time.time()
-        losses, moved_imgs, visuals, loss_time, losses_to_log = calculate_losses(config, abs_phi, data, rel_vel, func, time_points, coord_tensor)
-        loss = sum(losses)
-        loss_times[:, epoch - 1] = loss_time
+        loss_sum, losses, moved_imgs = calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_points, coord_tensor, losses_to_calc)
 
         time_stamps[2, epoch-1] = time.time()
-        loss.backward()
+        loss_sum.backward()
 
         time_stamps[3, epoch-1] = time.time()
         optimizer.step()
 
         time_stamps[4, epoch-1] = time.time()
         with torch.no_grad():
-            collect_imgs = epoch % 25 == 0 or epoch == 1 or losses[0] < best_loss
-            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, visuals, collect_imgs)
-            log_metrics(config, metrics, writer, epoch, losses_to_log, imgs_to_save)
+            collect_imgs = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
+            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs)
+            log_metrics(config, metrics, writer, epoch, imgs_to_save)
 
         time_stamps[5, epoch-1] = time.time()
         if epoch == 1 or log_epoch:
-            logger.info(f'Epoch {epoch:4d}/{config.epochs}, Losses Sim {losses[0]:.5f}    NegJ {losses[1]:.5f}    VGrad {losses[2]:.5f}    Lap {losses[3]:.5f}    PhiGrad {losses[4]:.5f}')
-        if losses[0] < best_loss:
-            best_loss = losses[0]
+            log_msg = f'Epoch {epoch:4d}/{config.epochs}, Losses '
+            for loss_type, loss_dict in losses.items():
+                log_msg += f'{loss_type}  {loss_dict['mean']:.5f}     '
+            logger.info(log_msg)
+        if loss_sum < best_loss and epoch > config.schedule[-1]:
+            best_loss = loss_sum
             best_phi = abs_phi
             best_vel = rel_vel
             best_moved = moved_imgs
             best_st_dict = func.state_dict()
-            best_images = imgs_to_save if imgs_to_save is not None else best_images
-            best_logged_losses = losses_to_log
+            best_images = imgs_to_save
             best_epoch = epoch
+            best_losses = losses
 
         if epoch < config.epochs:
             time_stamps[6, epoch] = time.time()
 
+
     # Log images even if not in debug mode
-    if not config.debug:
-        best_func = copy.deepcopy(func)
-        best_func.load_state_dict(best_st_dict)
-        losses, moved_imgs, visuals, loss_time, losses_to_log = calculate_losses(config, best_phi, data, best_vel, best_func, time_points, coord_tensor, True)
-        metrics, imgs_to_save = calculate_metrics(losses, config, best_phi, best_vel, data, moved_imgs, best_func, visuals, True, True)
-        log_metrics(config, metrics, writer, epoch + 1, losses_to_log, imgs_to_save, True)
+    # if not config.debug:
+    with torch.no_grad():
+        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs=True, last_val=True)
+        log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
+    best_func = copy.deepcopy(func)
+    best_func.load_state_dict(best_st_dict)
+    best_vel = get_relative_vel(best_func, config, time_points, coord_tensor, keep_batch_dim=True)
+    loss_sum, losses, moved_imgs = calculate_losses(config, best_phi, best_vel, best_func, og_img, neural_reps, time_points, coord_tensor, losses_to_calc)
+    metrics, imgs_to_save = calculate_metrics(losses, config, best_phi, best_vel, og_img, og_seg, moved_imgs, best_func, collect_imgs=True, last_val=True)
+    log_metrics(config, metrics, writer, epoch + 20, imgs_to_save, last_val=True)
+    best_images = imgs_to_save
 
     logger.info('-------------------------------------------------')
     logger.info(f'Time spent (sec) over {config.epochs} iterations')
@@ -107,25 +99,16 @@ def registration(config, data, writer, logger:logging.Logger):
     logger.info(f'Total:                  {(time_stamps[5] - time_stamps[6]).sum():.4f}')
 
     logger.info('-------------------------------------------------')
-    logger.info(f'Similarity loss:        {(loss_times[1] - loss_times[0]).sum():.4f}')
-    if config.debug:
-        logger.info(f'Finite diff vel J:      {(loss_times[2] - loss_times[1]).sum():.4f}')
-        logger.info(f'Autograd grid vel J:    {(loss_times[3] - loss_times[2]).sum():.4f}')
-        logger.info(f'Autograd rand vel J:    {(loss_times[4] - loss_times[3]).sum():.4f}')
-        logger.info(f'Finite diff vel Lap:    {(loss_times[5] - loss_times[4]).sum():.4f}')
-        logger.info(f'Autograd grid vel Lap:  {(loss_times[6] - loss_times[5]).sum():.4f}')
-        logger.info(f'Autograd rand vel Lap:  {(loss_times[7] - loss_times[6]).sum():.4f}')
-        logger.info(f'Finite diff phi J:      {(loss_times[8] - loss_times[7]).sum():.4f}')
-        logger.info(f'Autograd grid phi J:    {(loss_times[9] - loss_times[8]).sum():.4f}')
+    if config.fin_diff_grad:
+        descr_str = 'Finite diff'
+    elif config.autograd_grid:
+        descr_str = 'Autograd grid'
     else:
-        if config.fin_diff_grad:
-            descr_str = 'Finite diff'
-        elif config.autograd_grid:
-            descr_str = 'Autograd grid'
-        else:
-            descr_str = 'Autograd rand'
-        logger.info(f'{descr_str} vel J:      {(loss_times[2] - loss_times[1]).sum():.4f}')
-        logger.info(f'{descr_str} vel Lap:    {(loss_times[3] - loss_times[2]).sum():.4f}')
-        logger.info(f'{descr_str} phi J:      {(loss_times[4] - loss_times[3]).sum():.4f}')
+        descr_str = 'Autograd rand'
+    for loss_name, loss_dict in losses.items():
+        name = loss_dict['name']
+        if loss_name != 'sim':
+            name = descr_str + name + ':'
+        logger.info(f'{name:<30} {loss_dict['time']:.4f}')
 
-    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, best_images, best_logged_losses, time_stamps, loss_times, best_epoch
+    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, best_images, best_losses, time_stamps, best_epoch

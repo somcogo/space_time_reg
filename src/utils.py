@@ -196,21 +196,21 @@ def prepare_inputs(config):
     segs = segs[config.start_frame:config.start_frame + config.time_points] if segs is not None else None
     return imgs, models, segs
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, energies, collect_imgs, last_val=False):
+def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs, last_val=False):
     metrics = {}
-    metrics['losses/total_loss'] = sum(losses)
-    metrics['losses/sim_loss'] = losses[0]
-    metrics['losses/negJ_loss'] = losses[1]
-    # metrics['losses/smooth_loss'] = losses[2]
-    metrics['losses/gradient_loss'] = losses[2]
-    metrics['losses/laplacian_loss'] = losses[3]
-    metrics['losses/phi_grad_loss'] = losses[4]
+    total = 0.
+    for loss_type, loss_dict in losses.items():
+        metrics[f'losses/{loss_dict['name']}'] = loss_dict['lambda'] * loss_dict['mean']
+        metrics[f'debug_losses/{loss_dict['name']}'] = loss_dict['mean']
+        total += loss_dict['lambda'] * loss_dict['mean']
+    metrics['losses/total_loss'] = total
 
-    imgs, neural_reps, segs = data
     phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
+    vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
+    rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
     if config.debug or last_val:
         if not last_val:
             grads = torch.tensor([p.grad.norm() for p in func.parameters()])
@@ -221,30 +221,20 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
 
             for i in range(len(names)):
                 metrics[f'all_grads/{names[i]}'] = grads[i]
-
-        metrics['phi_stats/abs_max'] = abs_phi.max()
-        metrics['phi_stats/abs_min'] = abs_phi.min()
-        phi_11 = (abs_phi == torch.tensor([1, 1], device=abs_phi.device)).sum()
-        phi_m1m1 = (abs_phi == torch.tensor([-1, -1], device=abs_phi.device)).sum()
-        phi_1m1 = (abs_phi == torch.tensor([1, -1], device=abs_phi.device)).sum()
-        phi_m11 = (abs_phi == torch.tensor([-1, 1], device=abs_phi.device)).sum()
-        phi_boundary = phi_11 + phi_m1m1 + phi_1m1 + phi_m11
-        all_phi = math.prod(list(abs_phi.shape))
-        metrics['phi_stats/boundary_ratio'] = phi_boundary/all_phi
-        metrics['phi_stats/boundary_absolute'] = phi_boundary
+                
         metrics['vel_stats/rel_max'] = rel_vel.max()
         metrics['vel_stats/rel_min'] = rel_vel.min()
         metrics['vel_stats/rel_mean'] = rel_vel.mean()
 
         if segs is not None:
-
             present_classes = [i for i in range(1, int(segs.max()) + 1) if (segs == i).sum() > 0]
-
-            dices = np.zeros(len(present_classes))
             input_segs = segs[:1].expand(segs.shape).unsqueeze(1).float()
+
             grid = abs_phi.reshape(imgs.shape[0], imgs.shape[1], imgs.shape[2], 2)
             grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
             pred_segs = F.grid_sample(input_segs, grid, mode='nearest').squeeze()
+
+            dices = np.zeros(len(present_classes))
             for i, cls in enumerate(present_classes):
                 gt_mask = segs == cls
                 pred_mask = pred_segs == cls
@@ -255,291 +245,157 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, data, moved_imgs, func, 
 
 
     if collect_imgs:
-        imgs_to_save = {}
-        imgs = imgs.detach().cpu()
+        reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
+        flow_col, vel_color, vel_norm = prep_flow_vis(rel_phi, rel_vel)
+        sim_grid = prep_sim_meas_vis(losses['sim']['loss'])
+        def_grid = prep_grid_def_vis(abs_phi.reshape(phi_shape)[-1])
 
-        registration_last = make_grid([torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])], nrow=2, normalize=True)
-        registration_all = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
+        imgs_to_save = {
+            'imgs/reg_last':reg_last,
+            'imgs/reg_all':reg_all,
+            'flows/flow':flow_col,
+            'flows/vel_col':vel_color,
+            'flows/vel_norm':vel_norm,
+            'energies/sim_loss':sim_grid,
+            'grid_deform/grid_def_last_step':def_grid
+        }
 
-        rel_flow_colors = []
-        for time in range(abs_phi.shape[0]):
-            rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
-        flow_col = make_grid(rel_flow_colors, nrow=5)
+        if segs is not None:
+            seg_last, seg_all = prep_seg_vis(segs, pred_segs)
+            imgs_to_save['segmentations/seg_last'] = seg_last
+            imgs_to_save['segmentations/seg_all'] = seg_all
 
-        sim_grid = make_grid([im for im in energies[0]], nrow=5, normalize=True)
-
-        imgs_to_save = {'imgs/reg_last':(registration_last*255).to(torch.uint8).permute(1, 2, 0),
-                        'imgs/reg_all':(registration_all*255).to(torch.uint8).permute(1, 2, 0),
-                        'flows/flow':flow_col.permute(1, 2, 0),
-                        'energies/sim_loss':(sim_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
-                        }
-
-
-        if config.debug or last_val:
-            if segs is not None:
-                gt_mask = (segs > 0).float()
-                pred_mask = (pred_segs > 0).float()
-                seg_comb_last = make_grid([torch.stack([gt_mask[-1], torch.zeros_like(gt_mask[-1]), pred_mask[-1]])], nrow=2, normalize=True)
-                seg_comb_all = make_grid([torch.stack([s, torch.zeros_like(s), pr]) for s, pr in zip(gt_mask, pred_mask)], nrow=5, normalize=True)
-                imgs_to_save['segmentations/seg_last'] = (seg_comb_last*255).to(torch.uint8).permute(1, 2, 0)
-                imgs_to_save['segmentations/seg_all'] = (seg_comb_all*255).to(torch.uint8).permute(1, 2, 0)
-
-            vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
-            rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
-            rel_act_velocity_color = []
-            for time in range(rel_vel.shape[0]):
-                rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
-            vel_color = make_grid(rel_act_velocity_color, nrow=5)
-            vel_norm = make_grid([torch.linalg.norm(vel, ord=2, dim=-1).unsqueeze(0) for vel in rel_vel], nrow=5, value_range=(0, 2))
-            imgs_to_save['flows/vel_col'] = vel_color.permute(1, 2, 0)
-            imgs_to_save['flows/vel_norm'] = (vel_norm*255).to(torch.uint8).permute(1, 2, 0)
-
-            fin_J_det = torch.det(energies[1])
-            pos_fin_J = torch.relu(fin_J_det)
-            neg_fin_J = torch.relu(-fin_J_det)
-            rgb_fin_J = [torch.stack([p, torch.zeros_like(p), n]) for p, n in zip(pos_fin_J, neg_fin_J)]
-            fin_J_det_grid = make_grid(rgb_fin_J, nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
-            fin_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).unsqueeze(0) for im in energies[1]], nrow=5, normalize=True, value_range=(0, 0.1))
-
-            if len(energies[2].shape) < 4:
-                energies[2] = energies[2].unsqueeze(0)
-            energies[2] = energies[2] / abs_phi.shape[0]
-            auto_J_det = torch.det(energies[2])
-            pos_auto_J = torch.relu(auto_J_det)
-            neg_auto_J = torch.relu(-auto_J_det)
-            rgb_auto_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_J, neg_auto_J)]
-            auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.05))
-            auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 0.5))
-
-            fin_lap = energies[3] # T/1, H, W, 2
-            fin_lap_norm = torch.linalg.norm(fin_lap, ord=2, dim=-1).unsqueeze(1)
-            fin_lap_grid = make_grid(fin_lap_norm, nrow=5, normalize=True, value_range=(0, 0.09))
-            auto_lap = energies[4] # H*W, 2
-            auto_lap_norm = torch.linalg.norm(auto_lap, ord=2, dim=-1).reshape(imgs.shape[1:]).unsqueeze(0)
-            auto_lap_grid = make_grid(auto_lap_norm, nrow=5, normalize=True, value_range=(0, 150))
-
-            fin_phi_J_det = torch.det(energies[5]) # T, H, W, 2, 2
-            pos_fin_phi_J = torch.relu(fin_phi_J_det)
-            neg_fin_phi_J = torch.relu(-fin_phi_J_det)
-            rgb_fin_phi_J = [torch.stack([p, torch.zeros_like(p), n]) for p, n in zip(pos_fin_phi_J, neg_fin_phi_J)]
-            fin_phi_J_det_grid = make_grid(rgb_fin_phi_J, nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
-            fin_phi_grad_norm = make_grid(torch.linalg.norm(energies[1], dim=(-2, -1)).unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.1))
-
-            # if len(energies[6].shape) < 4:
-            #     energies[6] = energies[6].unsqueeze(0)
-            # energies[6] = energies[6] / abs_phi.shape[0]
-            # auto_phi_J_det = torch.det(energies[6]) # H*W, 2, 2
-            # pos_auto_phi_J = torch.relu(auto_phi_J_det)
-            # neg_auto_phi_J = torch.relu(-auto_phi_J_det)
-            # rgb_auto_phi_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_phi_J, neg_auto_phi_J)]
-            # auto_phi_J_det_grid = make_grid(rgb_auto_phi_J, nrow=5, normalize=True, value_range=(0, 0.005))
-            # auto_phi_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[6]], nrow=5, normalize=True, value_range=(0, 0.5))
-
-            phi = abs_phi.reshape(phi_shape)[-1]
-            fig, ax = plt.subplots()
-            for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/64)):
-                ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
-            for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/64)):
-                ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
-            ax.axis('off')
-            ax.set_aspect('equal')
-            fig.tight_layout()
-            
-            buf = io.BytesIO()
-            fig.savefig(buf, format='png')
-            buf.seek(0)
-            image = Image.open(buf)
-            np_image = np.array(image).transpose(2, 0, 1)
-            plt.close(fig)
-
-            imgs_to_save.update({
-                'J_det/fin_J_det':(fin_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'J_det/auto_J_det':(auto_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'grad_norm/fin_grad_norm':(fin_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'grad_norm/auto_grad_norm':(auto_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'grid_deform/grid_def_last_step':torch.from_numpy(np_image).permute(1, 2, 0),
-                'laplacian/fin_lap':(fin_lap_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'laplacian/auto_lap':(auto_lap_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'phi_J_det/fin_phi_J_det':(fin_phi_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                # 'phi_J_det/auto_phi_J_det':(auto_phi_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                'phi_grad_norm/fin_phi_grad_norm':(fin_phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-                # 'phi_grad_norm/auto_phi_grad_norm':(auto_phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-            })
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], imgs.shape[1:])
     else:
         imgs_to_save = None
 
-
     return metrics, imgs_to_save
 
-def log_metrics(config, metrics, writer, epoch, losses_to_log, imgs_to_log, last_val=False):
+def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_shape):
+    for loss_type, loss_dict in losses.items():
+        if loss_type == 'negJ':
+            negJ = prep_detJ_vis(loss_dict['loss'], config, nr_time_frames, img_shape)
+            imgs_to_save['vel_J_det/negJ'] = negJ
+        elif loss_type == 'grd':
+            grad_norm = prep_vel_grad_vis(loss_dict['loss'], config, nr_time_frames, img_shape)
+            imgs_to_save['vel_grad_norm/grad_norm'] = grad_norm
+        elif loss_type == 'lap':
+            lap_norm = prep_vel_lap_vis(loss_dict['loss'], config, img_shape)
+            imgs_to_save['laplacian/laplacian_norm'] = lap_norm
+        elif loss_type == 'pgr':
+            phi_grad_norm = prep_phi_grad_vis(loss_dict['loss'])
+            imgs_to_save['phi_grad_norm/phi_grad_norm'] = phi_grad_norm
+
+    return imgs_to_save
+
+def prep_moved_img_vis(imgs, moved_imgs):
+    imgs = imgs.detach().cpu()
+    reg_last = make_grid([torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])], nrow=2, normalize=True)
+    reg_all = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
+
+    reg_last = (reg_last*255).to(torch.uint8).permute(1, 2, 0)
+    reg_all = (reg_all*255).to(torch.uint8).permute(1, 2, 0)
+    return reg_last, reg_all
+
+def prep_flow_vis(rel_phi, rel_vel):
+    rel_flow_colors = []
+    for time in range(rel_phi.shape[0]):
+        rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
+    flow_col = make_grid(rel_flow_colors, nrow=5)
+    flow_col = flow_col.permute(1, 2, 0)
+
+    rel_act_velocity_color = []
+    for time in range(rel_vel.shape[0]):
+        rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
+    vel_color = make_grid(rel_act_velocity_color, nrow=5)
+    vel_norm = make_grid([torch.linalg.norm(vel, ord=2, dim=-1).unsqueeze(0) for vel in rel_vel], nrow=5, value_range=(0, 2))
+    vel_color = vel_color.permute(1, 2, 0)
+    vel_norm = (vel_norm*255).to(torch.uint8).permute(1, 2, 0)
+
+    return flow_col, vel_color, vel_norm
+
+def prep_sim_meas_vis(sim_meas):
+    sim_grid = make_grid([im for im in sim_meas], nrow=5, normalize=True)
+    sim_grid = (sim_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return sim_grid
+
+def prep_seg_vis(segs, pred_segs):
+    gt_mask = (segs > 0).float()
+    pred_mask = (pred_segs > 0).float()
+    seg_comb_last = make_grid([torch.stack([gt_mask[-1], torch.zeros_like(gt_mask[-1]), pred_mask[-1]])], nrow=2, normalize=True)
+    seg_comb_all = make_grid([torch.stack([s, torch.zeros_like(s), pr]) for s, pr in zip(gt_mask, pred_mask)], nrow=5, normalize=True)
+    seg_comb_last = (seg_comb_last*255).to(torch.uint8).permute(1, 2, 0)
+    seg_comb_all = (seg_comb_all*255).to(torch.uint8).permute(1, 2, 0)
+    return seg_comb_all, seg_comb_last
+
+def prep_detJ_vis(negJ, config, nr_time_frames, img_shape):
+    if config.fin_diff_grad:
+        J_det_grid = make_grid(negJ.unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
+    else:
+        if len(negJ) < 4:
+            negJ = negJ.unsqueeze(0)
+        negJ = negJ / nr_time_frames
+        negJ = [frame.reschape(img_shape) for frame in negJ]
+        J_det_grid = make_grid(negJ, nrow=5, normalize=True, value_range=(0, 0.05))
+    
+    J_det_grid =(J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return J_det_grid
+
+def prep_vel_grad_vis(vel_grad, config, nr_time_frames, img_shape):
+    if config.fin_diff_grad:
+        grad_norm = make_grid([torch.linalg.norm(im, dim=-1).unsqueeze(0) for im in vel_grad], nrow=5, normalize=True, value_range=(0, 0.1))
+    else:
+        if len(vel_grad) < 4:
+            vel_grad = vel_grad.unsqueeze(0)
+        vel_grad = vel_grad / nr_time_frames
+        grad_norm = make_grid([torch.linalg.norm(im, dim=-1).reshape(img_shape) for im in vel_grad], nrow=5, normalize=True, value_range=(0, 0.5))
+    
+    grad_norm = (grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return grad_norm
+
+def prep_vel_lap_vis(lap, config, img_shape):
+    if config.fin_diff_grad:
+        # lap.shape T/1, H, W
+        lap_grid = make_grid(lap.unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.09))
+    else:
+        # lap.shape H*W, 2
+        lap_norm = torch.linalg.norm(lap, ord=2, dim=-1).reshape(img_shape).unsqueeze(0)
+        lap_grid = make_grid(lap_norm, nrow=5, normalize=True, value_range=(0, 150))
+    lap_grid = (lap_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return lap_grid
+
+def prep_phi_grad_vis(phi_grad):
+    phi_grad_norm = make_grid(torch.linalg.norm(phi_grad, dim=-1).unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.1))
+    phi_grad_norm = (phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return phi_grad_norm
+
+def prep_grid_def_vis(last_phi):
+    fig, ax = plt.subplots()
+    for i in range(0, last_phi.shape[0], math.ceil(last_phi.shape[0]/64)):
+        ax.plot(last_phi[i, :, 0], last_phi[i, :, 1], 'r-', linewidth=0.5)
+    for i in range(0, last_phi.shape[1], math.ceil(last_phi.shape[1]/64)):
+        ax.plot(last_phi[:, i, 0], last_phi[:, i, 1], 'r-', linewidth=0.5)
+    ax.axis('off')
+    ax.set_aspect('equal')
+    fig.tight_layout()
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    image = Image.open(buf)
+    np_image = np.array(image).transpose(2, 0, 1)
+    tens_image = torch.from_numpy(np_image).permute(1, 2, 0)
+    plt.close(fig)
+    return tens_image
+    
+
+def log_metrics(config, metrics, writer, epoch, imgs_to_log, last_val=False):
     for k, v in metrics.items():
         writer.add_scalar(k, v, epoch)
 
-    for k, v in losses_to_log.items():
-        writer.add_scalar(f'debug_losses/{k}', v, epoch)
-    
     if imgs_to_log is not None and (config.debug or last_val):
         for k, v in imgs_to_log.items():
             writer.add_image(k, v, epoch, dataformats='HWC', )
-
-    # if config.debug:
-    #     with torch.no_grad():
-    #         grads = torch.tensor([p.grad.norm() for p in func.parameters()])
-    #         names = [n for n, p in func.named_parameters()]
-    #         writer.add_scalar('grad_stats/mean_grad', grads.mean(), epoch)
-    #         writer.add_scalar('grad_stats/min_grad', grads.min(), epoch)
-    #         writer.add_scalar('grad_stats/max_grad', grads.max(), epoch)
-
-    #         for i in range(len(names)):
-    #             writer.add_scalar(f'all_grads/{names[i]}', grads[i], epoch)
-
-    #         writer.add_scalar('phi_stats/abs_max', abs_phi.max(), epoch)
-    #         writer.add_scalar('phi_stats/abs_min', abs_phi.min(), epoch)
-    #         phi_11 = (abs_phi == torch.tensor([1, 1], device=abs_phi.device)).sum()
-    #         phi_m1m1 = (abs_phi == torch.tensor([-1, -1], device=abs_phi.device)).sum()
-    #         phi_1m1 = (abs_phi == torch.tensor([1, -1], device=abs_phi.device)).sum()
-    #         phi_m11 = (abs_phi == torch.tensor([-1, 1], device=abs_phi.device)).sum()
-    #         phi_boundary = phi_11 + phi_m1m1 + phi_1m1 + phi_m11
-    #         all_phi = math.prod(list(abs_phi.shape))
-    #         writer.add_scalar('phi_stats/boundary_ratio', phi_boundary/all_phi, epoch)
-    #         writer.add_scalar('phi_stats/boundary_absolute', phi_boundary, epoch)
-
-
-    #         writer.add_scalar('vel_stats/rel_max', rel_vel.max(), epoch)
-    #         writer.add_scalar('vel_stats/rel_min', rel_vel.min(), epoch)
-    #         writer.add_scalar('vel_stats/rel_mean', rel_vel.mean(), epoch)
-
-    # if epoch % 25 == 0 or epoch == 1:
-    #     imgs, neural_reps = data
-    #     imgs = imgs.detach().cpu()
-
-    #     imgs_to_display = [torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])]
-    #     img_grid = make_grid(imgs_to_display, nrow=2, normalize=True)
-    #     moved_grid = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
-
-    #     writer.add_image('imgs/comparison', img_grid, epoch, dataformats='CHW', )
-    #     writer.add_image('imgs/all_time', moved_grid, epoch, dataformats='CHW')
-
-    #     abs_phi = abs_phi.detach().cpu()
-    #     coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
-    #     phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
-    #     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
-    #     rel_flow_colors = []
-    #     for time in range(abs_phi.shape[0]):
-    #         rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
-    #     rel_flow_grid = make_grid(rel_flow_colors, nrow=5)
-
-    #     vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
-    #     rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
-    #     rel_act_velocity_color = []
-    #     rel_vel_norm = []
-    #     for time in range(rel_vel.shape[0]):
-    #         rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
-    #         rel_vel_norm.append(torch.linalg.norm(rel_vel[time], ord=2, dim=-1).unsqueeze(0))
-    #     rel_vel_grid = make_grid(rel_act_velocity_color, nrow=5)
-    #     rel_vel_norm_grid = make_grid(rel_vel_norm, nrow=5, value_range=(0, 2))
-
-    #     writer.add_image('flows/rel_flow_all', rel_flow_grid, epoch, dataformats='CHW', )
-    #     writer.add_image('flows/rel_velocity', rel_vel_grid, epoch, dataformats='CHW', )
-    #     writer.add_image('flows/rel_vel_norm', rel_vel_norm_grid, epoch, dataformats='CHW', )
-
-    #     sim_grid = make_grid([im for im in energies[0]], nrow=5, normalize=True)
-    #     writer.add_image('energies/sim', sim_grid, epoch, dataformats='CHW', )
-
-    #     imgs_to_save = {'reg_last':(img_grid*255).to(torch.uint8).permute(1, 2, 0),
-    #                     'reg_all':(moved_grid*255).to(torch.uint8).permute(1, 2, 0),
-    #                     'flow':rel_flow_grid.permute(1, 2, 0),
-    #                     'vel_col':rel_vel_grid.permute(1, 2, 0),
-    #                     'vel_norm':(rel_vel_norm_grid*255).to(torch.uint8).permute(1, 2, 0),
-    #                     'sim_loss':(sim_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)}
-
-    #     if config.debug:
-    #         fin_J_det = torch.det(energies[1])
-    #         pos_fin_J = torch.relu(fin_J_det)
-    #         neg_fin_J = torch.relu(-fin_J_det)
-    #         rgb_fin_J = [torch.stack([p, torch.zeros_like(p), n]) for p, n in zip(pos_fin_J, neg_fin_J)]
-    #         fin_J_det_grid = make_grid(rgb_fin_J, nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
-    #         fin_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).unsqueeze(0) for im in energies[1]], nrow=5, normalize=True, value_range=(0, 0.1))
-
-    #         if len(energies[2].shape) < 4:
-    #             energies[2] = energies[2].unsqueeze(0)
-    #         energies[2] = energies[2] / abs_phi.shape[0]
-    #         auto_J_det = torch.det(energies[2])
-    #         pos_auto_J = torch.relu(auto_J_det)
-    #         neg_auto_J = torch.relu(-auto_J_det)
-    #         rgb_auto_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_J, neg_auto_J)]
-    #         auto_J_det_grid = make_grid(rgb_auto_J, nrow=5, normalize=True, value_range=(0, 0.005))
-    #         auto_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[2]], nrow=5, normalize=True, value_range=(0, 0.5))
-
-    #         writer.add_image('J_det/fin_diff', fin_J_det_grid, epoch, dataformats='CHW', )
-    #         writer.add_image('J_det/auto_grad', auto_J_det_grid, epoch, dataformats='CHW', )
-    #         writer.add_image('grad_norm/fin_diff', fin_grad_norm, epoch, dataformats='CHW', )
-    #         writer.add_image('grad_norm/auto_grad', auto_grad_norm, epoch, dataformats='CHW', )
-
-    #         fin_lap = energies[3] # T/1, H, W, 2
-    #         fin_lap_norm = torch.linalg.norm(fin_lap, ord=2, dim=-1)
-    #         fin_lap_grid = make_grid(fin_lap_norm, nrow=5, normalize=True, value_range=(0, 0.09))
-    #         auto_lap = energies[4] # H*W, 2
-    #         auto_lap_norm = torch.linalg.norm(auto_lap, ord=2, dim=-1).reshape(imgs.shape[1:]).unsqueeze(0)
-    #         auto_lap_grid = make_grid(auto_lap_norm, nrow=5, normalize=True, value_range=(0, 150))
-    #         writer.add_image('laplacian/fin_diff', fin_lap_grid, epoch, dataformats='CHW', )
-    #         writer.add_image('laplacian/auto_grad', auto_lap_grid, epoch, dataformats='CHW', )
-
-    #         fin_phi_J_det = torch.det(energies[5]) # T, H, W, 2, 2
-    #         pos_fin_phi_J = torch.relu(fin_phi_J_det)
-    #         neg_fin_phi_J = torch.relu(-fin_phi_J_det)
-    #         rgb_fin_phi_J = [torch.stack([p, torch.zeros_like(p), n]) for p, n in zip(pos_fin_phi_J, neg_fin_phi_J)]
-    #         fin_phi_J_det_grid = make_grid(rgb_fin_phi_J, nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
-    #         fin_phi_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).unsqueeze(0) for im in energies[1]], nrow=5, normalize=True, value_range=(0, 0.1))
-
-    #         # if len(energies[6].shape) < 4:
-    #         #     energies[6] = energies[6].unsqueeze(0)
-    #         # energies[6] = energies[6] / abs_phi.shape[0]
-    #         # auto_phi_J_det = torch.det(energies[6]) # H*W, 2, 2
-    #         # pos_auto_phi_J = torch.relu(auto_phi_J_det)
-    #         # neg_auto_phi_J = torch.relu(-auto_phi_J_det)
-    #         # rgb_auto_phi_J = [torch.stack([p.reshape(imgs.shape[1:]), torch.zeros_like(p.reshape(imgs.shape[1:])), n.reshape(imgs.shape[1:])]) for p, n in zip(pos_auto_phi_J, neg_auto_phi_J)]
-    #         # auto_phi_J_det_grid = make_grid(rgb_auto_phi_J, nrow=5, normalize=True, value_range=(0, 0.005))
-    #         # auto_phi_grad_norm = make_grid([torch.linalg.norm(im, dim=(-2, -1)).reshape(imgs.shape[1:]) for im in energies[6]], nrow=5, normalize=True, value_range=(0, 0.5))
-
-    #         writer.add_image('phi_J_det/fin_diff', fin_phi_J_det_grid, epoch, dataformats='CHW', )
-    #         # writer.add_image('phi_J_det/auto_grad', auto_phi_J_det_grid, epoch, dataformats='CHW', )
-    #         writer.add_image('phi_grad_norm/fin_diff', fin_phi_grad_norm, epoch, dataformats='CHW', )
-    #         # writer.add_image('phi_grad_norm/auto_grad', auto_phi_grad_norm, epoch, dataformats='CHW', )
-
-    #         phi = abs_phi.reshape(phi_shape)[-1]
-    #         fig, ax = plt.subplots()
-    #         for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/64)):
-    #             ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
-    #         for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/64)):
-    #             ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
-    #         ax.axis('off')
-    #         ax.set_aspect('equal')
-    #         fig.tight_layout()
-            
-    #         buf = io.BytesIO()
-    #         fig.savefig(buf, format='png')
-    #         buf.seek(0)
-    #         image = Image.open(buf)
-    #         np_image = np.array(image).transpose(2, 0, 1)
-    #         writer.add_image('grid_deform/last_step', np_image, epoch, dataformats='CHW', )
-    #         plt.close(fig)
-
-    #         imgs_to_save.update({
-    #             'fin_J_det':(fin_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'auto_J_det':(auto_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'fin_grad_norm':(fin_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'auto_grad_norm':(auto_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'grid_def':np_image.transpose(1, 2, 0),
-    #             'fin_lap':(fin_lap_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'auto_lap':(auto_lap_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'fin_phi_J_det':(fin_phi_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             # 'auto_phi_J_det':(auto_phi_J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             'fin_phi_grad_norm':(fin_phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #             # 'auto_phi_grad_norm':(auto_phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0),
-    #         })
-    #     else:
-    #         imgs_to_save = {}
     
 def save_results(config, output):
     save_path = os.path.join(config.log_path, 'res.pt')
@@ -548,17 +404,64 @@ def save_results(config, output):
                  'coord_tensor':output[2].detach().cpu(),
                  'moved_imgs':output[3].detach().cpu(),
                  'st_dict':output[4],
-                 'losses':output[6],
+                #  'losses':output[6],
                  'time_stamps':output[7],
-                 'loss_times':output[8],
-                 'epoch':output[9],
+                 'epoch':output[8],
                  'config':vars(config)}
     np_save_path = os.path.join(config.log_path, 'np_imgs.npy')
     np_save_dict = {'images':output[5]}
     torch.save(save_dict, save_path)
     np.save(np_save_path, np_save_dict, allow_pickle=True)
-    # if config.debug:
     img_dict = os.path.join(config.log_path, 'imgs')
     os.makedirs(img_dict, exist_ok=True)
     for k, v in output[5].items():
         Image.fromarray(v.numpy()).save(os.path.join(img_dict, f'{k.split('/')[1]}.png'))
+
+def upsample_img_seg(img, seg, config, epoch):
+    ndx = config.schedule.index(epoch)
+    downsample = config.downsamples[ndx]
+    new_shape = [l // downsample for l in img.shape[1:]]
+    mode = 'bilinear' if len(img.shape) == 3 else 'trilinear'
+    new_img = F.interpolate(img.unsqueeze(1), size=new_shape, mode=mode, antialias=True).squeeze(1)
+    new_seg = F.interpolate(seg.unsqueeze(1), size=new_shape, mode='nearest-exact').squeeze(1)
+    return new_img, new_seg
+
+def get_relevant_loss_names(config):
+    losses = {'sim':{'name':'Similarity loss',
+                       'lambda':config.lambda_st,
+                       'time':0.}}
+
+    if config.lambda_negJ > 0 or config.lambda_grd > 0 or config.debug:
+        losses['negJ'] = {'name':'Vel negative det J',
+                       'lambda':config.lambda_negJ,
+                       'time':0.}
+        losses['grd'] = {'name':'Vel gradient',
+                       'lambda':config.lambda_grd,
+                       'time':0.}
+    if config.lambda_lap > 0 or config.debug:
+        losses['lap'] = {'name':'Vel Laplacian',
+                       'lambda':config.lambda_lap,
+                       'time':0.}
+    if config.lambda_pgr > 0 or config.debug:
+        losses['pgr'] = {'name':'Phi gradient',
+                       'lambda':config.lambda_pgr,
+                       'time':0.}
+
+    return losses
+
+def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
+    if config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap > 0:
+        if (config.func_name == 'siren' or config.func_name == 'wire'):
+            rel_vel = func(time_points[1], coord_tensor).unsqueeze(0)
+        elif ('siren' in config.func_name or 'wire' in config.func_name) and 't' in config.func_name:
+            if keep_batch_dim:
+                rel_vel = []
+                for t in time_points:
+                    rel_vel.append(func(t, coord_tensor))
+                rel_vel = torch.stack(rel_vel)
+            else:
+                rel_vel = func(time_points[1], coord_tensor)
+                for t in time_points[2:]:
+                    rel_vel = rel_vel + func(t, coord_tensor)
+                rel_vel = rel_vel.unsqueeze(0)
+    return rel_vel

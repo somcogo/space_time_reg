@@ -2,23 +2,23 @@
 lossfn="mse"
 depth="3"
 dim="64"
-epochs="1000"
-tp="33"
-ts=1e-2
+epochs="200"
+tp="20"
+ts=0
 
-dset="mouse_corner"
-gpu="0"
+dset="mouse_large"
+gpu="1"
 solver="euler"
 netw="sirent"
 
-folder="mouse_corner"
-comm="second"
+folder="debug_debug"
+comm="reproduce"
 
 lr="5e-4"
 lam_negJ=1e2      # 1e1 1e-1
 lam_smt=0
-lam_grd=0       # 1e0 1e-2
-lam_lap=1e-1       # 1e0 1e-3
+lam_grd=1e-1       # 1e0 1e-2
+lam_lap=0       # 1e0 1e-3
 lam_pgr=0       # 1e0
 lam_sim=10
 

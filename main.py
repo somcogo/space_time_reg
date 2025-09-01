@@ -127,6 +127,13 @@ if __name__ == '__main__':
                         dest="debug", default=False,
                         help="Use debug mode. Increases runtime significantly")
     
+    parser.add_argument("--schedule", type=list,
+                        dest="schedule", default=None,
+                        help="Epochs when downsample")
+    parser.add_argument("--downsamples", type=list,
+                        dest="downsamples", default=[8, 1],
+                        help="Factor to downsample by")
+    
     config = parser.parse_args()
 
     torch.manual_seed(config.seed)
@@ -157,6 +164,7 @@ if __name__ == '__main__':
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
     config.step_size = None if config.step_size == 0 else config.step_size
+    config.schedule = [1, config.epochs - 99] if config.schedule == None else config.schedule
     
     logger = get_logger(config.log_level)
     logger.info(f'Starting experiment with name {config.exp_name}')
