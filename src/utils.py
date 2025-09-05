@@ -232,7 +232,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
 
             grid = abs_phi.reshape(imgs.shape[0], imgs.shape[1], imgs.shape[2], 2)
             grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
-            pred_segs = F.grid_sample(input_segs, grid, mode='nearest').squeeze()
+            pred_segs = F.grid_sample(input_segs, grid, mode='nearest', align_corners=False).squeeze()
 
             dices = np.zeros(len(present_classes))
             for i, cls in enumerate(present_classes):
@@ -460,8 +460,8 @@ def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
                     rel_vel.append(func(t, coord_tensor))
                 rel_vel = torch.stack(rel_vel)
             else:
-                rel_vel = func(time_points[1], coord_tensor)
-                for t in time_points[2:]:
+                rel_vel = func(time_points[0], coord_tensor)
+                for t in time_points[1:]:
                     rel_vel = rel_vel + func(t, coord_tensor)
                 rel_vel = rel_vel.unsqueeze(0)
     return rel_vel
