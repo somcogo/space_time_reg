@@ -330,7 +330,7 @@ def prep_seg_vis(segs, pred_segs):
 
 def prep_detJ_vis(negJ, config, nr_time_frames, img_shape):
     if config.fin_diff_grad:
-        J_det_grid = make_grid(negJ.unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.001), pad_value=1)
+        J_det_grid = make_grid(negJ.unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.00001), pad_value=1)
     else:
         if len(negJ) < 4:
             negJ = negJ.unsqueeze(0)
@@ -343,7 +343,7 @@ def prep_detJ_vis(negJ, config, nr_time_frames, img_shape):
 
 def prep_vel_grad_vis(vel_grad, config, nr_time_frames, img_shape):
     if config.fin_diff_grad:
-        grad_norm = make_grid([torch.linalg.norm(im, dim=-1).unsqueeze(0) for im in vel_grad], nrow=5, normalize=True, value_range=(0, 0.1))
+        grad_norm = make_grid([torch.linalg.norm(im, dim=-1).unsqueeze(0) for im in vel_grad], nrow=5, normalize=True, value_range=(0, 0.02))
     else:
         if len(vel_grad) < 4:
             vel_grad = vel_grad.unsqueeze(0)
@@ -420,11 +420,12 @@ def save_results(config, output):
 def upsample_img_seg(img, seg, config, epoch):
     ndx = config.schedule.index(epoch)
     downsample = config.downsamples[ndx]
+    print(downsample)
     new_shape = [l // downsample for l in img.shape[1:]]
     mode = 'bilinear' if len(img.shape) == 3 else 'trilinear'
     new_img = F.interpolate(img.unsqueeze(1), size=new_shape, mode=mode, antialias=True).squeeze(1)
     new_seg = F.interpolate(seg.unsqueeze(1), size=new_shape, mode='nearest-exact').squeeze(1)
-    return new_img, new_seg
+    return new_img, new_seg, downsample
 
 def get_relevant_loss_names(config):
     losses = {'sim':{'name':'Similarity loss',

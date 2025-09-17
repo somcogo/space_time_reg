@@ -12,7 +12,7 @@ solver="euler"
 netw="sirent"
 
 folder="downsample_fix"
-comm="more_stages"
+comm="detJ_phi_loss_corr"
 
 lr="5e-4"
 lam_negJ=1e2      # 1e1 1e-1
