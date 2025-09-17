@@ -3,10 +3,10 @@ lossfn="mse"
 depth="3"
 dim="64"
 epochs="200"
-tp="20"
+tp="10"
 ts=0
 
-dset="mouse_large"
+dset="lung_test"
 gpu="1"
 solver="euler"
 netw="sirent"

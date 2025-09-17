@@ -170,6 +170,11 @@ def prepare_inputs(config):
         imgs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_corner.npy').transpose((2, 0, 1))).float()
         st_dicts = None
         segs = torch.from_numpy(np.load(f'data/cell_tracking/GFP-GOWT1_mouse_stem_corner_seg.npy').transpose((2, 0, 1)))
+    elif config.dataset == 'lung_test':
+        imgs = torch.from_numpy(np.load(f'data/4D-Lung/first_try.npy'))[:, 25]
+        imgs = (imgs - imgs.min()) / (imgs.max() - imgs.min())
+        st_dicts = None
+        segs = segs
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
