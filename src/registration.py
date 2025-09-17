@@ -36,7 +36,8 @@ def registration(config, data, writer, logger:logging.Logger):
         optimizer.zero_grad()
 
         time_stamps[0, epoch-1] = time.time()
-        rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
+        rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=True)
+        # rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
 
         time_stamps[1, epoch-1] = time.time()
