@@ -175,6 +175,11 @@ def prepare_inputs(config):
         imgs = (imgs - imgs.min()) / (imgs.max() - imgs.min())
         st_dicts = None
         segs = None
+    elif config.dataset == 'lung_test_3d':
+        imgs = torch.from_numpy(np.load(f'data/4D-Lung/first_try.npy'))
+        imgs = (imgs - imgs.min()) / (imgs.max() - imgs.min())
+        st_dicts = None
+        segs = None
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
@@ -250,6 +255,12 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
 
 
     if collect_imgs:
+        if len(imgs.shape) == 4:
+            imgs = imgs[..., 0]
+            rel_phi = rel_phi[..., 0, :-1]
+            rel_vel = rel_vel[..., 0, :-1]
+            abs_phi = abs_phi[..., 0, :-1]
+
         reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
         flow_col, vel_color, vel_norm = prep_flow_vis(rel_phi, rel_vel)
         sim_grid = prep_sim_meas_vis(losses['sim']['loss'])
