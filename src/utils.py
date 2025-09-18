@@ -174,7 +174,7 @@ def prepare_inputs(config):
         imgs = torch.from_numpy(np.load(f'data/4D-Lung/first_try.npy'))[:, 25]
         imgs = (imgs - imgs.min()) / (imgs.max() - imgs.min())
         st_dicts = None
-        segs = segs
+        segs = None
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
@@ -182,7 +182,7 @@ def prepare_inputs(config):
         model.load_state_dict(st_dicts)
         model.eval()
         models = [model]
-    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner':
+    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner' or config.dataset == 'lung_test':
         models = [None]
     elif config.dataset == 'rot_slow2_64':
         model = Siren([2, 64, 64, 64, 1])
@@ -429,7 +429,7 @@ def upsample_img_seg(img, seg, config, epoch):
     new_shape = [l // downsample for l in img.shape[1:]]
     mode = 'bilinear' if len(img.shape) == 3 else 'trilinear'
     new_img = F.interpolate(img.unsqueeze(1), size=new_shape, mode=mode, antialias=True).squeeze(1)
-    new_seg = F.interpolate(seg.unsqueeze(1), size=new_shape, mode='nearest-exact').squeeze(1)
+    new_seg = F.interpolate(seg.unsqueeze(1), size=new_shape, mode='nearest-exact').squeeze(1) if seg is not None else seg
     return new_img, new_seg, downsample
 
 def get_relevant_loss_names(config):

@@ -11,7 +11,7 @@ def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_ser
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
     imgs = imgs.to(config.device)
-    neural_reps = [net.to(config.device) for net in neural_reps]
+    neural_reps = [net.to(config.device) for net in neural_reps if net is not None]
 
     shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape) - 1]
     loss_sum = 0.
