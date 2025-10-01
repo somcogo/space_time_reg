@@ -1,18 +1,18 @@
 #!/bin/bash
 lossfn="mse"
 depth="3"
-dim="64"
+dim="48"
 epochs="200"
 tp="2"
 ts=0
 
-dset="lung_test_3d"
-gpu="1"
+dset="oasis_examplev1"
+gpu="0"
 solver="euler"
 netw="sirent"
 
-folder="lung_first_test"
-comm="first_3d"
+folder="oasis_first_test"
+comm="oasis_first"
 
 lr="1e-5"
 lam_negJ=0      # 1e1 1e-1

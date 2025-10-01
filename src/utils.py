@@ -213,6 +213,15 @@ def prepare_inputs(config):
         st_dicts = None
         segs = None
         print(imgs.shape)
+    elif config.dataset == 'oasis_examplev1':
+        im1 = nib.load('../NODEO-DIR/data/OAS1_0001_MR1/brain.nii.gz').get_fdata()
+        seg1 = nib.load('../NODEO-DIR/data/OAS1_0001_MR1/brain_aseg.nii.gz').get_fdata()
+        im2 = nib.load('../NODEO-DIR/data/OAS1_0002_MR1/brain.nii.gz').get_fdata()
+        seg2 = nib.load('../NODEO-DIR/data/OAS1_0002_MR1/brain_aseg.nii.gz').get_fdata()
+        imgs = torch.from_numpy(np.stack([im1, im2], axis=0)).float()
+        segs = torch.from_numpy(np.stack([seg1, seg2], axis=0))
+        st_dicts = None
+        print(imgs.shape, segs.shape)
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
@@ -220,7 +229,7 @@ def prepare_inputs(config):
         model.load_state_dict(st_dicts)
         model.eval()
         models = [model]
-    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner' or config.dataset == 'lung_test' or config.dataset == 'lung_test_3d':
+    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner' or config.dataset == 'lung_test' or config.dataset == 'lung_test_3d' or config.dataset == 'oasis_examplev1':
         models = [None]
     elif config.dataset == 'rot_slow2_64':
         model = Siren([2, 64, 64, 64, 1])
@@ -270,21 +279,25 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
         metrics['vel_stats/rel_mean'] = rel_vel.mean()
 
         if segs is not None:
-            present_classes = [i for i in range(1, int(segs.max()) + 1) if (segs == i).sum() > 0]
-            input_segs = segs[:1].expand(segs.shape).unsqueeze(1).float()
+            if 'oasis' in config.dataset:
+                dice, pred_segs = calc_oasis_dice(segs=segs, abs_phi=abs_phi)
+                metrics['dices/mean dice'] = dice.mean()
+            else:
+                present_classes = [i for i in range(1, int(segs.max()) + 1) if (segs == i).sum() > 0]
+                input_segs = segs[:1].expand(segs.shape).unsqueeze(1).float()
 
-            grid = abs_phi.reshape(imgs.shape[0], imgs.shape[1], imgs.shape[2], 2)
-            grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
-            pred_segs = F.grid_sample(input_segs, grid, mode='nearest', align_corners=False).squeeze()
+                grid = abs_phi.reshape(imgs.shape[0], imgs.shape[1], imgs.shape[2], 2)
+                grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
+                pred_segs = F.grid_sample(input_segs, grid, mode='nearest', align_corners=False).squeeze()
 
-            dices = np.zeros(len(present_classes))
-            for i, cls in enumerate(present_classes):
-                gt_mask = segs == cls
-                pred_mask = pred_segs == cls
-                intersect = (gt_mask * pred_mask).sum()
-                union = (gt_mask.sum() + pred_mask.sum())
-                dices[i] = 2*intersect/union if union > 0 else 1
-            metrics['dices/mean dice'] = dices.mean()
+                dices = np.zeros(len(present_classes))
+                for i, cls in enumerate(present_classes):
+                    gt_mask = segs == cls
+                    pred_mask = pred_segs == cls
+                    intersect = (gt_mask * pred_mask).sum()
+                    union = (gt_mask.sum() + pred_mask.sum())
+                    dices[i] = 2*intersect/union if union > 0 else 1
+                metrics['dices/mean dice'] = dices.mean()
 
 
     if collect_imgs:
@@ -295,6 +308,9 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             rel_phi = rel_phi[..., 0, :-1]
             rel_vel = rel_vel[..., 0, :-1]
             abs_phi = abs_phi.reshape(phi_shape)[..., 0, :-1]
+            if segs is not None:
+                segs = segs[..., 0]
+                pred_segs = pred_segs[..., 0]
         sim_loss = losses['sim']['loss'][..., 0] if reduce_dim else losses['sim']['loss']
 
         reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
@@ -476,7 +492,7 @@ def save_results(config, output):
 def upsample_img_seg(img, seg, config, epoch):
     ndx = config.schedule.index(epoch)
     downsample = config.downsamples[ndx]
-    print(downsample)
+    print('downsample by ', downsample)
     new_shape = [l // downsample for l in img.shape[1:]]
     mode = 'bilinear' if len(img.shape) == 3 else 'trilinear'
     antialias = mode == 'bilinear'
@@ -523,3 +539,24 @@ def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
                     rel_vel = rel_vel + func(t, coord_tensor)
                 rel_vel = rel_vel.unsqueeze(0)
     return rel_vel
+
+def calc_oasis_dice(segs, abs_phi):
+    input_seg = segs[:1].expand(segs.shape).unsqueeze(1).float()
+    grid = abs_phi.reshape(abs_phi.shape[0], *segs.shape[1:], len(segs.shape[1:]))
+    grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
+    pred_seg = F.grid_sample(input_seg, grid, mode='nearest', align_corners=False)
+    label = [2, 3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 24, 28, 41, 42, 43, 46, 47, 49, 50, 51, 52, 53, 54, 60]
+    dice = calc_dice(input_seg.numpy(), pred_seg.numpy(), labels=label)
+    return dice, pred_seg.squeeze(1)
+
+def calc_dice(array1, array2, labels):
+    """
+    Computes the dice overlap between two arrays for a given set of integer labels.
+    """
+    dicem = np.zeros(len(labels))
+    for idx, label in enumerate(labels):
+        top = 2 * np.sum(np.logical_and(array1 == label, array2 == label))
+        bottom = np.sum(array1 == label) + np.sum(array2 == label)
+        bottom = np.maximum(bottom, np.finfo(float).eps)  # add epsilon
+        dicem[idx] = top / bottom
+    return dicem
