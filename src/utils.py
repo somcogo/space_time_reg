@@ -10,7 +10,6 @@ from PIL import Image
 import torch
 import torch.nn.functional as F
 from torch.optim import Adam
-from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import make_grid
 import numpy as np
