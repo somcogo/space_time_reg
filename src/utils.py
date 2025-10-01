@@ -176,10 +176,11 @@ def prepare_inputs(config):
         st_dicts = None
         segs = None
     elif config.dataset == 'lung_test_3d':
-        imgs = torch.from_numpy(np.load(f'data/4D-Lung/first_try.npy'))
+        imgs = torch.from_numpy(np.load(f'data/4D-Lung/first_try.npy'))[[0, 5], :48].permute(0, 2, 3, 1)
         imgs = (imgs - imgs.min()) / (imgs.max() - imgs.min())
         st_dicts = None
         segs = None
+        print(imgs.shape)
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
@@ -187,7 +188,7 @@ def prepare_inputs(config):
         model.load_state_dict(st_dicts)
         model.eval()
         models = [model]
-    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner' or config.dataset == 'lung_test':
+    elif config.dataset == 'mouse_large' or config.dataset == 'mouse_corner' or config.dataset == 'lung_test' or config.dataset == 'lung_test_3d':
         models = [None]
     elif config.dataset == 'rot_slow2_64':
         model = Siren([2, 64, 64, 64, 1])
@@ -255,16 +256,19 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
 
 
     if collect_imgs:
-        if len(imgs.shape) == 4:
+        reduce_dim = len(imgs.shape) == 4
+        if reduce_dim:
             imgs = imgs[..., 0]
+            moved_imgs = moved_imgs[..., 0]
             rel_phi = rel_phi[..., 0, :-1]
             rel_vel = rel_vel[..., 0, :-1]
-            abs_phi = abs_phi[..., 0, :-1]
+            abs_phi = abs_phi.reshape(phi_shape)[..., 0, :-1]
+        sim_loss = losses['sim']['loss'][..., 0] if reduce_dim else losses['sim']['loss']
 
         reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
         flow_col, vel_color, vel_norm = prep_flow_vis(rel_phi, rel_vel)
-        sim_grid = prep_sim_meas_vis(losses['sim']['loss'])
-        def_grid = prep_grid_def_vis(abs_phi.reshape(phi_shape)[-1])
+        sim_grid = prep_sim_meas_vis(sim_loss)
+        def_grid = prep_grid_def_vis(abs_phi[-1])
 
         imgs_to_save = {
             'imgs/reg_last':reg_last,
@@ -281,25 +285,29 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
 
-        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], imgs.shape[1:])
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], imgs.shape[1:], reduce_dim=reduce_dim)
     else:
         imgs_to_save = None
 
     return metrics, imgs_to_save
 
-def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_shape):
+def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_shape, reduce_dim):
     for loss_type, loss_dict in losses.items():
         if loss_type == 'negJ':
-            negJ = prep_detJ_vis(loss_dict['loss'], config, nr_time_frames, img_shape)
+            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            negJ = prep_detJ_vis(loss, config, nr_time_frames, img_shape)
             imgs_to_save['vel_J_det/negJ'] = negJ
         elif loss_type == 'grd':
-            grad_norm = prep_vel_grad_vis(loss_dict['loss'], config, nr_time_frames, img_shape)
+            loss = loss_dict['loss'][..., 0, :] if reduce_dim else loss_dict['loss']
+            grad_norm = prep_vel_grad_vis(loss, config, nr_time_frames, img_shape)
             imgs_to_save['vel_grad_norm/grad_norm'] = grad_norm
         elif loss_type == 'lap':
-            lap_norm = prep_vel_lap_vis(loss_dict['loss'], config, img_shape)
+            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            lap_norm = prep_vel_lap_vis(loss, config, img_shape)
             imgs_to_save['laplacian/laplacian_norm'] = lap_norm
         elif loss_type == 'pgr':
-            phi_grad_norm = prep_phi_grad_vis(loss_dict['loss'])
+            loss = loss_dict['loss'][..., 0, :] if reduce_dim else loss_dict['loss']
+            phi_grad_norm = prep_phi_grad_vis(loss)
             imgs_to_save['phi_grad_norm/phi_grad_norm'] = phi_grad_norm
 
     return imgs_to_save
@@ -439,7 +447,8 @@ def upsample_img_seg(img, seg, config, epoch):
     print(downsample)
     new_shape = [l // downsample for l in img.shape[1:]]
     mode = 'bilinear' if len(img.shape) == 3 else 'trilinear'
-    new_img = F.interpolate(img.unsqueeze(1), size=new_shape, mode=mode, antialias=True).squeeze(1)
+    antialias = mode == 'bilinear'
+    new_img = F.interpolate(img.unsqueeze(1), size=new_shape, mode=mode, antialias=antialias).squeeze(1)
     new_seg = F.interpolate(seg.unsqueeze(1), size=new_shape, mode='nearest-exact').squeeze(1) if seg is not None else seg
     return new_img, new_seg, downsample
 

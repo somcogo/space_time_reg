@@ -3,21 +3,21 @@ lossfn="mse"
 depth="3"
 dim="64"
 epochs="200"
-tp="5"
+tp="2"
 ts=0
 
-dset="lung_test"
-gpu="2"
+dset="lung_test_3d"
+gpu="1"
 solver="euler"
 netw="sirent"
 
 folder="lung_first_test"
-comm="only_halt_cycle"
+comm="first_3d"
 
-lr="5e-4"
-lam_negJ=1e2      # 1e1 1e-1
+lr="1e-5"
+lam_negJ=0      # 1e1 1e-1
 lam_smt=0
-lam_grd=1e-1       # 1e0 1e-2
+lam_grd=1e2       # 1e0 1e-2
 lam_lap=0       # 1e0 1e-3
 lam_pgr=0       # 1e0
 lam_sim=10
@@ -30,7 +30,7 @@ fin_diff_grad=
 use_grid=
 autograd_grid=
 
-debug=no-
+debug=
 nrep=no-
 
 start_frame=0
