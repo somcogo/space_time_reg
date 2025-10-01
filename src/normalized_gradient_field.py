@@ -346,19 +346,20 @@ class NormalizedGradientField2d(_Loss):
         if self.eps is None:
             with torch.no_grad():
                 self.eps = torch.mean(torch.abs(tar_grad_u) + torch.abs(tar_grad_v))
+        # print(self.eps, torch.abs(tar_grad_u)[torch.abs(tar_grad_u)<0.5].mean(), torch.abs(tar_grad_v)[torch.abs(tar_grad_v)<0.5].mean())
 
         # gradient norm
         src_grad_norm = src_grad_u ** 2 + src_grad_v ** 2 + self.eps ** 2
         tar_grad_norm = tar_grad_u ** 2 + tar_grad_v ** 2 + self.eps ** 2
 
         # nominator
-        product = src_grad_u * tar_grad_u + src_grad_v * tar_grad_v
+        product = src_grad_u * tar_grad_u + src_grad_v * tar_grad_v + self.eps ** 2
 
         # denominator
         denom = src_grad_norm * tar_grad_norm
 
         # integrator
-        ngf = -0.5 * (product ** 2 / denom)
+        ngf = 0.5 *  (1 - (product ** 2 / denom))
         # ngf = 1.0 - product ** 2 / denom
         # ngf = product**2 / denom
 
@@ -377,7 +378,7 @@ class NormalizedGradientField2d(_Loss):
             ngf = torch.sum(ngf)  # sum over batch and channel dims
         elif self.reduction != LossReduction.NONE.value:
             raise ValueError(f'Unsupported reduction: {self.reduction}, available options are ["mean", "sum", "none"].')
-        return 1 + ngf
+        return  ngf
 
 
 class NormalizedGradientField3d(_Loss):
@@ -516,13 +517,13 @@ class NormalizedGradientField3d(_Loss):
         tar_grad_norm = tar_grad_u ** 2 + tar_grad_v ** 2 + tar_grad_w ** 2 + self.eps ** 2
 
         # nominator
-        product = src_grad_u * tar_grad_u + src_grad_v * tar_grad_v + src_grad_w * tar_grad_w
+        product = src_grad_u * tar_grad_u + src_grad_v * tar_grad_v + src_grad_w * tar_grad_w + self.eps ** 2
 
         # denominator
         denom = src_grad_norm * tar_grad_norm
 
         # integrator
-        ngf = -0.5 * (product ** 2 / denom)
+        ngf = 0.5 *  (1 - (product ** 2 / denom))
         # ngf = 1.0 - product ** 2 / denom
         # ngf = product**2 / denom
 
@@ -541,4 +542,4 @@ class NormalizedGradientField3d(_Loss):
             ngf = torch.sum(ngf)  # sum over batch and channel dims
         elif self.reduction != LossReduction.NONE.value:
             raise ValueError(f'Unsupported reduction: {self.reduction}, available options are ["mean", "sum", "none"].')
-        return 1 + ngf
+        return ngf

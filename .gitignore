@@ -2,3 +2,8 @@
 __pycache__
 log
 .vscode
+data/plot
+data
+pres
+data/cell_tracking
+data/4D-Lung
