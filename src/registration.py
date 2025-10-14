@@ -20,6 +20,7 @@ def registration(config, data, writer, logger:logging.Logger):
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
     og_img, neural_reps, og_seg = data
+    imgs, segs = og_img, og_seg
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))

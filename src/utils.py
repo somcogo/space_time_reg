@@ -212,16 +212,14 @@ def prepare_inputs(config):
         imgs = (imgs - imgs.min()) / (imgs.max() - imgs.min())
         st_dicts = None
         segs = None
-        print(imgs.shape)
     elif config.dataset == 'oasis_examplev1':
-        im1 = nib.load('../NODEO-DIR/data/OAS1_0001_MR1/brain.nii.gz').get_fdata()
-        seg1 = nib.load('../NODEO-DIR/data/OAS1_0001_MR1/brain_aseg.nii.gz').get_fdata()
-        im2 = nib.load('../NODEO-DIR/data/OAS1_0002_MR1/brain.nii.gz').get_fdata()
-        seg2 = nib.load('../NODEO-DIR/data/OAS1_0002_MR1/brain_aseg.nii.gz').get_fdata()
+        im1 = nib.load('data/oasis_example/OAS1_0001_MR1/brain.nii.gz').get_fdata()
+        seg1 = nib.load('data/oasis_example/OAS1_0001_MR1/brain_aseg.nii.gz').get_fdata()
+        im2 = nib.load('data/oasis_example/OAS1_0002_MR1/brain.nii.gz').get_fdata()
+        seg2 = nib.load('data/oasis_example/OAS1_0002_MR1/brain_aseg.nii.gz').get_fdata()
         imgs = torch.from_numpy(np.stack([im1, im2], axis=0)).float()
         segs = torch.from_numpy(np.stack([seg1, seg2], axis=0))
         st_dicts = None
-        print(imgs.shape, segs.shape)
 
     models = []
     if config.dataset == 'rot_slow2_large' or config.dataset == 'mouse':
@@ -302,16 +300,17 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
 
     if collect_imgs:
         reduce_dim = len(imgs.shape) == 4
+        slice_ndx = imgs.shape[-1] // 2
         if reduce_dim:
-            imgs = imgs[..., 0]
-            moved_imgs = moved_imgs[..., 0]
-            rel_phi = rel_phi[..., 0, :-1]
-            rel_vel = rel_vel[..., 0, :-1]
-            abs_phi = abs_phi.reshape(phi_shape)[..., 0, :-1]
+            imgs = imgs[..., slice_ndx]
+            moved_imgs = moved_imgs[..., slice_ndx]
+            rel_phi = rel_phi[..., slice_ndx, :-1]
+            rel_vel = rel_vel[..., slice_ndx, :-1]
             if segs is not None:
-                segs = segs[..., 0]
-                pred_segs = pred_segs[..., 0]
-        sim_loss = losses['sim']['loss'][..., 0] if reduce_dim else losses['sim']['loss']
+                segs = segs[..., slice_ndx]
+                pred_segs = pred_segs[..., slice_ndx]
+        sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce_dim else losses['sim']['loss']
+        abs_phi = abs_phi.reshape(phi_shape)[..., slice_ndx, :-1] if reduce_dim else abs_phi.reshape(phi_shape)
 
         reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
         flow_col, vel_color, vel_norm = prep_flow_vis(rel_phi, rel_vel)
@@ -380,7 +379,7 @@ def prep_flow_vis(rel_phi, rel_vel):
     for time in range(rel_vel.shape[0]):
         rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
     vel_color = make_grid(rel_act_velocity_color, nrow=5)
-    vel_norm = make_grid([torch.linalg.norm(vel, ord=2, dim=-1).unsqueeze(0) for vel in rel_vel], nrow=5, value_range=(0, 2))
+    vel_norm = make_grid([torch.linalg.norm(vel, ord=2, dim=-1).unsqueeze(0) for vel in rel_vel], nrow=5, value_range=(0, 0.1))
     vel_color = vel_color.permute(1, 2, 0)
     vel_norm = (vel_norm*255).to(torch.uint8).permute(1, 2, 0)
 
@@ -492,7 +491,6 @@ def save_results(config, output):
 def upsample_img_seg(img, seg, config, epoch):
     ndx = config.schedule.index(epoch)
     downsample = config.downsamples[ndx]
-    print('downsample by ', downsample)
     new_shape = [l // downsample for l in img.shape[1:]]
     mode = 'bilinear' if len(img.shape) == 3 else 'trilinear'
     antialias = mode == 'bilinear'
@@ -546,7 +544,7 @@ def calc_oasis_dice(segs, abs_phi):
     grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
     pred_seg = F.grid_sample(input_seg, grid, mode='nearest', align_corners=False)
     label = [2, 3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 24, 28, 41, 42, 43, 46, 47, 49, 50, 51, 52, 53, 54, 60]
-    dice = calc_dice(input_seg.numpy(), pred_seg.numpy(), labels=label)
+    dice = calc_dice(input_seg[-1].numpy(), pred_seg[-1].numpy(), labels=label)
     return dice, pred_seg.squeeze(1)
 
 def calc_dice(array1, array2, labels):
@@ -560,3 +558,9 @@ def calc_dice(array1, array2, labels):
         bottom = np.maximum(bottom, np.finfo(float).eps)  # add epsilon
         dicem[idx] = top / bottom
     return dicem
+
+def apply_grid_sample(input_img, phi, mode='bilinear'):
+    grid = phi.reshape(phi.shape[0], *input_img.shape[2:], len(input_img.shape[2:]))
+    grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
+    moved = F.grid_sample(input_img, grid, align_corners=False, mode=mode)
+    return moved

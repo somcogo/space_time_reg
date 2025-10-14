@@ -73,13 +73,13 @@ def similarity_loss(imgs, neural_reps, abs_phi, args, downsample):
         loss = loss_fn(imgs.unsqueeze(1), moved)
         moved = moved.squeeze(1)
     
-    return loss * downsample, moved.detach().cpu()
+    return loss * (downsample ** (3 - len(imgs.shape[1:]))), moved.detach().cpu()
 
 def negJ_loss(abs_phi, coord_tensor, shape, downsample):
     rel_phi = abs_phi - coord_tensor
     phi_reshaped = rel_phi.reshape(shape)
     phi_J = fin_diff_Jacobian(phi_reshaped)
-    loss = neg_Jdet_loss(phi_J) / downsample**2
+    loss = neg_Jdet_loss(phi_J) / downsample**3
     return loss, None
 
 def vel_grad_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample):

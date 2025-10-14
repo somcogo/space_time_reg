@@ -27,13 +27,13 @@ def create_animation(img_to_animate):
     html = HTML(ani.to_jshtml())
     return html, ani
 
-def create_animation_general(img_to_animate):
+def create_animation_general(img_to_animate, cmap=None):
     animation.embed_limit = 10
     fig = plt.figure()
     ims = []
     for image in range(0,img_to_animate.shape[0]):
         im = plt.imshow(img_to_animate[image], 
-                        animated=True)
+                        animated=True, cmap=cmap)
         plt.axis("off")
         ims.append([im])
     ani = animation.ArtistAnimation(fig, ims, interval=100, blit=False,
