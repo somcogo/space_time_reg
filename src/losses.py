@@ -1,13 +1,12 @@
 import time
 
-import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
 
-from src.normalized_gradient_field import NormalizedGradientField2d, NormalizedGradientField3d, spatial_filter_nd, _grad_param
+from src.normalized_gradient_field import spatial_filter_nd, _grad_param
+from src.utils import get_sim_loss_fn
 
-def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_series, coord_tensor, losses, downsample):
+def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_series, coord_tensor, losses, downsample, ST):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
     imgs = imgs.to(config.device)
@@ -18,7 +17,7 @@ def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_ser
     moved_imgs = None
     for loss_type, loss_dict in losses.items():
         t1 = time.time()
-        l, m = calc_single_loss(loss_type, imgs, neural_reps, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample)
+        l, m = calc_single_loss(loss_type, imgs, neural_reps, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST)
         t2 = time.time()
 
         moved_imgs = m if m is not None else moved_imgs
@@ -30,9 +29,9 @@ def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_ser
 
     return loss_sum, losses, moved_imgs
 
-def calc_single_loss(loss_name, imgs, neural_reps, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample):
+def calc_single_loss(loss_name, imgs, neural_reps, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST):
     if loss_name == 'sim':
-        return similarity_loss(imgs, neural_reps, abs_phi, config, downsample)
+        return similarity_loss(imgs, neural_reps, abs_phi, config, downsample, ST)
     elif loss_name == 'negJ':
         return negJ_loss(abs_phi, coord_tensor, shape, downsample)
     elif loss_name == 'grd':
@@ -42,36 +41,15 @@ def calc_single_loss(loss_name, imgs, neural_reps, abs_phi, rel_vel, func, coord
     elif loss_name == 'pgr':
         return phi_grad_loss(abs_phi, coord_tensor, shape, downsample)
 
-def similarity_loss(imgs, neural_reps, abs_phi, args, downsample):
-    if args.loss == 'mse':
-        loss_fn = nn.MSELoss(reduction='none')
-    elif args.loss == 'ngf':
-        if imgs.dim() == 3:
-            loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=1e-6, reduction='none')
-        else:
-            loss_fn = NormalizedGradientField3d(mm_spacing=1, eps=1e-6, reduction='none')
-    loss_fn = loss_fn.to(args.device)
-
-    if args.use_nreps:
-        if args.dataset in ['rot_slow2_large', 'rot_slow2_64', 'mouse']:
-            net = neural_reps[0]
-            model_out = net(torch.tensor([], device=abs_phi.device), abs_phi) # T, H, W, 2
-            moved = model_out.squeeze(2)
-            moved = moved.reshape(imgs.shape)
-            loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
-        else:
-            net = neural_reps[0].net
-            model_out = net(abs_phi)
-            moved = (model_out.squeeze(2) + 1) / 2
-            moved = moved.reshape(imgs.shape)
-            loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
+def similarity_loss(imgs, neural_reps, abs_phi, config, downsample, ST):
+    loss_fn = get_sim_loss_fn(config, imgs)
+    
+    if config.use_nreps:
+        moved = ST(neural_reps[0])
     else:
-        img = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, *imgs.shape[1:])
-        grid = abs_phi.reshape(abs_phi.shape[0], *imgs.shape[1:], len(imgs.shape[1:]))
-        grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
-        moved = F.grid_sample(img, grid, align_corners=False)
-        loss = loss_fn(imgs.unsqueeze(1), moved)
-        moved = moved.squeeze(1)
+        moving = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, *imgs.shape[1:])
+        moved = ST(moving).squeeze(1)
+    loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
     
     return loss * (downsample ** (3 - len(imgs.shape[1:]))), moved.detach().cpu()
 

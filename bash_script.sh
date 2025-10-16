@@ -2,23 +2,23 @@
 lossfn="mse"
 depth="3"
 dim="64"
-epochs="2000"
+epochs="500"
 tp="2"
 ts=0
 
-dset="rot_slow2"
-# dset="oasis_examplev1"
-gpu="5"
+# dset="rot_slow2"
+dset="oasis_examplev3"
+gpu="2"
 solver="euler"
-netw="sirent"
+netw="siren"
 
 folder="oasis_first_test"
-comm="try_toy"
+comm="oasis_siren"
 
 lr="1e-5"
 lam_negJ=1      # 1e1 1e-1
 lam_smt=0
-lam_grd=1e3       # 1e0 1e-2
+lam_grd=1e2       # 1e0 1e-2
 lam_lap=0       # 1e0 1e-3
 lam_pgr=0       # 1e0
 lam_sim=10

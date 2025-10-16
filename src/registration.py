@@ -7,7 +7,7 @@ import torch
 from torchdiffeq import odeint_adjoint as odeint
 
 from src.networks import get_func
-from src.utils import calculate_metrics, log_metrics, generate_coord_tensor, get_relevant_loss_names, get_relative_vel, upsample_img_seg
+from src.utils import calculate_metrics, log_metrics, generate_coord_tensor, get_relevant_loss_names, get_relative_vel, upsample_img_seg, get_spatial_transformer
 from src.losses import calculate_losses
 
 def registration(config, data, writer, logger:logging.Logger):
@@ -40,9 +40,10 @@ def registration(config, data, writer, logger:logging.Logger):
         rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=True)
         # rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
+        ST = get_spatial_transformer(abs_phi, imgs.shape, config)
 
         time_stamps[1, epoch-1] = time.time()
-        loss_sum, losses, moved_imgs = calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_points, coord_tensor, losses_to_calc, downsample)
+        loss_sum, losses, moved_imgs = calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_points, coord_tensor, losses_to_calc, downsample, ST)
 
         time_stamps[2, epoch-1] = time.time()
         loss_sum.backward()
