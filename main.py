@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from src.utils import prepare_inputs, save_results, get_logger
+from src.utils import save_results, get_logger
+from src.data_utils import prepare_inputs
 from src.registration import registration
 from src.eval import evaluate
 torch.set_num_threads(8)

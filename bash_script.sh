@@ -2,20 +2,20 @@
 lossfn="mse"
 depth="3"
 dim="64"
-epochs="500"
+epochs="2000"
 tp="2"
 ts=0
 
-# dset="rot_slow2"
-dset="oasis_examplev3"
-gpu="2"
+dset="syn_test"
+# dset="oasis_examplev3"
+gpu="0"
 solver="euler"
 netw="siren"
 
-folder="oasis_first_test"
-comm="oasis_siren"
+folder="oasis_debug"
+comm="syn_test"
 
-lr="1e-5"
+lr="5e-6"
 lam_negJ=1      # 1e1 1e-1
 lam_smt=0
 lam_grd=1e2       # 1e0 1e-2

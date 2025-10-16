@@ -24,6 +24,20 @@ def get_syn_inputs(config):
         models.append(model)
     return imgs, models, segs
 
+def get_syn_test_inputs(config):
+    imgs = torch.from_numpy(np.load(f'data/syn/rot_slow2/rot_slow2.npy').transpose((2, 0, 1)))
+    st_dicts = torch.load(f'data/syn/rot_slow2/rot_slow2_nrep_st_dicts.pt')
+    segs = None
+    models = []
+    for i in range(len(st_dicts)):
+        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=imgs.shape[1:], device=config.device)
+        model.load_state_dict(st_dicts[i])
+        model.eval()
+        models.append(model)
+    imgs = imgs[[0,5]]
+    models = [models[0]]
+    return imgs, models, segs
+
 def get_large_rotslow_inputs():
     imgs = torch.from_numpy(np.load(f'data/syn/rot_slow2/rot_slow2.npy').transpose((2, 0, 1)))
     st_dicts = torch.load(f'data/syn/rot_slow2/rot_slow2_nrep_st_dicts_large.pt')
@@ -114,6 +128,8 @@ def get_oasis3_input():
 def prepare_inputs(config):
     if config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec']:
         imgs, models, segs = get_syn_inputs(config)
+    elif config.dataset == 'syn_test':
+        imgs, models, segs = get_syn_test_inputs(config)
     elif config.dataset == 'rot_slow2_large':
         imgs, models, segs = get_large_rotslow_inputs()
     elif config.dataset == 'rot_slow2_64':

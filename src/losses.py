@@ -45,10 +45,10 @@ def similarity_loss(imgs, neural_reps, abs_phi, config, downsample, ST):
     loss_fn = get_sim_loss_fn(config, imgs)
     
     if config.use_nreps:
-        moved = ST(neural_reps[0])
+        moved = ST.apply(neural_reps[0])
     else:
         moving = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, *imgs.shape[1:])
-        moved = ST(moving).squeeze(1)
+        moved = ST.apply(moving).squeeze(1)
     loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
     
     return loss * (downsample ** (3 - len(imgs.shape[1:]))), moved.detach().cpu()

@@ -411,8 +411,8 @@ class NewNeuralRepApplier():
         return model_out.squeeze(2)
 
 def get_spatial_transformer(abs_phi, img_shape, config):
-    if config.use_nrep:
-        use_old_nrep = config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec']
+    if config.use_nreps:
+        use_old_nrep = config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec', 'syn_test']
         return NeuralRepTransformer(abs_phi, img_shape, use_old_nrep)
     else:
         return GridSampleTransformer(abs_phi, img_shape)
