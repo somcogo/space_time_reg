@@ -40,6 +40,8 @@ def calc_single_loss(loss_name, imgs, neural_reps, abs_phi, rel_vel, func, coord
         return vel_lap_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample)
     elif loss_name == 'pgr':
         return phi_grad_loss(abs_phi, coord_tensor, shape, downsample)
+    elif loss_name == 'hyper_el':
+        return compute_hyper_elastic_loss(abs_phi, rel_vel, func, coord_tensor, shape, config, time_series)
 
 def similarity_loss(imgs, neural_reps, abs_phi, config, downsample, ST):
     loss_fn = get_sim_loss_fn(config, imgs)
@@ -61,32 +63,17 @@ def negJ_loss(abs_phi, coord_tensor, shape, downsample):
     return loss, None
 
 def vel_grad_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample):
-    if config.fin_diff_grad:
-        vel_reshaped = rel_vel.reshape(shape)
-        J = fin_diff_Jacobian(vel_reshaped)
-    elif config.autograd_grid:
-        J = get_Jacobian(func, time_series, dims=shape[-1], coord_tensor=coord_tensor)
-    else:
-        J = get_Jacobian(func, time_series, dims=shape[-1], coord_tensor=None)
+    J = get_Jacobian(rel_vel, func, coord_tensor, shape, config, time_series)
     loss = torch.linalg.vector_norm(J, dim=-1) / downsample
     return loss, None
 
 def vel_lap_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample):
-    if config.fin_diff_grad:
-        vel_reshaped = rel_vel.reshape(shape)
-        J = fin_diff_Jacobian(vel_reshaped)
-        lap = fin_Laplacian_from_Jac(J)
-    elif config.autograd_grid:
-        lap = get_Laplacian(func, time_series, dims=shape[-1], coord_tensor=coord_tensor)
-    else:
-        lap = get_Laplacian(func, time_series, dims=shape[-1], coord_tensor=None)
+    lap = get_Laplacian(rel_vel, func, coord_tensor, shape, config, time_series)
     loss = torch.linalg.vector_norm(lap, dim=-1) / downsample
     return loss, None
 
 def phi_grad_loss(abs_phi, coord_tensor, shape, downsample):
-    rel_phi = abs_phi - coord_tensor
-    phi_reshaped = rel_phi.reshape(shape)
-    phi_J = fin_diff_Jacobian(phi_reshaped)
+    phi_J = get_phi_Jacobian(abs_phi, coord_tensor, shape)
     loss = torch.linalg.vector_norm(phi_J, dim=-1) / downsample
     return loss, None
 
@@ -107,6 +94,33 @@ def neg_Jdet_loss(J):
     # out = torch.abs(out)
 
     return out
+
+def get_Jacobian(rel_vel, func, coord_tensor, shape, config, time_series):
+    if config.fin_diff_grad:
+        vel_reshaped = rel_vel.reshape(shape)
+        J = fin_diff_Jacobian(vel_reshaped)
+    elif config.autograd_grid:
+        J = get_autograd_Jacobian(func, time_series, dims=shape[-1], coord_tensor=coord_tensor)
+    else:
+        J = get_autograd_Jacobian(func, time_series, dims=shape[-1], coord_tensor=None)
+    return J
+
+def get_phi_Jacobian(abs_phi, coord_tensor, shape):
+    rel_phi = abs_phi - coord_tensor
+    phi_reshaped = rel_phi.reshape(shape)
+    phi_J = fin_diff_Jacobian(phi_reshaped)
+    return phi_J
+
+def get_Laplacian(rel_vel, func, coord_tensor, shape, config, time_series):
+    if config.fin_diff_grad:
+        vel_reshaped = rel_vel.reshape(shape)
+        J = fin_diff_Jacobian(vel_reshaped)
+        lap = fin_Laplacian_from_Jac(J)
+    elif config.autograd_grid:
+        lap = get_autograd_Laplacian(func, time_series, dims=shape[-1], coord_tensor=coord_tensor)
+    else:
+        lap = get_autograd_Laplacian(func, time_series, dims=shape[-1], coord_tensor=None)
+    return lap
 
 def fin_diff_Jacobian(f):
     partial_grads = [fin_diff_gradient(f, dim) for dim in range(len(f.shape)-2)]
@@ -138,7 +152,7 @@ def fin_diff_gradient(f, axis):
         grad = grad.permute(0, 2, 3, 4, 1)
     return grad
 
-def get_Jacobian(func, time_series, dims, coord_tensor=None):
+def get_autograd_Jacobian(func, time_series, dims, coord_tensor=None):
     if coord_tensor is not None:
         coords = coord_tensor
     else:
@@ -151,7 +165,7 @@ def get_Jacobian(func, time_series, dims, coord_tensor=None):
     # J shape: [T or 1, N, f_dim, spatial_dim]
     return torch.stack([gradient(input=coords, output=rel_vel[:, i]) for i in range(dims)], dim=1)
 
-def get_Laplacian(func, time_series, dims, coord_tensor=None):
+def get_autograd_Laplacian(func, time_series, dims, coord_tensor=None):
     if coord_tensor is not None:
         coords = coord_tensor
     else:
@@ -170,7 +184,7 @@ def get_Laplacian(func, time_series, dims, coord_tensor=None):
     ddyy = torch.stack([dxy[..., 1] for dxy in dydxy], dim=-1)
     return ddxx + ddyy
 
-def get_phi_Jacobian(phi, img_shape, coords):
+def get_autograd_phi_Jacobian(phi, img_shape, coords):
     return torch.stack([gradient(input=coords, output=phi[-1][..., i]) for i in range(len(img_shape))], dim=1)
 
 def gradient(input, output, grad_outputs=None):
@@ -181,3 +195,55 @@ def gradient(input, output, grad_outputs=None):
         output, [input], grad_outputs=grad_outputs, create_graph=True
     )[0]
     return grad
+
+# hyperelastic loss implementation based on IDIR implementation https://github.com/MIAGroupUT/IDIR/blob/main/objectives/regularizers.py
+def compute_hyper_elastic_loss(
+    abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, alpha_l=1, alpha_a=1, alpha_v=1
+):
+    """Compute the hyper-elastic regularization loss."""
+
+    grad_u = get_Jacobian(rel_vel, func, coord_tensor, shape, config, time_series)
+    grad_y = get_phi_Jacobian(abs_phi, coord_tensor, shape)
+    # get_phi_Jacobian produces the grad of the relative displacement, want the grad of the absolut displacement
+    for i in range(grad_y.shape[-1]):
+        grad_y[..., i, i] = grad_y[..., i, i] + torch.ones_like(grad_y[:, i, i])
+
+    # Compute length loss
+    length_loss = torch.linalg.norm(grad_u, dim=(1, 2))
+    length_loss = torch.pow(length_loss, 2)
+    length_loss = torch.sum(length_loss)
+    length_loss = 0.5 * alpha_l * length_loss
+
+    # Compute cofactor matrices for the area loss
+    cofactors = torch.zeros(*grad_y.shape[:-2], 3, 3)
+
+    # Compute elements of cofactor matrices one by one (Ugliest solution ever?)
+    cofactors[..., 0, 0] = torch.det(grad_y[..., 1:, 1:])
+    cofactors[..., 0, 1] = torch.det(grad_y[..., 1:, 0::2])
+    cofactors[..., 0, 2] = torch.det(grad_y[..., 1:, :2])
+    cofactors[..., 1, 0] = torch.det(grad_y[..., 0::2, 1:])
+    cofactors[..., 1, 1] = torch.det(grad_y[..., 0::2, 0::2])
+    cofactors[..., 1, 2] = torch.det(grad_y[..., 0::2, :2])
+    cofactors[..., 2, 0] = torch.det(grad_y[..., :2, 1:])
+    cofactors[..., 2, 1] = torch.det(grad_y[..., :2, 0::2])
+    cofactors[..., 2, 2] = torch.det(grad_y[..., :2, :2])
+
+    # Compute area loss
+    area_loss = torch.pow(cofactors, 2)
+    area_loss = torch.sum(area_loss, dim=1)
+    area_loss = area_loss - 1
+    area_loss = torch.maximum(area_loss, torch.zeros_like(area_loss))
+    area_loss = torch.pow(area_loss, 2)
+    area_loss = torch.sum(area_loss)  # sum over dimension 1 and then 0
+    area_loss = alpha_a * area_loss
+
+    # Compute volume loss
+    volume_loss = torch.det(grad_y)
+    volume_loss = torch.mul(torch.pow(volume_loss - 1, 4), torch.pow(volume_loss, -2))
+    volume_loss = torch.sum(volume_loss)
+    volume_loss = alpha_v * volume_loss
+
+    # Compute total loss
+    loss = length_loss + area_loss + volume_loss
+
+    return loss

@@ -78,6 +78,9 @@ if __name__ == '__main__':
     parser.add_argument("--lambda_pgr", type=float,
                         dest="lambda_pgr", default=1,
                         help="loss weight for flow gradient L2 norm")
+    parser.add_argument("--lambda_hel", type=float,
+                        dest="lambda_hel", default=1,
+                        help="loss weight for hyper elastic loss")
     
     parser.add_argument("--use_nreps", action=argparse.BooleanOptionalAction,
                         dest="use_nreps", default=True,

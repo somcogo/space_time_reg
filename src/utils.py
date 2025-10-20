@@ -312,6 +312,10 @@ def get_relevant_loss_names(config):
         losses['pgr'] = {'name':'Phi gradient',
                        'lambda':config.lambda_pgr,
                        'time':0.}
+    if config.lambda_hel > 0 or config.debug:
+        losses['hyper_el'] = {'name':'Hyper elasticity',
+                       'lambda':config.lambda_hel,
+                       'time':0.}
 
     return losses
 

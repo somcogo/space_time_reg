@@ -10,7 +10,7 @@ from IPython.display import HTML
 # import tensorflow.compat.v1 as tf
 # tf.disable_eager_execution()
 
-from src.utils import SingleImgDataset, DataLoader, dataio, modules, partial, loss_functions, training
+from src.data_utils import SingleImgDataset, DataLoader, dataio, modules, partial, loss_functions, training
 
 def create_animation(img_to_animate):
     animation.embed_limit = 10
