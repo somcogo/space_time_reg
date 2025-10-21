@@ -26,6 +26,7 @@ def registration(config, data, writer, logger:logging.Logger):
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
+    downsample = 1
 
     for epoch in range(1, config.epochs + 1):
         if len(config.schedule) > 1  and epoch in config.schedule:
@@ -61,7 +62,7 @@ def registration(config, data, writer, logger:logging.Logger):
         if epoch == 1 or log_epoch:
             log_msg = f'Epoch {epoch:4d}/{config.epochs}, Losses '
             for loss_type, loss_dict in losses.items():
-                log_msg += f'{loss_type}  {loss_dict['mean']:.5f}     '
+                log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['mean']:.5f}     '
             logger.info(log_msg)
         if loss_sum < best_loss and epoch > config.schedule[-1]:
             best_loss = loss_sum

@@ -320,7 +320,7 @@ def get_relevant_loss_names(config):
     return losses
 
 def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
-    if config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap > 0:
+    if config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap + config.lambda_hel > 0:
         if (config.func_name == 'siren' or config.func_name == 'wire'):
             rel_vel = func(time_points[1], coord_tensor).unsqueeze(0)
         elif ('siren' in config.func_name or 'wire' in config.func_name) and 't' in config.func_name:
@@ -421,3 +421,5 @@ def get_spatial_transformer(abs_phi, img_shape, config):
     else:
         return GridSampleTransformer(abs_phi, img_shape)
 
+def get_lr_scheduler(config, optimizer):
+    pass

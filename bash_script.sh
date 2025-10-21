@@ -2,18 +2,18 @@
 lossfn="mse"
 depth="3"
 dim="64"
-epochs="50"
+epochs="500"
 tp="2"
 ts=0
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="6"
+gpu="2"
 solver="euler"
 netw="siren"
 
 folder="hyper_el_first"
-comm="first_try"
+comm="long"
 
 lr="1e-5"
 lam_negJ=0
@@ -21,7 +21,7 @@ lam_smt=0
 lam_grd=0
 lam_lap=0
 lam_pgr=0
-lam_hel=1
+lam_hel=1e-11
 lam_sim=10
 
 atol=1e-8

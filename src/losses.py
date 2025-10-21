@@ -206,7 +206,7 @@ def compute_hyper_elastic_loss(
     grad_y = get_phi_Jacobian(abs_phi, coord_tensor, shape)
     # get_phi_Jacobian produces the grad of the relative displacement, want the grad of the absolut displacement
     for i in range(grad_y.shape[-1]):
-        grad_y[..., i, i] = grad_y[..., i, i] + torch.ones_like(grad_y[:, i, i])
+        grad_y[..., i, i] = grad_y[..., i, i] + torch.ones_like(grad_y[..., i, i])
 
     # Compute length loss
     length_loss = torch.linalg.norm(grad_u, dim=(1, 2))
@@ -246,4 +246,4 @@ def compute_hyper_elastic_loss(
     # Compute total loss
     loss = length_loss + area_loss + volume_loss
 
-    return loss
+    return loss, None
