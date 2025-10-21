@@ -342,7 +342,7 @@ def calc_oasis_dice(segs, abs_phi):
     grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
     pred_seg = F.grid_sample(input_seg, grid, mode='nearest', align_corners=False)
     label = [2, 3, 4, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 24, 28, 41, 42, 43, 46, 47, 49, 50, 51, 52, 53, 54, 60]
-    dice = calc_dice(input_seg[-1].numpy(), pred_seg[-1].numpy(), labels=label)
+    dice = calc_dice(segs[-1].numpy(), pred_seg[-1].numpy(), labels=label)
     return dice, pred_seg.squeeze(1)
 
 def calc_dice(array1, array2, labels):
