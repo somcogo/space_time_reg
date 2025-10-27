@@ -19,6 +19,8 @@ def registration(config, data, writer, logger:logging.Logger):
     func = func.to(config.device)
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
+    scheduler = None
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
     og_img, neural_reps, og_seg = data
     imgs, segs = og_img, og_seg
 
@@ -48,6 +50,8 @@ def registration(config, data, writer, logger:logging.Logger):
 
         time_stamps[2, epoch-1] = time.time()
         loss_sum.backward()
+        if scheduler is not None:
+            scheduler.step()
 
         time_stamps[3, epoch-1] = time.time()
         optimizer.step()
