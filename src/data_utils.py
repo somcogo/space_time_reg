@@ -212,21 +212,21 @@ def fit_siren_to_img(img, num_epochs=2000, lr=1e-4, device='cuda', layers=[2, 25
 
     return best_nrep, best_st_dict
 
-def fit_siren_to_img(img, num_epochs=2000, lr=1e-4, device='cuda', layers=[2, 256, 256, 256, 1], min_coord=-1, max_coord=1, omega=30):
-    img_shape = img.shape
+def fit_siren_to_flow(flow, num_epochs=2000, lr=1e-4, device='cuda', layers=[3, 256, 256, 256, 3], min_coord=-1, max_coord=1, omega=30):
+    flow_shape = flow
     rep = Siren(layers=layers, omega=omega)
     rep.to(device)
     optim = Adam(params=rep.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
 
-    coord_tensor = generate_coord_tensor(img_shape, device, min_coord=min_coord, max_coord=max_coord)
-    gt = torch.from_numpy(img).to(device)
+    coord_tensor = generate_coord_tensor(flow_shape[:-1], device, min_coord=min_coord, max_coord=max_coord)
+    gt = torch.from_numpy(flow).to(device)
 
     min_loss = 1e10
     best_epoch = 0
     for epoch in range(num_epochs):
         pred = rep(torch.tensor([], device=device), coord_tensor)
-        pred = pred.reshape(img_shape)
+        pred = pred.reshape(flow_shape)
         loss = loss_fn(pred, gt.float())
         optim.zero_grad()
         loss.backward()

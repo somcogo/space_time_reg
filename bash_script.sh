@@ -1,19 +1,19 @@
 #!/bin/bash
-lossfn="mse"
+lossfn="ngf"
 depth="3"
-dim="64"
-epochs="500"
+dim="256"
+epochs="1000"
 tp="2"
 ts=0
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="2"
+gpu="0"
 solver="euler"
 netw="siren"
 
-folder="hyper_el_first"
-comm="long"
+folder="oasis_working_dice"
+comm="downs_nosched_ngf_dim256"
 
 lr="1e-5"
 lam_negJ=0
@@ -21,8 +21,8 @@ lam_smt=0
 lam_grd=0
 lam_lap=0
 lam_pgr=0
-lam_hel=1e-11
-lam_sim=10
+lam_hel=0
+lam_sim=1
 
 atol=1e-8
 rtol=1e-6
@@ -32,7 +32,7 @@ fin_diff_grad=
 use_grid=
 autograd_grid=
 
-debug=
+debug=no-
 nrep=no-
 
 start_frame=0

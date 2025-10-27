@@ -53,8 +53,9 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
-    vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
-    rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
+    if rel_vel is not None:
+        vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
+        rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
     if config.debug or last_val:
         if not last_val:
             grads = torch.tensor([p.grad.norm() for p in func.parameters()])
@@ -66,9 +67,10 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             for i in range(len(names)):
                 metrics[f'all_grads/{names[i]}'] = grads[i]
                 
-        metrics['vel_stats/rel_max'] = rel_vel.max()
-        metrics['vel_stats/rel_min'] = rel_vel.min()
-        metrics['vel_stats/rel_mean'] = rel_vel.mean()
+        if rel_vel is not None:
+            metrics['vel_stats/rel_max'] = rel_vel.max()
+            metrics['vel_stats/rel_min'] = rel_vel.min()
+            metrics['vel_stats/rel_mean'] = rel_vel.mean()
 
         if segs is not None:
             if 'oasis' in config.dataset:
@@ -99,7 +101,8 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             imgs = imgs[..., slice_ndx]
             moved_imgs = moved_imgs[..., slice_ndx]
             rel_phi = rel_phi[..., slice_ndx, :-1]
-            rel_vel = rel_vel[..., slice_ndx, :-1]
+            if rel_vel is not None:
+                rel_vel = rel_vel[..., slice_ndx, :-1]
             if segs is not None:
                 segs = segs[..., slice_ndx]
                 pred_segs = pred_segs[..., slice_ndx]
@@ -107,7 +110,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
         abs_phi = abs_phi.reshape(phi_shape)[..., slice_ndx, :-1] if reduce_dim else abs_phi.reshape(phi_shape)
 
         reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
-        flow_col, vel_color, vel_norm = prep_flow_vis(rel_phi, rel_vel)
+        flow_col = prep_flow_vis(rel_phi)
         sim_grid = prep_sim_meas_vis(sim_loss)
         def_grid = prep_grid_def_vis(abs_phi[-1])
 
@@ -115,11 +118,14 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             'imgs/reg_last':reg_last,
             'imgs/reg_all':reg_all,
             'flows/flow':flow_col,
-            'flows/vel_col':vel_color,
-            'flows/vel_norm':vel_norm,
             'energies/sim_loss':sim_grid,
             'grid_deform/grid_def_last_step':def_grid
         }
+
+        if rel_vel is not None:
+            vel_color, vel_norm = prep_vel_vis(rel_phi, rel_vel)
+            imgs_to_save['flows/vel_col'] = vel_color
+            imgs_to_save['flows/vel_norm'] = vel_norm
 
         if segs is not None:
             seg_last, seg_all = prep_seg_vis(segs, pred_segs)
@@ -162,13 +168,7 @@ def prep_moved_img_vis(imgs, moved_imgs):
     reg_all = (reg_all*255).to(torch.uint8).permute(1, 2, 0)
     return reg_last, reg_all
 
-def prep_flow_vis(rel_phi, rel_vel):
-    rel_flow_colors = []
-    for time in range(rel_phi.shape[0]):
-        rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
-    flow_col = make_grid(rel_flow_colors, nrow=5)
-    flow_col = flow_col.permute(1, 2, 0)
-
+def prep_vel_vis(rel_vel):
     rel_act_velocity_color = []
     for time in range(rel_vel.shape[0]):
         rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
@@ -177,7 +177,16 @@ def prep_flow_vis(rel_phi, rel_vel):
     vel_color = vel_color.permute(1, 2, 0)
     vel_norm = (vel_norm*255).to(torch.uint8).permute(1, 2, 0)
 
-    return flow_col, vel_color, vel_norm
+    return vel_color, vel_norm
+
+def prep_flow_vis(rel_phi):
+    rel_flow_colors = []
+    for time in range(rel_phi.shape[0]):
+        rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
+    flow_col = make_grid(rel_flow_colors, nrow=5)
+    flow_col = flow_col.permute(1, 2, 0)
+
+    return flow_col
 
 def prep_sim_meas_vis(sim_meas):
     sim_grid = make_grid([im for im in sim_meas], nrow=5, normalize=True)
@@ -334,6 +343,8 @@ def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
                 for t in time_points[1:]:
                     rel_vel = rel_vel + func(t, coord_tensor)
                 rel_vel = rel_vel.unsqueeze(0)
+    else:
+        rel_vel = None
     return rel_vel
 
 def calc_oasis_dice(segs, abs_phi):
