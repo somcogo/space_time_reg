@@ -306,22 +306,24 @@ def get_relevant_loss_names(config):
                        'lambda':config.lambda_st,
                        'time':0.}}
 
-    if config.lambda_negJ > 0 or config.lambda_grd > 0 or config.debug:
+    include_all = False
+    # include_all = config.debug
+    if config.lambda_negJ > 0 or config.lambda_grd > 0 or include_all:
         losses['negJ'] = {'name':'Vel negative det J',
                        'lambda':config.lambda_negJ,
                        'time':0.}
         losses['grd'] = {'name':'Vel gradient',
                        'lambda':config.lambda_grd,
                        'time':0.}
-    if config.lambda_lap > 0 or config.debug:
+    if config.lambda_lap > 0 or include_all:
         losses['lap'] = {'name':'Vel Laplacian',
                        'lambda':config.lambda_lap,
                        'time':0.}
-    if config.lambda_pgr > 0 or config.debug:
+    if config.lambda_pgr > 0 or include_all:
         losses['pgr'] = {'name':'Phi gradient',
                        'lambda':config.lambda_pgr,
                        'time':0.}
-    if config.lambda_hel > 0 or config.debug:
+    if config.lambda_hel > 0 or include_all:
         losses['hyper_el'] = {'name':'Hyper elasticity',
                        'lambda':config.lambda_hel,
                        'time':0.}

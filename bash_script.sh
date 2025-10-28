@@ -2,20 +2,20 @@
 lossfn="ngf"
 depth="3"
 dim="256"
-epochs="1000"
+epochs="500"
 tp="2"
 ts=0
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="2"
+gpu="3"
 solver="euler"
 netw="siren"
 
 folder="oasis_working_dice"
 comm="downs_nosched_ngf_dim256"
 
-lr="1e-5"
+lr="1e-4"
 lam_negJ=0
 lam_smt=0
 lam_grd=0
