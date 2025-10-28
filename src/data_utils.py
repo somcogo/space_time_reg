@@ -213,7 +213,7 @@ def fit_siren_to_img(img, num_epochs=2000, lr=1e-4, device='cuda', layers=[2, 25
     return best_nrep, best_st_dict
 
 def fit_siren_to_flow(flow, num_epochs=2000, lr=1e-4, device='cuda', layers=[3, 256, 256, 256, 3], min_coord=-1, max_coord=1, omega=30):
-    flow_shape = flow
+    flow_shape = flow.shape
     rep = Siren(layers=layers, omega=omega)
     rep.to(device)
     optim = Adam(params=rep.parameters(), lr=lr)

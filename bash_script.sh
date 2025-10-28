@@ -8,7 +8,7 @@ ts=0
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="0"
+gpu="2"
 solver="euler"
 netw="siren"
 
@@ -32,7 +32,7 @@ fin_diff_grad=
 use_grid=
 autograd_grid=
 
-debug=no-
+debug=
 nrep=no-
 
 start_frame=0
