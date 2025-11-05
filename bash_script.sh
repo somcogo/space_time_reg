@@ -1,24 +1,24 @@
 #!/bin/bash
 lossfn="ngf"
 depth="3"
-dim="256"
-epochs="500"
+dim="128"
+epochs="2000"
 tp="2"
-ts=0
+ts=0.25
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="3"
+gpu="5"
 solver="euler"
 netw="siren"
 
-folder="oasis_working_dice"
-comm="downs_nosched_ngf_dim256"
+folder="oasis_ngf"
+comm="nodeo_loss_tslow"
 
-lr="1e-4"
+lr="1e-5"
 lam_negJ=0
 lam_smt=0
-lam_grd=0
+lam_grd=1e0
 lam_lap=0
 lam_pgr=0
 lam_hel=0
