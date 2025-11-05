@@ -8,7 +8,7 @@ ts=0.25
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="5"
+gpu="7"
 solver="euler"
 netw="siren"
 
@@ -18,7 +18,7 @@ comm="nodeo_loss_tslow"
 lr="1e-5"
 lam_negJ=0
 lam_smt=0
-lam_grd=1e0
+lam_grd=5e0
 lam_lap=0
 lam_pgr=0
 lam_hel=0
