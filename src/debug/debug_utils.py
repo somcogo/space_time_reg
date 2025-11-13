@@ -1,8 +1,8 @@
 import torch
 from flow_vis import flow_to_color
 
-from src.networks import Siren
-from src.utils import generate_coord_tensor
+from src.models.siren import Siren
+from src.utils.spatial_utils import generate_coord_tensor
 
 def get_gt_model_and_coord_tensor_and_t(device, img_sz, st_pick):
     if st_pick == 'gt':

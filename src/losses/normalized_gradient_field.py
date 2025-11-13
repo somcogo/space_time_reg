@@ -1,9 +1,7 @@
 from __future__ import absolute_import
-import warnings
-from typing import Callable, List, Optional, Sequence, Union, Tuple
+from typing import List, Optional, Union, Tuple
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.loss import _Loss
 from torch.nn.parameter import Parameter
@@ -543,3 +541,4 @@ class NormalizedGradientField3d(_Loss):
         elif self.reduction != LossReduction.NONE.value:
             raise ValueError(f'Unsupported reduction: {self.reduction}, available options are ["mean", "sum", "none"].')
         return ngf
+    

@@ -6,9 +6,12 @@ import numpy as np
 import torch
 from torchdiffeq import odeint_adjoint as odeint
 
-from src.networks import get_func
-from src.utils import calculate_metrics, log_metrics, generate_coord_tensor, get_relevant_loss_names, get_relative_vel, upsample_img_seg, get_spatial_transformer
-from src.losses import calculate_losses
+from models.factory import get_func
+from losses.losses import calculate_losses
+from metrics.calc_metrics import get_relevant_loss_names, calculate_metrics
+from utils.spatial_utils import generate_coord_tensor, upsample_img_seg, get_relative_vel
+from utils.spatial_transformer import get_spatial_transformer
+from utils.log_and_save import log_metrics
 
 def registration(config, data, writer, logger:logging.Logger):
     dims = len(data[0].shape[1:])
