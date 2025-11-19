@@ -1,7 +1,7 @@
 from torch import nn
 
-from normalized_gradient_field import NormalizedGradientField2d
-from ncc import NODEO_NCC
+from src.losses.normalized_gradient_field import NormalizedGradientField2d
+from src.losses.ncc import NODEO_NCC
 
 def get_sim_loss_fn(config, imgs):
     if config.loss == 'mse':

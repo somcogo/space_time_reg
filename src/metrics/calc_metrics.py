@@ -2,9 +2,9 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis
+from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis
 from src.utils.spatial_utils import generate_coord_tensor
-from dice import calc_oasis_dice
+from src.metrics.dice import calc_oasis_dice
 
 def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs, last_val=False):
     metrics = {}

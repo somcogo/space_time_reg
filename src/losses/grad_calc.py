@@ -1,6 +1,6 @@
 import torch
 
-from normalized_gradient_field import spatial_filter_nd, _grad_param
+from src.losses.normalized_gradient_field import spatial_filter_nd, _grad_param
 
 def get_Laplacian(rel_vel, func, coord_tensor, shape, config, time_series):
     if config.fin_diff_grad:

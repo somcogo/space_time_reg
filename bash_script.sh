@@ -3,16 +3,16 @@ lossfn="ngf"
 depth="3"
 dim="128"
 epochs="2000"
-tp="2"
+tp="1"
 ts=0.25
 
 # dset="syn_test"
 dset="oasis_examplev1"
-gpu="7"
+gpu="2"
 solver="euler"
 netw="siren"
 
-folder="oasis_ngf"
+folder="test"
 comm="nodeo_loss_tslow"
 
 lr="1e-5"

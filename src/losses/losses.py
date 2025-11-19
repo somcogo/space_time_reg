@@ -3,8 +3,8 @@ import time
 import torch
 import torch.nn.functional as F
 
-from sim_loss import get_sim_loss_fn
-from grad_calc import fin_diff_Jacobian, get_Laplacian, get_autograd_Jacobian
+from src.losses.sim_loss import get_sim_loss_fn
+from src.losses.grad_calc import fin_diff_Jacobian, get_Laplacian, get_autograd_Jacobian
 
 def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_series, coord_tensor, losses, downsample, ST):
     # abs_phi: [T, H*W, D]

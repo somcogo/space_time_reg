@@ -1,6 +1,6 @@
-from nodeo import BrainNet
-from siren import Siren, SirenT, SirenLateT
-from wire import WireReal, WireRealT, WireRealLateT
+from src.models.nodeo import BrainNet
+from src.models.siren import Siren, SirenT, SirenLateT
+from src.models.wire import WireReal, WireRealT, WireRealLateT
 
 def get_func(func_name, network_kwargs):
     if func_name == 'nodeo':

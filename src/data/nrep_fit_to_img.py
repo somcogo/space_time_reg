@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from src.models.siren import Siren
 from src.siren import training, dataio, modules, loss_functions
-from temp_utils import generate_coord_tensor
+from src.utils.spatial_utils import generate_coord_tensor
 
 def fit_neural_reps(data, args):
     n_reps = []
