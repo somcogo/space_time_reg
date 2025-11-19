@@ -6,7 +6,7 @@ from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep
 from src.utils.spatial_utils import generate_coord_tensor
 from src.metrics.dice import calc_oasis_dice
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs, last_val=False):
+def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, seg_mov, seg_fix, moved_imgs, func, collect_imgs, last_val=False):
     metrics = {}
     total = 0.
     for loss_type, loss_dict in losses.items():
@@ -15,9 +15,9 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
         total += loss_dict['lambda'] * loss_dict['mean']
     metrics['losses/total_loss'] = total
 
-    phi_shape = list(imgs.shape) + [len(imgs.shape) - 1]
+    phi_shape = [1, -1, fixed.shape[2], fixed.shape[3], len(fixed.shape) - 1]
     abs_phi = abs_phi.detach().cpu()
-    coord_tensor = generate_coord_tensor(imgs.shape[1:], device='cpu')
+    coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
     if rel_vel is not None:
         vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
@@ -38,21 +38,20 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             metrics['vel_stats/rel_min'] = rel_vel.min()
             metrics['vel_stats/rel_mean'] = rel_vel.mean()
 
-        if segs is not None:
+        if seg_fix is not None:
             if 'oasis' in config.dataset:
-                dice, pred_segs = calc_oasis_dice(segs=segs, abs_phi=abs_phi)
+                dice, pred_segs = calc_oasis_dice(segs=seg_mov, abs_phi=abs_phi)
                 metrics['dices/mean dice'] = dice.mean()
             else:
-                present_classes = [i for i in range(1, int(segs.max()) + 1) if (segs == i).sum() > 0]
-                input_segs = segs[:1].expand(segs.shape).unsqueeze(1).float()
+                present_classes = [i for i in range(1, int(seg_fix.max()) + 1) if (seg_fix == i).sum() > 0]
 
-                grid = abs_phi.reshape(imgs.shape[0], imgs.shape[1], imgs.shape[2], 2)
+                grid = abs_phi.reshape(fixed.shape[0], fixed.shape[1], fixed.shape[2], 2)
                 grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
-                pred_segs = F.grid_sample(input_segs, grid, mode='nearest', align_corners=False).squeeze()
+                pred_segs = F.grid_sample(seg_mov, grid, mode='nearest', align_corners=False).squeeze()
 
                 dices = np.zeros(len(present_classes))
                 for i, cls in enumerate(present_classes):
-                    gt_mask = segs == cls
+                    gt_mask = seg_fix == cls
                     pred_mask = pred_segs == cls
                     intersect = (gt_mask * pred_mask).sum()
                     union = (gt_mask.sum() + pred_mask.sum())
@@ -61,21 +60,21 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
 
 
     if collect_imgs:
-        reduce_dim = len(imgs.shape) == 4
-        slice_ndx = imgs.shape[-1] // 2
+        reduce_dim = len(fixed.shape) == 4
+        slice_ndx = fixed.shape[-1] // 2
         if reduce_dim:
-            imgs = imgs[..., slice_ndx]
+            fixed = fixed[..., slice_ndx]
             moved_imgs = moved_imgs[..., slice_ndx]
             rel_phi = rel_phi[..., slice_ndx, :-1]
             if rel_vel is not None:
                 rel_vel = rel_vel[..., slice_ndx, :-1]
-            if segs is not None:
-                segs = segs[..., slice_ndx]
+            if seg_fix is not None:
+                seg_fix = seg_fix[..., slice_ndx]
                 pred_segs = pred_segs[..., slice_ndx]
         sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce_dim else losses['sim']['loss']
         abs_phi = abs_phi.reshape(phi_shape)[..., slice_ndx, :-1] if reduce_dim else abs_phi.reshape(phi_shape)
 
-        reg_last, reg_all = prep_moved_img_vis(imgs, moved_imgs)
+        reg_last, reg_all = prep_moved_img_vis(fixed, moved_imgs)
         flow_col = prep_flow_vis(rel_phi)
         sim_grid = prep_sim_meas_vis(sim_loss)
         def_grid = prep_grid_def_vis(abs_phi[-1])
@@ -93,12 +92,12 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, 
             imgs_to_save['flows/vel_col'] = vel_color
             imgs_to_save['flows/vel_norm'] = vel_norm
 
-        if segs is not None:
-            seg_last, seg_all = prep_seg_vis(segs, pred_segs)
+        if seg_fix is not None:
+            seg_last, seg_all = prep_seg_vis(seg_fix, pred_segs)
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
 
-        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], imgs.shape[1:], reduce_dim=reduce_dim)
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce_dim)
     else:
         imgs_to_save = None
 

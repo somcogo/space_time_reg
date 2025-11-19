@@ -12,9 +12,11 @@ from src.metrics.calc_metrics import get_relevant_loss_names, calculate_metrics
 from src.utils.spatial_utils import generate_coord_tensor, upsample_img_seg, get_relative_vel
 from src.utils.spatial_transformer import get_spatial_transformer
 from src.utils.log_and_save import log_metrics
+from src.data.data_load import prepare_inputs
 
-def registration(config, data, writer, logger:logging.Logger):
-    dims = len(data[0].shape[1:])
+def registration(config, writer, logger:logging.Logger):
+    moving, moving_inr, fixed, seg_mov, seg_fix, forw = prepare_inputs(config)
+    dims = len(fixed.shape) - 1
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
         config.func_kwargs['layers'][-1] = dims
@@ -22,10 +24,10 @@ def registration(config, data, writer, logger:logging.Logger):
     func = func.to(config.device)
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
+    if 'cmr' in config.dataset:
+        optimizer.add_param_group({'params': moving, 'lr':config.recon_lr})
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
-    og_img, neural_reps, og_seg = data
-    imgs, segs = og_img, og_seg
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
@@ -34,10 +36,13 @@ def registration(config, data, writer, logger:logging.Logger):
     downsample = 1
 
     for epoch in range(1, config.epochs + 1):
-        if len(config.schedule) > 1  and epoch in config.schedule:
-            imgs, segs, downsample = upsample_img_seg(og_img, og_seg, config, epoch)
 
-        coord_tensor = generate_coord_tensor(imgs.shape[1:], config.device)
+
+        # TODO: reimplement downsampling
+        # if len(config.schedule) > 1  and epoch in config.schedule:
+        #     imgs, segs, downsample = upsample_img_seg(og_img, og_seg, config, epoch)
+
+        coord_tensor = generate_coord_tensor(moving.shape[1:], config.device)
         coord_tensor.requires_grad = True
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
@@ -46,10 +51,10 @@ def registration(config, data, writer, logger:logging.Logger):
         rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=True)
         # rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-        ST = get_spatial_transformer(abs_phi, imgs.shape, config)
+        ST = get_spatial_transformer(abs_phi, moving.shape, config)
 
         time_stamps[1, epoch-1] = time.time()
-        loss_sum, losses, moved_imgs = calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_points, coord_tensor, losses_to_calc, downsample, ST)
+        loss_sum, losses, moved_imgs = calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_points, coord_tensor, losses_to_calc, downsample, ST)
 
         time_stamps[2, epoch-1] = time.time()
         loss_sum.backward()
@@ -62,7 +67,7 @@ def registration(config, data, writer, logger:logging.Logger):
         time_stamps[4, epoch-1] = time.time()
         with torch.no_grad():
             collect_imgs = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
-            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs)
+            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, seg_mov, seg_fix, moved_imgs, func, collect_imgs)
             log_metrics(config, metrics, writer, epoch, imgs_to_save)
 
         time_stamps[5, epoch-1] = time.time()
@@ -71,7 +76,7 @@ def registration(config, data, writer, logger:logging.Logger):
             for loss_type, loss_dict in losses.items():
                 log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['mean']:.5f}     '
             logger.info(log_msg)
-        if loss_sum < best_loss and epoch > config.schedule[-1]:
+        if loss_sum <= best_loss and epoch > config.schedule[-1]:
             best_loss = loss_sum
             best_phi = abs_phi
             best_vel = rel_vel
@@ -84,20 +89,9 @@ def registration(config, data, writer, logger:logging.Logger):
         if epoch < config.epochs:
             time_stamps[6, epoch] = time.time()
 
-
-    # Log images even if not in debug mode
-    # if not config.debug:
     with torch.no_grad():
-        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, imgs, segs, moved_imgs, func, collect_imgs=True, last_val=True)
+        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, seg_mov, seg_fix, moved_imgs, func, collect_imgs=True, last_val=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
-    # best_func = copy.deepcopy(func)
-    # best_func.load_state_dict(best_st_dict)
-    # coord_tensor = generate_coord_tensor(og_img.shape[1:], config.device)
-    # best_vel = get_relative_vel(best_func, config, time_points, coord_tensor, keep_batch_dim=True)
-    # best_phi = odeint(best_func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-    # loss_sum, losses, moved_imgs = calculate_losses(config, best_phi, best_vel, best_func, og_img, neural_reps, time_points, coord_tensor, losses_to_calc, downsample=1)
-    # metrics, imgs_to_save = calculate_metrics(losses, config, best_phi, best_vel, og_img, og_seg, moved_imgs, best_func, collect_imgs=True, last_val=True)
-    # log_metrics(config, metrics, writer, epoch + 20, imgs_to_save, last_val=True)
     best_images = imgs_to_save
 
     logger.info('-------------------------------------------------')

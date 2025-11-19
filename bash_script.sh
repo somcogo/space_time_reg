@@ -1,24 +1,24 @@
 #!/bin/bash
-lossfn="ngf"
+lossfn="mse"
 depth="3"
-dim="128"
-epochs="2000"
+dim="64"
+epochs="200"
 tp="1"
-ts=0.25
+ts=0.1
 
 # dset="syn_test"
-dset="oasis_examplev1"
+dset="cmr_test"
 gpu="2"
 solver="euler"
 netw="siren"
 
-folder="test"
-comm="nodeo_loss_tslow"
+folder="cmr_test"
+comm="cmr_test_no_reg"
 
 lr="1e-5"
 lam_negJ=0
 lam_smt=0
-lam_grd=5e0
+lam_grd=0
 lam_lap=0
 lam_pgr=0
 lam_hel=0

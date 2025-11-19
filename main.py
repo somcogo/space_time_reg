@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from src.data.data_load import prepare_inputs
 from src.utils.log_and_save import save_results
 from src.utils.logger import get_logger
 from src.registration import registration
@@ -45,6 +44,9 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float,
                         dest="lr", default=0.01,
                         help="learning rate")
+    parser.add_argument("--recon_lr", type=float,
+                        dest="recon_lr", default=0.1,
+                        help="reconstruction learning rate")
     parser.add_argument("--epochs", type=int,
                         dest="epochs", default=100,
                         help="number of epochs")
@@ -176,7 +178,6 @@ if __name__ == '__main__':
     logger = get_logger(config.log_level)
     logger.info(f'Starting experiment with name {config.exp_name}')
     writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))
-    data = prepare_inputs(config)
-    output = registration(config, data, writer, logger)
+    output = registration(config, writer, logger)
     # evaluate(config, output)
     save_results(config, output)

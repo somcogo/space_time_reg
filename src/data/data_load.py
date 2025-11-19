@@ -2,8 +2,20 @@ import torch
 import numpy as np
 import nibabel as nib
 
+from torch import nn
+import h5py
+from fastmri.data import transforms as T
+
 from src.models.siren import Siren
 from src.siren import modules
+from .data_utils import CMRxReconForwardMethod
+
+def load_and_prepare_cmrxrecon(file_name):
+    hf_m = h5py.File(file_name)
+    newvalue = hf_m[list(hf_m.keys())[0]]
+    fullmulti = newvalue["real"] + 1j*newvalue["imag"]
+    fullmulti_t = T.to_tensor(fullmulti)
+    return fullmulti_t
 
 def get_syn_inputs(config):
     imgs = torch.from_numpy(np.load(f'data/syn/{config.dataset}/{config.dataset}.npy').transpose((2, 0, 1)))
@@ -118,7 +130,7 @@ def get_oasis3_input():
     models = [None]
     return imgs, models, segs
 
-def prepare_inputs(config):
+def prepare_non_inverse_case(config):
     if config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec']:
         imgs, models, segs = get_syn_inputs(config)
     elif config.dataset == 'syn_test':
@@ -147,4 +159,32 @@ def prepare_inputs(config):
     imgs = imgs[config.start_frame:config.start_frame + config.time_points]
     models = models[config.start_frame:config.start_frame + config.time_points]
     segs = segs[config.start_frame:config.start_frame + config.time_points] if segs is not None else None
-    return imgs, models, segs
+
+    moving = imgs[0].unsqueeze(0).expand(imgs.shape[0], 1, *imgs.shape[1:])
+    moving_inr = models[0]
+    fixed = imgs
+    seg_moving = segs[:1].expand(segs.shape).unsqueeze(1).float() if segs is not None else None
+    seg_fixed = segs
+    forward_method = nn.Identity()
+    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method
+
+def prepare_inverse_case(config):
+    if config.dataset == 'cmr_test':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax.pt')[:1,0]
+        kspace_mask = (raw_kspace_data != 0)
+
+        fixed = raw_kspace_data[kspace_mask].reshape(1, -1, 512, 2)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        # TODO: reconstruct moving and don't just pass 0
+        moving = nn.Parameter(torch.zeros_like(raw_kspace_data))
+        forward_method = CMRxReconForwardMethod(kspace_mask)
+
+    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method
+
+def prepare_inputs(config):
+    if 'cmr' in config.dataset:
+        return prepare_inverse_case(config)
+    else:
+        return prepare_non_inverse_case(config)

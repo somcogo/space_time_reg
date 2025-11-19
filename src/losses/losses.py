@@ -6,18 +6,20 @@ import torch.nn.functional as F
 from src.losses.sim_loss import get_sim_loss_fn
 from src.losses.grad_calc import fin_diff_Jacobian, get_Laplacian, get_autograd_Jacobian
 
-def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_series, coord_tensor, losses, downsample, ST):
+def calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_series, coord_tensor, losses, downsample, ST):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
-    imgs = imgs.to(config.device)
-    neural_reps = [net.to(config.device) for net in neural_reps if net is not None]
+    moving = moving.to(config.device)
+    moving_inr = moving_inr.to(config.device) if moving_inr is not None else None
+    fixed = fixed.to(config.device)
+    forw = forw.to(config.device)
 
-    shape = [-1] + list(imgs.shape[1:]) + [len(imgs.shape) - 1]
+    shape = [-1] + list(moving.shape[1:]) + [len(moving.shape) - 1]
     loss_sum = 0.
     moved_imgs = None
     for loss_type, loss_dict in losses.items():
         t1 = time.time()
-        l, m = calc_single_loss(loss_type, imgs, neural_reps, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST)
+        l, m = calc_single_loss(loss_type, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST)
         t2 = time.time()
 
         moved_imgs = m if m is not None else moved_imgs
@@ -29,9 +31,9 @@ def calculate_losses(config, abs_phi, rel_vel, func, imgs, neural_reps, time_ser
 
     return loss_sum, losses, moved_imgs
 
-def calc_single_loss(loss_name, imgs, neural_reps, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST):
+def calc_single_loss(loss_name, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST):
     if loss_name == 'sim':
-        return similarity_loss(imgs, neural_reps, abs_phi, config, downsample, ST)
+        return similarity_loss(moving, moving_inr, fixed, forw, abs_phi, config, downsample, ST)
     elif loss_name == 'negJ':
         return negJ_loss(abs_phi, coord_tensor, shape, downsample)
     elif loss_name == 'grd':
@@ -43,17 +45,17 @@ def calc_single_loss(loss_name, imgs, neural_reps, abs_phi, rel_vel, func, coord
     elif loss_name == 'hyper_el':
         return compute_hyper_elastic_loss(abs_phi, rel_vel, func, coord_tensor, shape, config, time_series)
 
-def similarity_loss(imgs, neural_reps, abs_phi, config, downsample, ST):
-    loss_fn = get_sim_loss_fn(config, imgs)
+def similarity_loss(moving, moving_inr, fixed, forw, abs_phi, config, downsample, ST):
+    loss_fn = get_sim_loss_fn(config, moving)
     
     if config.use_nreps:
-        moved = ST.apply(neural_reps[0])
+        moved_im = ST.apply(moving_inr)
     else:
-        moving = imgs[:1].unsqueeze(0).expand(abs_phi.shape[0], 1, *imgs.shape[1:])
-        moved = ST.apply(moving).squeeze(1)
-    loss = loss_fn(imgs.unsqueeze(1), moved.unsqueeze(1))
+        moved_im = ST.apply(moving.unsqueeze(1)).squeeze(1)
+    moved = forw(moved_im)
+    loss = loss_fn(fixed, moved.unsqueeze(1))
     
-    return loss * (downsample ** (3 - len(imgs.shape[1:]))), moved.detach().cpu()
+    return loss * (downsample ** (3 - len(moving.shape[1:]))), moved.detach().cpu()
 
 def negJ_loss(abs_phi, coord_tensor, shape, downsample):
     rel_phi = abs_phi - coord_tensor
