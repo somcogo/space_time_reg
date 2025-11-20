@@ -7,6 +7,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 from flow_vis import flow_to_color
+from fastmri import complex_abs
 
 def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_shape, reduce_dim):
     for loss_type, loss_dict in losses.items():
@@ -29,14 +30,18 @@ def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_sha
 
     return imgs_to_save
 
-def prep_moved_img_vis(imgs, moved_imgs):
+def prep_moved_img_vis(imgs, moved_imgs, moving):
     imgs = imgs.detach().cpu()
     reg_last = make_grid([torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])], nrow=2, normalize=True)
     reg_all = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
+    moving = complex_abs(moving.detach().cpu())
+    moving = (moving - moving.min()) / (moving.max() - moving.min())
+
 
     reg_last = (reg_last*255).to(torch.uint8).permute(1, 2, 0)
     reg_all = (reg_all*255).to(torch.uint8).permute(1, 2, 0)
-    return reg_last, reg_all
+    moving_im = (moving[0]*255).to(torch.uint8).unsqueeze(2)
+    return reg_last, reg_all, moving_im
 
 def prep_vel_vis(rel_vel):
     rel_act_velocity_color = []

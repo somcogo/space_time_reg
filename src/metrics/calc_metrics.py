@@ -6,7 +6,7 @@ from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep
 from src.utils.spatial_utils import generate_coord_tensor
 from src.metrics.dice import calc_oasis_dice
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, seg_mov, seg_fix, moved_imgs, func, collect_imgs, last_val=False):
+def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved_imgs, func, collect_imgs, last_val=False):
     metrics = {}
     total = 0.
     for loss_type, loss_dict in losses.items():
@@ -74,7 +74,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, seg_mov, seg_fix,
         sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce_dim else losses['sim']['loss']
         abs_phi = abs_phi.reshape(phi_shape)[..., slice_ndx, :-1] if reduce_dim else abs_phi.reshape(phi_shape)
 
-        reg_last, reg_all = prep_moved_img_vis(fixed, moved_imgs)
+        reg_last, reg_all, moving_im = prep_moved_img_vis(fixed, moved_imgs, moving)
         flow_col = prep_flow_vis(rel_phi)
         sim_grid = prep_sim_meas_vis(sim_loss)
         def_grid = prep_grid_def_vis(abs_phi[-1])
@@ -82,6 +82,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, seg_mov, seg_fix,
         imgs_to_save = {
             'imgs/reg_last':reg_last,
             'imgs/reg_all':reg_all,
+            'imgs/moving':moving_im,
             'flows/flow':flow_col,
             'energies/sim_loss':sim_grid,
             'grid_deform/grid_def_last_step':def_grid
