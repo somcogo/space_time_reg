@@ -14,7 +14,7 @@ class Siren(nn.Module):
     omega -- (float) parameter used in the forward function
     """
 
-    def __init__(self, layers, weight_init=True, omega=30):
+    def __init__(self, layers, weight_init=True, last_init_zero=False, omega=30):
         """Initialize the network."""
 
         super(Siren, self).__init__()
@@ -31,6 +31,9 @@ class Siren(nn.Module):
                 with torch.no_grad():
                     if i == 0:
                         self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
+                    elif i == self.n_layers - 1 and last_init_zero:
+                        self.layers[-1].weight.uniform_(-1e-3, 1e-3)
+                        self.layers[-1].bias.zero_()
                     else:
                         self.layers[-1].weight.uniform_(
                             -np.sqrt(6 / layers[i]) / self.omega,

@@ -8,7 +8,7 @@ from fastmri.data import transforms as T
 
 from src.models.siren import Siren
 from src.siren import modules
-from .data_utils import CMRxReconForwardMethod
+from .data_utils import reconstruct_initial_frame, FTAndSubsample, ZeroFillAndIFT, FastmriFT, FastmriIFT
 
 def load_and_prepare_cmrxrecon(file_name):
     hf_m = h5py.File(file_name)
@@ -166,25 +166,234 @@ def prepare_non_inverse_case(config):
     seg_moving = segs[:1].expand(segs.shape).unsqueeze(1).float() if segs is not None else None
     seg_fixed = segs
     forward_method = nn.Identity()
-    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method
+    inverse_method = nn.Identity()
+    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method, inverse_method
 
-def prepare_inverse_case(config):
+def prepare_inverse_case(logger, config):
     if config.dataset == 'cmr_test':
-        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax.pt')[:1,0]
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax.pt')[:1,0].permute(0, 3, 1, 2)
         kspace_mask = (raw_kspace_data != 0)
 
-        fixed = raw_kspace_data[kspace_mask].reshape(1, -1, 512, 2)
+        fixed = raw_kspace_data[kspace_mask].reshape(1, 2, -1, 512)
         moving_inr = None
         seg_moving = None
         seg_fixed = None
-        # TODO: reconstruct moving and don't just pass 0
-        moving = nn.Parameter(torch.zeros_like(raw_kspace_data))
-        forward_method = CMRxReconForwardMethod(kspace_mask)
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_longtest':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
 
-    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full001':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
 
-def prepare_inputs(config):
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full001v2':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_corr.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full001_noft':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        back_method = FastmriIFT()
+        imspace_image = back_method(raw_kspace_data)
+
+        fixed = imspace_image
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = nn.Identity()
+        inverse_method = nn.Identity()
+        recon_init = imspace_image[0]
+        moving = nn.Parameter(recon_init, requires_grad=True)
+    elif config.dataset == 'cmr_full001_init2':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = inverse_method(fixed[1:2]).squeeze(0)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full001_pad':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_pad32.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full002':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p002_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full003':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p003_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_full004':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p004_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_toy1':
+        raw_kspace_data = torch.load('data/syn/complex_test_rec_cir.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_toyift1':
+        raw_kspace_data = torch.load('data/syn/complex_test_rec_cir_ift.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+        with torch.no_grad():
+            print(f'After loading and init: fixed image sum {inverse_method(fixed).sum()}, moving image sum {moving.sum()}')
+    elif config.dataset == 'cmr_toy2':
+        raw_kspace_data = torch.load('data/syn/complex_test_rec.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_toyift2':
+        raw_kspace_data = torch.load('data/syn/complex_test_rec_ift.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_toy2_no_recon':
+        raw_kspace_data = torch.load('data/syn/complex_test_rec_ift.pt')
+        raw_imspace_data = torch.load('data/syn/complex_test_rec.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriIFT()
+        inverse_method = FastmriFT()
+        recon_init = raw_imspace_data[0]
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_toyift3':
+        raw_kspace_data = torch.load('data/syn/complex_test_cir_ift.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_toy3_no_recon':
+        raw_kspace_data = torch.load('data/syn/complex_test_cir_ift.pt')
+        raw_imspace_data = torch.load('data/syn/complex_test_cir.pt')
+
+        fixed = raw_kspace_data
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FastmriIFT()
+        inverse_method = FastmriFT()
+        recon_init = raw_imspace_data[0]
+        moving = nn.Parameter(recon_init)
+
+    with torch.no_grad():
+        logger.info(f'After loading and init: fixed image sum {inverse_method(fixed).abs().sum((1,2,3))}, moving image sum {moving.abs().sum()}, fixed fourier sum {fixed.abs().sum((1,2,3))}')
+    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method, inverse_method
+
+def prepare_inputs(logger, config):
     if 'cmr' in config.dataset:
-        return prepare_inverse_case(config)
+        return prepare_inverse_case(logger, config)
     else:
         return prepare_non_inverse_case(config)

@@ -2,11 +2,11 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis
+from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp
 from src.utils.spatial_utils import generate_coord_tensor
 from src.metrics.dice import calc_oasis_dice
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved_imgs, func, collect_imgs, last_val=False):
+def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs, last_val=False):
     metrics = {}
     total = 0.
     for loss_type, loss_dict in losses.items():
@@ -15,7 +15,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
         total += loss_dict['lambda'] * loss_dict['mean']
     metrics['losses/total_loss'] = total
 
-    phi_shape = [1, -1, fixed.shape[2], fixed.shape[3], len(fixed.shape) - 1]
+    phi_shape = [-1] + list(moving.shape)[1:] + [len(moving.shape) - 1]
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
@@ -45,7 +45,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
             else:
                 present_classes = [i for i in range(1, int(seg_fix.max()) + 1) if (seg_fix == i).sum() > 0]
 
-                grid = abs_phi.reshape(fixed.shape[0], fixed.shape[1], fixed.shape[2], 2)
+                grid = abs_phi.reshape(phi_shape)
                 grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
                 pred_segs = F.grid_sample(seg_mov, grid, mode='nearest', align_corners=False).squeeze()
 
@@ -60,11 +60,12 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
 
 
     if collect_imgs:
-        reduce_dim = len(fixed.shape) == 4
+        reduce_dim = len(fixed.shape) == 5
         slice_ndx = fixed.shape[-1] // 2
         if reduce_dim:
             fixed = fixed[..., slice_ndx]
-            moved_imgs = moved_imgs[..., slice_ndx]
+            moved = moved[..., slice_ndx]
+            moved_im = moved_im[..., slice_ndx]
             rel_phi = rel_phi[..., slice_ndx, :-1]
             if rel_vel is not None:
                 rel_vel = rel_vel[..., slice_ndx, :-1]
@@ -74,19 +75,25 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
         sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce_dim else losses['sim']['loss']
         abs_phi = abs_phi.reshape(phi_shape)[..., slice_ndx, :-1] if reduce_dim else abs_phi.reshape(phi_shape)
 
-        reg_last, reg_all, moving_im = prep_moved_img_vis(fixed, moved_imgs, moving)
+        reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(fixed, moved, moved_im, moving, config)
         flow_col = prep_flow_vis(rel_phi)
-        sim_grid = prep_sim_meas_vis(sim_loss)
+        sim_grid, log_sim_grid = prep_sim_meas_vis(sim_loss, config)
         def_grid = prep_grid_def_vis(abs_phi[-1])
 
         imgs_to_save = {
             'imgs/reg_last':reg_last,
             'imgs/reg_all':reg_all,
+            'imgs/reg_imspace':reg_imspace,
             'imgs/moving':moving_im,
             'flows/flow':flow_col,
             'energies/sim_loss':sim_grid,
+            'energies/log_sim_loss':log_sim_grid,
             'grid_deform/grid_def_last_step':def_grid
         }
+
+        if 'cmr' in config.dataset:
+            image_space_comp = prep_image_space_comp(moved_im, fixed, inverse)
+            imgs_to_save['imgs/comp_imspace'] = image_space_comp
 
         if rel_vel is not None:
             vel_color, vel_norm = prep_vel_vis(rel_vel)
@@ -129,6 +136,10 @@ def get_relevant_loss_names(config):
     if config.lambda_hel > 0 or include_all:
         losses['hyper_el'] = {'name':'Hyper elasticity',
                        'lambda':config.lambda_hel,
+                       'time':0.}
+    if (config.lambda_recon > 0 or include_all) and 'cmr' in config.dataset:
+        losses['recon_reg'] = {'name':'Reconstruction reg',
+                       'lambda':config.lambda_recon,
                        'time':0.}
 
     return losses

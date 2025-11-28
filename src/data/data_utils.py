@@ -1,16 +1,42 @@
 import copy
 from functools import partial
+import logging
+import time
 
 import torch
 from torch import nn
 from PIL import Image
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
-from fastmri import fft2c
+from fastmri import fft2c, ifft2c
 
 from src.models.siren import Siren
 from src.siren import training, dataio, modules, loss_functions
 from src.utils.spatial_utils import generate_coord_tensor
+from src.losses.recon_reg import get_recon_regularizer
+
+def reconstruct_initial_frame(logger: logging.Logger, config, recon: nn.Parameter, gt: torch.Tensor, forw: nn.Module):
+    optimizer = torch.optim.Adam([recon], lr=config.recon_lr)
+    # recon = recon.unsqueeze(0).to(config.device)
+    gt = gt.unsqueeze(0).to(config.device)
+    loss_fn = nn.MSELoss(reduction='mean')
+    regularizer = get_recon_regularizer(config)
+    best_loss = 1e8
+    t0 = time.time()
+    for epoch in range(1, config.recon_epochs + 1):
+        optimizer.zero_grad()
+        sim_loss = config.lambda_st * loss_fn(forw(recon), gt)
+        reg_loss = config.lambda_recon * regularizer.g(recon.transpose(0, 1)).mean()
+        loss_sum = sim_loss + reg_loss
+        loss_sum.backward()
+        optimizer.step()
+        if loss_sum <= best_loss:
+            best_recon = recon.detach().clone().squeeze(0)
+            best_loss = loss_sum.detach().clone()
+    t1 = time.time()
+    if logger is not None:
+        logger.info(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
+    return best_recon
 
 def fit_neural_reps(data, args):
     n_reps = []
@@ -108,13 +134,40 @@ class SingleImgDataset(Dataset):
     def __getitem__(self, idx):
         return self.img
     
-class CMRxReconForwardMethod(nn.Module):
-    def __init__(self, kspace_mask):
+class FastmriFT(nn.Module):
+    def __init__(self):
         super().__init__()
-        # self.mask = kspace_mask
-        self.register_buffer("mask", kspace_mask)
-
 
     def forward(self, image: torch.Tensor):
-        spectrum = fft2c(image)
-        return spectrum[self.mask].reshape(1, -1, 512, 2)
+        spectrum = fft2c(image.movedim(1, -1)).movedim(-1, 1)
+        return spectrum
+    
+class FastmriIFT(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, spectrum: torch.Tensor):
+        image = ifft2c(spectrum.movedim(1, -1)).movedim(-1, 1)
+        return image
+    
+class FTAndSubsample(nn.Module):
+    def __init__(self, kspace_mask):
+        super().__init__()
+        self.register_buffer("mask", kspace_mask)
+
+    def forward(self, image: torch.Tensor):
+        spectrum = fft2c(image.movedim(1, -1)).movedim(-1, 1)
+        new_shape = list(image.shape[:2]) + [-1] + list(image.shape[3:])
+        return spectrum[self.mask.expand(spectrum.shape)].reshape(new_shape)
+    
+class ZeroFillAndIFT(nn.Module):
+    def __init__(self, kspace_mask):
+        super().__init__()
+        self.register_buffer("mask", kspace_mask)
+
+    def forward(self, spectrum: torch.Tensor):
+        full_shape = [spectrum.shape[0]] + list(self.mask.shape[1:])
+        full_spectrum = torch.zeros(full_shape, device=spectrum.device)
+        full_spectrum[self.mask.expand(full_spectrum.shape)] = spectrum.flatten()
+        image = ifft2c(full_spectrum.movedim(1, -1)).movedim(-1, 1)
+        return image

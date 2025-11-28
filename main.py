@@ -4,8 +4,8 @@ import random
 from typing import Union
 from types import NoneType
 
-import numpy as np
 import torch
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
 from src.utils.log_and_save import save_results
@@ -47,9 +47,15 @@ if __name__ == '__main__':
     parser.add_argument("--recon_lr", type=float,
                         dest="recon_lr", default=0.1,
                         help="reconstruction learning rate")
+    parser.add_argument("--weight_decay", type=float,
+                        dest="weight_decay", default=0.1,
+                        help="weight decay for velocity network")
     parser.add_argument("--epochs", type=int,
                         dest="epochs", default=100,
                         help="number of epochs")
+    parser.add_argument("--recon_epochs", type=int,
+                        dest="recon_epochs", default=200,
+                        help="number of epochs for initial reconstruction")
     parser.add_argument("--solver", type=str,
                         dest="solver", default='rk4',
                         help="ode solver method")
@@ -84,6 +90,9 @@ if __name__ == '__main__':
     parser.add_argument("--lambda_hel", type=float,
                         dest="lambda_hel", default=1,
                         help="loss weight for hyper elastic loss")
+    parser.add_argument("--lambda_recon", type=float,
+                        dest="lambda_recon", default=1,
+                        help="loss weight for the reconstruction regularizer")
     
     parser.add_argument("--use_nreps", action=argparse.BooleanOptionalAction,
                         dest="use_nreps", default=True,
@@ -143,11 +152,11 @@ if __name__ == '__main__':
     
     config = parser.parse_args()
 
+    # os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu_number
+
     torch.manual_seed(config.seed)
     random.seed(config.seed + 1)
     np.random.seed(config.seed + 2)
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu_number
 
     img_sz = (168, 168) if config.dataset in ['rot', 'rot_slow', 'rot_slow2'] else (128, 128)
     if config.func_name == 'nodeo':
@@ -161,7 +170,8 @@ if __name__ == '__main__':
     elif 'siren' in config.func_name:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
-                       'omega':config.siren_omega}
+                       'omega':config.siren_omega,
+                       'last_init_zero':'cmr' in config.dataset}
     elif 'wire' in config.func_name:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
@@ -171,10 +181,10 @@ if __name__ == '__main__':
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
     config.step_size = None if config.step_size == 0 else config.step_size
-    config.schedule = [1, 51, 101, 151] if config.schedule == None else config.schedule
-    # config.schedule = [1] if config.schedule == None else config.schedule
-    # config.downsamples = [1]
-    
+    # config.schedule = [1, 51, 101, 151] if config.schedule == None else config.schedule
+    config.schedule = [1] if config.schedule == None else config.schedule
+    config.downsamples = [1]
+
     logger = get_logger(config.log_level)
     logger.info(f'Starting experiment with name {config.exp_name}')
     writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))

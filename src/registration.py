@@ -15,19 +15,22 @@ from src.utils.log_and_save import log_metrics
 from src.data.data_load import prepare_inputs
 
 def registration(config, writer, logger:logging.Logger):
-    moving, moving_inr, fixed, seg_mov, seg_fix, forw = prepare_inputs(config)
-    dims = len(fixed.shape) - 1
+    moving, moving_inr, fixed, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
+    dims = len(fixed.shape) - 2
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
         config.func_kwargs['layers'][-1] = dims
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
-    optimizer = torch.optim.Adam(func.parameters(), lr=config.lr)
+    optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if 'cmr' in config.dataset:
-        optimizer.add_param_group({'params': moving, 'lr':config.recon_lr})
+        optimizer.add_param_group({'params': moving, 'lr':config.recon_lr, 'weight_decay':0.})
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
+
+    moving.requires_grad_(False)
+    logger.info(f'Set require_grad for recon to {moving.requires_grad}')
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
@@ -51,10 +54,14 @@ def registration(config, writer, logger:logging.Logger):
         rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=True)
         # rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
+
+        # TODO: don't forget to remove clip
+        # abs_phi = torch.clamp(abs_phi, min=-1, max=1)
+
         ST = get_spatial_transformer(abs_phi, moving.shape, config)
 
         time_stamps[1, epoch-1] = time.time()
-        loss_sum, losses, moved_imgs = calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_points, coord_tensor, losses_to_calc, downsample, ST)
+        loss_sum, losses, moved, moved_im = calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_points, coord_tensor, losses_to_calc, downsample, ST)
 
         time_stamps[2, epoch-1] = time.time()
         loss_sum.backward()
@@ -67,7 +74,7 @@ def registration(config, writer, logger:logging.Logger):
         time_stamps[4, epoch-1] = time.time()
         with torch.no_grad():
             collect_imgs = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
-            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved_imgs, func, collect_imgs)
+            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs)
             log_metrics(config, metrics, writer, epoch, imgs_to_save)
 
         time_stamps[5, epoch-1] = time.time()
@@ -80,7 +87,9 @@ def registration(config, writer, logger:logging.Logger):
             best_loss = loss_sum
             best_phi = abs_phi
             best_vel = rel_vel
-            best_moved = moved_imgs
+            best_moved = moved
+            best_moved_im = moved_im
+            best_moving = moving
             best_st_dict = func.state_dict()
             best_images = imgs_to_save
             best_epoch = epoch
@@ -90,7 +99,7 @@ def registration(config, writer, logger:logging.Logger):
             time_stamps[6, epoch] = time.time()
 
     with torch.no_grad():
-        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved_imgs, func, collect_imgs=True, last_val=True)
+        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs=True, last_val=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
     best_images = imgs_to_save
 
@@ -118,4 +127,4 @@ def registration(config, writer, logger:logging.Logger):
             name = descr_str + name + ':'
         logger.info(f'{name:<30} {loss_dict['time']:.4f}')
 
-    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, best_images, best_losses, time_stamps, best_epoch
+    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, best_images, best_losses, time_stamps, best_epoch, best_moving, best_moved_im

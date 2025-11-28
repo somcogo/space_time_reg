@@ -7,7 +7,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 from flow_vis import flow_to_color
-from fastmri import complex_abs
+from fastmri import complex_abs, ifft2c
 
 def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_shape, reduce_dim):
     for loss_type, loss_dict in losses.items():
@@ -30,25 +30,45 @@ def add_loss_specific_imgs(imgs_to_save, losses, config, nr_time_frames, img_sha
 
     return imgs_to_save
 
-def prep_moved_img_vis(imgs, moved_imgs, moving):
+def prep_moved_img_vis(imgs, moved, moved_im, moving, config):
     imgs = imgs.detach().cpu()
-    reg_last = make_grid([torch.stack([imgs[-1], torch.zeros_like(imgs[-1]), moved_imgs[-1]])], nrow=2, normalize=True)
-    reg_all = make_grid([torch.stack([im, torch.zeros_like(im), m_im]) for im, m_im in zip(imgs, moved_imgs)], nrow=5, normalize=True)
-    moving = complex_abs(moving.detach().cpu())
+
+    if 'cmr' in config.dataset:
+        imgs = complex_abs(imgs.movedim(1, -1))
+        moved = complex_abs(moved.movedim(1, -1))
+        moved_im = complex_abs(moved_im.movedim(1, -1))
+        moving = complex_abs(moving.detach().cpu().movedim(0, -1))
+    else:
+        imgs = imgs.squeeze(1)
+        moved = moved.squeeze(1)
+        moved_im = moved_im.squeeze(1)
+        moving = moving.squeeze(1)
+    reg_last = make_grid([torch.stack([imgs[-1], moved[-1], moved[-1]])], nrow=2, normalize=True)
+    reg_all = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(imgs, moved)], nrow=5, normalize=True)
+    reg_imspace = make_grid(moved_im.unsqueeze(1), nrow=5, normalize=True)
     moving = (moving - moving.min()) / (moving.max() - moving.min())
 
 
     reg_last = (reg_last*255).to(torch.uint8).permute(1, 2, 0)
     reg_all = (reg_all*255).to(torch.uint8).permute(1, 2, 0)
-    moving_im = (moving[0]*255).to(torch.uint8).unsqueeze(2)
-    return reg_last, reg_all, moving_im
+    reg_imspace = (reg_imspace*255).to(torch.uint8).permute(1, 2, 0)
+    moving_im = (torch.stack([moving]*3, dim=2)*255).to(torch.uint8)
+    return reg_last, reg_all, reg_imspace, moving_im
+
+def prep_image_space_comp(moved_im, fixed, inverse):
+    fixed_im = complex_abs(inverse(fixed).movedim(1, -1))
+    moved_im = complex_abs(moved_im.movedim(1, -1))
+    im_space_comp = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed_im, moved_im)], nrow=5, normalize=True)
+    im_space_comp = (im_space_comp*255).to(torch.uint8).permute(1, 2, 0)
+    return im_space_comp
+
 
 def prep_vel_vis(rel_vel):
     rel_act_velocity_color = []
     for time in range(rel_vel.shape[0]):
         rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
     vel_color = make_grid(rel_act_velocity_color, nrow=5)
-    vel_norm = make_grid([torch.linalg.norm(vel, ord=2, dim=-1).unsqueeze(0) for vel in rel_vel], nrow=5, value_range=(0, 0.1))
+    vel_norm = make_grid([torch.linalg.norm(vel, ord=2, dim=-1).unsqueeze(0) for vel in rel_vel], nrow=5, value_range=(0, 0.01))
     vel_color = vel_color.permute(1, 2, 0)
     vel_norm = (vel_norm*255).to(torch.uint8).permute(1, 2, 0)
 
@@ -63,10 +83,15 @@ def prep_flow_vis(rel_phi):
 
     return flow_col
 
-def prep_sim_meas_vis(sim_meas):
+def prep_sim_meas_vis(sim_meas, config):
+    sim_meas = sim_meas.sum(dim=1, keepdim=True)
     sim_grid = make_grid([im for im in sim_meas], nrow=5, normalize=True)
     sim_grid = (sim_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
-    return sim_grid
+
+    log_sim_meas = torch.log(sim_meas)
+    log_sim_grid = make_grid([im for im in log_sim_meas], nrow=5, value_range=(-32, -11), normalize=True)
+    log_sim_grid = (log_sim_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return sim_grid, log_sim_grid
 
 def prep_seg_vis(segs, pred_segs):
     gt_mask = (segs > 0).float()
@@ -124,7 +149,8 @@ def prep_grid_def_vis(last_phi):
         ax.plot(last_phi[i, :, 0], last_phi[i, :, 1], 'r-', linewidth=0.5)
     for i in range(0, last_phi.shape[1], math.ceil(last_phi.shape[1]/64)):
         ax.plot(last_phi[:, i, 0], last_phi[:, i, 1], 'r-', linewidth=0.5)
-    ax.axis('off')
+    # ax.axis('off')
+    ax.grid(True)
     ax.set_aspect('equal')
     fig.tight_layout()
     

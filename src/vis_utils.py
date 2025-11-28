@@ -130,6 +130,29 @@ def create_syn_data(file_name, case):
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     np.save(file_name, recs+tris+cirs)
 
+def construct_complex_fourier_toy():
+    cir = load_shape('cir').squeeze()[75:107, 24:56]
+    re1 = torch.zeros((128, 128))
+    re2 = torch.zeros((128, 128))
+    im1 = torch.zeros((128, 128))
+    im2 = torch.zeros((128, 128))
+
+    re1[32:64,32:64] = cir
+    re2[48:80,32:64] = cir
+    im1[64:96,64:96] = 1
+    im2[48:80,64:96] = 1
+
+    comb = torch.zeros((2,2,128,128))
+    comb[0,0] = re1
+    comb[1,0] = re2
+    comb[0,1] = im1
+    comb[1,1] = im2
+
+    from fastmri import ifft2c
+    fcomb = ifft2c(comb.movedim(1, -1)).movedim(-1,1)
+
+    return comb, fcomb
+
 # def get_imgs_from_tensorboard(event_path, epoch, img_tag):
 #     image_str = tf.placeholder(tf.string)
 #     im_tf = tf.image.decode_image(image_str)
