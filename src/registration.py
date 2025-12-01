@@ -15,21 +15,23 @@ from src.utils.log_and_save import log_metrics
 from src.data.data_load import prepare_inputs
 
 def registration(config, writer, logger:logging.Logger):
+    time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     moving, moving_inr, fixed, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
     dims = len(fixed.shape) - 2
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
         config.func_kwargs['layers'][-1] = dims
+    if 'ensemble' in config.func_name:
+        config.func_kwargs['time_points'] = time_points
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
-    time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if 'cmr' in config.dataset:
         optimizer.add_param_group({'params': moving, 'lr':config.recon_lr, 'weight_decay':0.})
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
-    moving.requires_grad_(False)
+    moving.requires_grad_(True)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
 
     best_loss = 1e8

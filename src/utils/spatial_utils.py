@@ -29,7 +29,7 @@ def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
     # if config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap + config.lambda_hel > 0:
     if (config.func_name == 'siren' or config.func_name == 'wire'):
         rel_vel = func(time_points[-1], coord_tensor).unsqueeze(0)
-    elif ('siren' in config.func_name or 'wire' in config.func_name) and 't' in config.func_name:
+    elif ('siren' in config.func_name or 'wire' in config.func_name) and ('t' in config.func_name or 'ensemble' in config.func_name):
         if keep_batch_dim:
             rel_vel = []
             for t in time_points:

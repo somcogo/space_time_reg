@@ -196,6 +196,32 @@ def prepare_inverse_case(logger, config):
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
         recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
         moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_P001_Acc04_T2':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_corr.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(2, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
+    elif config.dataset == 'cmr_P001_Acc04_T10':
+        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_corr.pt')[:10,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(10, 2, -1, 512)
+        moving_inr = None
+        seg_moving = None
+        seg_fixed = None
+        forward_method = FTAndSubsample(kspace_mask)
+        inverse_method = ZeroFillAndIFT(kspace_mask)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
+        moving = nn.Parameter(recon_init)
     elif config.dataset == 'cmr_full001':
         raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax.pt')[:2,0].permute(0, 3, 1, 2)
         kspace_mask = (raw_kspace_data[:1] != 0)

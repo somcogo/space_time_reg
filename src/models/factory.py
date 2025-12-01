@@ -1,5 +1,5 @@
 from src.models.nodeo import BrainNet
-from src.models.siren import Siren, SirenT, SirenLateT
+from src.models.siren import Siren, SirenT, SirenLateT, SirenEnsemble
 from src.models.wire import WireReal, WireRealT, WireRealLateT
 
 def get_func(func_name, network_kwargs):
@@ -11,6 +11,8 @@ def get_func(func_name, network_kwargs):
         func = SirenT(**network_kwargs)
     elif func_name == 'sirenlatet':
         func = SirenLateT(**network_kwargs)
+    elif func_name == 'sirenensemble':
+        func = SirenEnsemble(**network_kwargs)
     elif func_name == 'wire':
         func = WireReal(**network_kwargs)
     elif func_name == 'wiret':

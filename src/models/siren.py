@@ -163,18 +163,23 @@ class SirenLateT(nn.Module):
         return self.layers[-1](x)
 
 class SirenEnsemble(nn.Module):
-    def __init__(self, time_points, layers, weight_init=True, omega=30):
+    def __init__(self, time_points, layers, weight_init=True, last_init_zero=False, omega=30):
+        super().__init__()
         self.time_points = time_points
         self.sirens = nn.ModuleList([
-            Siren(layers, weight_init, omega) for i in range(len(time_points) - 1)
+            Siren(layers, weight_init, last_init_zero, omega) for i in range(len(time_points) - 1)
         ])
-        pass
 
     def get_model_index(self, t):
         with torch.no_grad():
-            return (self.time_points < t).sum()
+            if t < self.time_points[0]:
+                return 0
+            elif t >= self.time_points[-1]:
+                return len(self.time_points) - 2
+            else:
+                return (self.time_points <= t ).sum() - 1
         
     def forward(self, t, x):
         model_index = self.get_model_index(t)
-        sub_model = self.sirens(model_index)
+        sub_model = self.sirens[model_index]
         return sub_model(t, x)
