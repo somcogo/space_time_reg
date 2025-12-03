@@ -14,7 +14,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
     if config.debug or last_val:
         metrics = add_grad_stats(func, metrics)
         metrics = add_vel_stats(rel_vel, metrics)
-        metrics = add_dices(config, seg_fix, seg_mov, ST, metrics)
+        metrics, pred_segs = add_dices(config, seg_fix, seg_mov, ST, metrics)
 
     if collect_imgs:
         reduce = len(fixed.shape) == 5
@@ -50,7 +50,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
 
-        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce_dim)
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce)
     else:
         imgs_to_save = None
 

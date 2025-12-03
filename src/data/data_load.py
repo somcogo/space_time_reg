@@ -173,11 +173,11 @@ def prepare_non_inverse_case(config):
 def prepare_inverse_case(logger, config):
     if  'Acc04' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax.pt')[:,0].permute(0, 3, 1, 2)
+        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = (raw_kspace_data[:1] != 0)
 
-        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,0].permute(0, 3, 1, 2)
+        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
 
         smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
@@ -195,7 +195,7 @@ def prepare_inverse_case(logger, config):
         gt_im = inverse_FT(gt_kspace_data)
     elif 'full' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,0].permute(0, 3, 1, 2)
+        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = (raw_kspace_data[:1] != 0)
 
@@ -204,8 +204,8 @@ def prepare_inverse_case(logger, config):
         moving_inr = None
         seg_moving = None
         seg_fixed = None
-        forward_method = FastmriFT(kspace_mask)
-        inverse_method = FastmriIFT(kspace_mask)
+        forward_method = FastmriFT()
+        inverse_method = FastmriIFT()
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
         recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
         moving = nn.Parameter(recon_init)

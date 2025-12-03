@@ -32,11 +32,12 @@ def add_losses(losses, metrics):
         metrics[f'debug_losses/{loss_dict['name']}'] = loss_dict['mean']
         total += loss_dict['lambda'] * loss_dict['mean']
     metrics['losses/total_loss'] = total
-    return losses
+    return metrics
 
 def add_grad_stats(network, metrics):
-    if network.parameters()[0].grad.norm() is not None:
-        grads = torch.tensor([p.grad.norm() for p in network.parameters()])
+    grads = [p.grad for p in network.parameters()]
+    if grads[0] is not None:
+        grads = torch.tensor([g.norm() for g in grads])
         names = [n for n, p in network.named_parameters()]
         metrics['grad_stats/mean_grad'] = grads.mean()
         metrics['grad_stats/min_grad'] = grads.min()
@@ -69,7 +70,9 @@ def add_dices(config, seg_fix, seg_mov, ST, metrics):
                 union = (gt_mask.sum() + pred_mask.sum())
                 dices[i] = 2*intersect/union if union > 0 else 1
             metrics['dices/mean dice'] = dices.mean()
-    return metrics
+    else:
+        pred_segs = None
+    return metrics, pred_segs
 
 def reshape_phi_and_vel(abs_phi, rel_vel, moving):
     phi_shape = [-1] + list(moving.shape)[1:] + [len(moving.shape) - 1]
@@ -138,11 +141,19 @@ def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: d
     crop_gt_img = gt_im_img[:, :, h_from:h_to, w_from:w_to]
     crop_psnr, crop_ssim, crop_nmse = calc_cmr_eval_metrics(crop_moved_img, crop_gt_img)
 
-    metrics['cmr evals/full psnr'] = full_psnr.mean()
-    metrics['cmr evals/full ssim'] = full_ssim.mean()
-    metrics['cmr evals/full nsme'] = full_nmse.mean()
+    metrics['cmr evals all/full psnr'] = full_psnr.mean()
+    metrics['cmr evals all/full ssim'] = full_ssim.mean()
+    metrics['cmr evals all/full nsme'] = full_nmse.mean()
     
-    metrics['cmr evals/cropped psnr'] = crop_psnr.mean()
-    metrics['cmr evals/cropped ssim'] = crop_ssim.mean()
-    metrics['cmr evals/cropped nmse'] = crop_nmse.mean()
+    metrics['cmr evals first/full psnr'] = full_psnr[0].mean()
+    metrics['cmr evals first/full ssim'] = full_ssim[0].mean()
+    metrics['cmr evals first/full nsme'] = full_nmse[0].mean()
+    
+    metrics['cmr evals all/cropped psnr'] = crop_psnr.mean()
+    metrics['cmr evals all/cropped ssim'] = crop_ssim.mean()
+    metrics['cmr evals all/cropped nmse'] = crop_nmse.mean()
+    
+    metrics['cmr evals first/cropped psnr'] = crop_psnr[0].mean()
+    metrics['cmr evals first/cropped ssim'] = crop_ssim[0].mean()
+    metrics['cmr evals first/cropped nmse'] = crop_nmse[0].mean()
     return metrics
