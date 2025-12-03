@@ -167,7 +167,8 @@ def prepare_non_inverse_case(config):
     seg_fixed = segs
     forward_method = nn.Identity()
     inverse_method = nn.Identity()
-    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method, inverse_method
+    gt_im = None
+    return moving, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
 
 def prepare_inverse_case(logger, config):
     if  'Acc04' in config.dataset:
@@ -176,17 +177,23 @@ def prepare_inverse_case(logger, config):
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = (raw_kspace_data[:1] != 0)
 
+        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,0].permute(0, 3, 1, 2)
+        gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
+
         smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
         fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
         moving_inr = None
         seg_moving = None
         seg_fixed = None
+
         forward_method = FTAndSubsample(kspace_mask)
         inverse_method = ZeroFillAndIFT(kspace_mask)
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
         recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
         moving = nn.Parameter(recon_init)
-    elif  'full' in config.dataset:
+        inverse_FT = FastmriIFT()
+        gt_im = inverse_FT(gt_kspace_data)
+    elif 'full' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,0].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
@@ -197,15 +204,15 @@ def prepare_inverse_case(logger, config):
         moving_inr = None
         seg_moving = None
         seg_fixed = None
-        forward_method = FTAndSubsample(kspace_mask)
-        inverse_method = ZeroFillAndIFT(kspace_mask)
+        forward_method = FastmriFT(kspace_mask)
+        inverse_method = FastmriIFT(kspace_mask)
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
         recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
         moving = nn.Parameter(recon_init)
-
+        gt_im = inverse_method(raw_kspace_data)
     with torch.no_grad():
         logger.info(f'After loading and init: fixed image sum {inverse_method(fixed).abs().sum((1,2,3))}, moving image sum {moving.abs().sum()}, fixed fourier sum {fixed.abs().sum((1,2,3))}')
-    return moving, moving_inr, fixed, seg_moving, seg_fixed, forward_method, inverse_method
+    return moving, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
 
 def prepare_inputs(logger, config):
     if 'cmr' in config.dataset:

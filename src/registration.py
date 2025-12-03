@@ -16,7 +16,7 @@ from src.data.data_load import prepare_inputs
 
 def registration(config, writer, logger:logging.Logger):
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
-    moving, moving_inr, fixed, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
+    moving, moving_inr, fixed, gt_im, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
     dims = len(fixed.shape) - 2
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
@@ -76,7 +76,7 @@ def registration(config, writer, logger:logging.Logger):
         time_stamps[4, epoch-1] = time.time()
         with torch.no_grad():
             collect_imgs = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
-            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs)
+            metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, inverse, func, ST, collect_imgs)
             log_metrics(config, metrics, writer, epoch, imgs_to_save)
 
         time_stamps[5, epoch-1] = time.time()
@@ -101,7 +101,7 @@ def registration(config, writer, logger:logging.Logger):
             time_stamps[6, epoch] = time.time()
 
     with torch.no_grad():
-        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs=True, last_val=True)
+        metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, inverse, func, ST, collect_imgs=True, last_val=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
     best_images = imgs_to_save
 

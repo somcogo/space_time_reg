@@ -55,8 +55,8 @@ def prep_moved_img_vis(imgs, moved, moved_im, moving, config):
     moving_im = (torch.stack([moving]*3, dim=2)*255).to(torch.uint8)
     return reg_last, reg_all, reg_imspace, moving_im
 
-def prep_image_space_comp(moved_im, fixed, inverse):
-    fixed_im = complex_abs(inverse(fixed).movedim(1, -1))
+def prep_image_space_comp(moved_im, gt_im):
+    fixed_im = complex_abs(gt_im.movedim(1, -1))
     moved_im = complex_abs(moved_im.movedim(1, -1))
     im_space_comp = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed_im, moved_im)], nrow=5, normalize=True)
     im_space_comp = (im_space_comp*255).to(torch.uint8).permute(1, 2, 0)
