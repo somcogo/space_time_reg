@@ -9,6 +9,7 @@ from torchdiffeq import odeint_adjoint as odeint
 from src.models.factory import get_func
 from src.losses.losses import calculate_losses
 from src.metrics.calc_metrics import get_relevant_loss_names, calculate_metrics
+from src.metrics.visualisation import prep_vis_summary_pdf
 from src.utils.spatial_utils import generate_coord_tensor, upsample_img_seg, get_relative_vel
 from src.utils.spatial_transformer import get_spatial_transformer
 from src.utils.log_and_save import log_metrics
@@ -103,6 +104,7 @@ def registration(config, writer, logger:logging.Logger):
     with torch.no_grad():
         metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs=True, last_val=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
+        prep_vis_summary_pdf(config, )
     best_images = imgs_to_save
 
     logger.info('-------------------------------------------------')

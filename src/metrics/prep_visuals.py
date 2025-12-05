@@ -5,6 +5,8 @@ import torch
 from torchvision.utils import make_grid
 from PIL import Image
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 import numpy as np
 from flow_vis import flow_to_color
 from fastmri import complex_abs, ifft2c
@@ -143,17 +145,24 @@ def prep_phi_grad_vis(phi_grad):
     phi_grad_norm = (phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0)
     return phi_grad_norm
 
-def prep_grid_def_vis(last_phi):
+def draw_deformed_grid(phi: torch.Tensor) -> tuple[Figure, Axes]:
     fig, ax = plt.subplots()
-    for i in range(0, last_phi.shape[0], math.ceil(last_phi.shape[0]/64)):
-        ax.plot(last_phi[i, :, 0], last_phi[i, :, 1], 'r-', linewidth=0.5)
-    for i in range(0, last_phi.shape[1], math.ceil(last_phi.shape[1]/64)):
-        ax.plot(last_phi[:, i, 0], last_phi[:, i, 1], 'r-', linewidth=0.5)
-    # ax.axis('off')
+    for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/64)):
+        ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
+    for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/64)):
+        ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
     ax.grid(True)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_frame_on(False)
+    ax.tick_params(tick10n=False)
     ax.set_aspect('equal')
     fig.tight_layout()
-    
+    return fig, ax
+
+
+def prep_grid_def_vis(last_phi: torch.Tensor) -> torch.Tensor:
+    fig, ax = draw_deformed_grid(last_phi)
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
