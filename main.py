@@ -38,6 +38,9 @@ if __name__ == '__main__':
     parser.add_argument("--start_frame", type=int,
                         dest="start_frame", default=0,
                         help="Index of first time frame")
+    parser.add_argument("--slice_number", type=int,
+                        dest="slice_number", default=0,
+                        help="Which slice of the CMRxRecon image to use")
     parser.add_argument("--step_size", type=float,
                         dest="step_size", default=0.001,
                         help="size of time step")

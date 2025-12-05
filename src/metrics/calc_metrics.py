@@ -3,77 +3,22 @@ import torch.nn.functional as F
 import numpy as np
 
 from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp
-from src.utils.spatial_utils import generate_coord_tensor
-from src.metrics.dice import calc_oasis_dice
+from src.metrics.metric_utils import add_grad_stats, add_vel_stats, add_losses, add_dices, reshape_phi_and_vel, reduce_dim, add_cmr_eval_metrics
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, inverse, func, collect_imgs, last_val=False):
+def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, inverse, func, ST, collect_imgs, last_val=False):
+    abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving)
+
     metrics = {}
-    total = 0.
-    for loss_type, loss_dict in losses.items():
-        metrics[f'losses/{loss_dict['name']}'] = loss_dict['lambda'] * loss_dict['mean']
-        metrics[f'debug_losses/{loss_dict['name']}'] = loss_dict['mean']
-        total += loss_dict['lambda'] * loss_dict['mean']
-    metrics['losses/total_loss'] = total
-
-    phi_shape = [-1] + list(moving.shape)[1:] + [len(moving.shape) - 1]
-    abs_phi = abs_phi.detach().cpu()
-    coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
-    rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
-    if rel_vel is not None:
-        vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
-        rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
+    metrics = add_losses(losses, metrics)
+    metrics = add_cmr_eval_metrics(moved_im, gt_im, metrics)
     if config.debug or last_val:
-        if not last_val:
-            grads = torch.tensor([p.grad.norm() for p in func.parameters()])
-            names = [n for n, p in func.named_parameters()]
-            metrics['grad_stats/mean_grad'] = grads.mean()
-            metrics['grad_stats/min_grad'] = grads.min()
-            metrics['grad_stats/max_grad'] = grads.max()
-
-            for i in range(len(names)):
-                metrics[f'all_grads/{names[i]}'] = grads[i]
-                
-        if rel_vel is not None:
-            metrics['vel_stats/rel_max'] = rel_vel.max()
-            metrics['vel_stats/rel_min'] = rel_vel.min()
-            metrics['vel_stats/rel_mean'] = rel_vel.mean()
-
-        if seg_fix is not None:
-            if 'oasis' in config.dataset:
-                dice, pred_segs = calc_oasis_dice(segs=seg_mov, abs_phi=abs_phi)
-                metrics['dices/mean dice'] = dice.mean()
-            else:
-                present_classes = [i for i in range(1, int(seg_fix.max()) + 1) if (seg_fix == i).sum() > 0]
-
-                grid = abs_phi.reshape(phi_shape)
-                grid = torch.stack([grid[..., 1], grid[..., 0]], dim=-1)
-                pred_segs = F.grid_sample(seg_mov, grid, mode='nearest', align_corners=False).squeeze()
-
-                dices = np.zeros(len(present_classes))
-                for i, cls in enumerate(present_classes):
-                    gt_mask = seg_fix == cls
-                    pred_mask = pred_segs == cls
-                    intersect = (gt_mask * pred_mask).sum()
-                    union = (gt_mask.sum() + pred_mask.sum())
-                    dices[i] = 2*intersect/union if union > 0 else 1
-                metrics['dices/mean dice'] = dices.mean()
-
+        metrics = add_grad_stats(func, metrics)
+        metrics = add_vel_stats(rel_vel, metrics)
+        metrics, pred_segs = add_dices(config, seg_fix, seg_mov, ST, metrics)
 
     if collect_imgs:
-        reduce_dim = len(fixed.shape) == 5
-        slice_ndx = fixed.shape[-1] // 2
-        if reduce_dim:
-            fixed = fixed[..., slice_ndx]
-            moved = moved[..., slice_ndx]
-            moved_im = moved_im[..., slice_ndx]
-            rel_phi = rel_phi[..., slice_ndx, :-1]
-            if rel_vel is not None:
-                rel_vel = rel_vel[..., slice_ndx, :-1]
-            if seg_fix is not None:
-                seg_fix = seg_fix[..., slice_ndx]
-                pred_segs = pred_segs[..., slice_ndx]
-        sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce_dim else losses['sim']['loss']
-        abs_phi = abs_phi.reshape(phi_shape)[..., slice_ndx, :-1] if reduce_dim else abs_phi.reshape(phi_shape)
+        reduce = len(fixed.shape) == 5
+        fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss = reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, losses, reduce)
 
         reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(fixed, moved, moved_im, moving, config)
         flow_col = prep_flow_vis(rel_phi)
@@ -92,7 +37,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
         }
 
         if 'cmr' in config.dataset:
-            image_space_comp = prep_image_space_comp(moved_im, fixed, inverse)
+            image_space_comp = prep_image_space_comp(moved_im, gt_im)
             imgs_to_save['imgs/comp_imspace'] = image_space_comp
 
         if rel_vel is not None:
@@ -105,7 +50,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
 
-        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce_dim)
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce)
     else:
         imgs_to_save = None
 
