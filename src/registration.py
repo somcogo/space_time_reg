@@ -4,6 +4,7 @@ import copy
 
 import numpy as np
 import torch
+from torch import nn
 from torchdiffeq import odeint_adjoint as odeint
 
 from src.models.factory import get_func
@@ -17,7 +18,8 @@ from src.data.data_load import prepare_inputs
 
 def registration(config, writer, logger:logging.Logger):
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
-    moving, moving_inr, fixed, gt_im, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
+    init_recon, moving_inr, fixed, gt_im, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
+    moving = nn.Parameter(init_recon[0])
     dims = len(fixed.shape) - 2
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
@@ -104,7 +106,7 @@ def registration(config, writer, logger:logging.Logger):
     with torch.no_grad():
         metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, inverse, func, ST, collect_imgs=True, last_val=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
-        prep_vis_summary_pdf(config, )
+        prep_vis_summary_pdf(config, gt_im, init_recon, best_moved_im, best_phi, best_vel)
     best_images = imgs_to_save
 
     logger.info('-------------------------------------------------')

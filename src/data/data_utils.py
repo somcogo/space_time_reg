@@ -18,7 +18,7 @@ from src.losses.recon_reg import get_recon_regularizer
 def reconstruct_initial_frame(logger: logging.Logger, config, recon: nn.Parameter, gt: torch.Tensor, forw: nn.Module):
     optimizer = torch.optim.Adam([recon], lr=config.recon_lr)
     # recon = recon.unsqueeze(0).to(config.device)
-    gt = gt.unsqueeze(0).to(config.device)
+    gt = gt.to(config.device)
     loss_fn = nn.MSELoss(reduction='mean')
     regularizer = get_recon_regularizer(config)
     best_loss = 1e8
@@ -26,12 +26,12 @@ def reconstruct_initial_frame(logger: logging.Logger, config, recon: nn.Paramete
     for epoch in range(1, config.recon_epochs + 1):
         optimizer.zero_grad()
         sim_loss = config.lambda_st * loss_fn(forw(recon), gt)
-        reg_loss = config.lambda_recon * regularizer.g(recon.transpose(0, 1)).mean()
+        reg_loss = config.lambda_recon * regularizer.g(recon.flatten(0,1).unsqueeze(1)).mean()
         loss_sum = sim_loss + reg_loss
         loss_sum.backward()
         optimizer.step()
         if loss_sum <= best_loss:
-            best_recon = recon.detach().clone().squeeze(0)
+            best_recon = recon.detach().clone()
             best_loss = loss_sum.detach().clone()
     t1 = time.time()
     if logger is not None:

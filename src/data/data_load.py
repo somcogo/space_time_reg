@@ -188,9 +188,8 @@ def prepare_inverse_case(logger, config):
 
         forward_method = FTAndSubsample(kspace_mask)
         inverse_method = ZeroFillAndIFT(kspace_mask)
-        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
-        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
-        moving = nn.Parameter(recon_init)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
         inverse_FT = FastmriIFT()
         gt_im = inverse_FT(gt_kspace_data)
     elif 'full' in config.dataset:
@@ -206,13 +205,12 @@ def prepare_inverse_case(logger, config):
         seg_fixed = None
         forward_method = FastmriFT()
         inverse_method = FastmriIFT()
-        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data[0], device=config.device).unsqueeze(0), requires_grad=True)
-        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed[0], forw=forward_method)
-        moving = nn.Parameter(recon_init)
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
+        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
         gt_im = inverse_method(raw_kspace_data)
     with torch.no_grad():
-        logger.info(f'After loading and init: fixed image sum {inverse_method(fixed).abs().sum((1,2,3))}, moving image sum {moving.abs().sum()}, fixed fourier sum {fixed.abs().sum((1,2,3))}')
-    return moving, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
+        logger.info(f'After loading and init: fixed image sum {inverse_method(fixed).abs().sum((1,2,3))}, moving image sum {recon_init.abs().sum((1,2,3))}, fixed fourier sum {fixed.abs().sum((1,2,3))}')
+    return recon_init, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
 
 def prepare_inputs(logger, config):
     if 'cmr' in config.dataset:
