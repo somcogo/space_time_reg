@@ -2,10 +2,10 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp
+from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp, prep_init_recon
 from src.metrics.metric_utils import add_grad_stats, add_vel_stats, add_losses, add_dices, reshape_phi_and_vel, reduce_dim, add_cmr_eval_metrics
 
-def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, inverse, func, ST, collect_imgs, last_val=False):
+def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, init_recon, func, ST, collect_imgs, last_val=False):
     abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving)
 
     metrics = {}
@@ -18,7 +18,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
 
     if collect_imgs:
         reduce = len(fixed.shape) == 5
-        fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss = reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, losses, reduce)
+        fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, init_recon, sim_loss = reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, init_recon, losses, reduce)
 
         reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(fixed, moved, moved_im, moving, config)
         flow_col = prep_flow_vis(rel_phi)
@@ -49,6 +49,10 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
             seg_last, seg_all = prep_seg_vis(seg_fix, pred_segs)
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
+        
+        if last_val:
+            init_imgs = prep_init_recon(init_recon)
+            imgs_to_save['imgs/init_recon'] = seg_all
 
         imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce)
     else:

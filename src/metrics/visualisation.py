@@ -2,6 +2,8 @@ import math
 import os
 
 import matplotlib.pyplot as plt
+from matplotlib.image import AxesImage
+from matplotlib.axes import Axes
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import torch
@@ -48,36 +50,39 @@ def prep_vis_summary_pdf(config: Namespace,
         create_figure_for_velocity(pdf, final, rel_vel)
         plt.close('all')
 
+def add_cbar(img: AxesImage, fontsize: int, ticks: list):
+    cbar = plt.colorbar(img, aspect=5, shrink=0.5, location='right') # , fraction=0.046, pad=0.04, aspect=1, shrink=0.5, 
+    cbar.ax.tick_params(labelsize=fontsize)
+    if ticks is not None:
+        cbar.set_ticks(ticks)
+
+def use_imshow_on_axes(axes: Axes, image: np.ndarray, axis_off: bool, title: str, fontsize: int, use_cbar: bool, ticks: list=None, cmap: str='gray'):
+    plt_img = axes.imshow(image, cmap=cmap)
+    if axis_off:
+        axes.axis("off")
+    axes.set_title(title, fontsize=fontsize)
+    if use_cbar:
+        add_cbar(plt_img, fontsize // 2, ticks)
+
 def prep_tensor(tensor: torch.Tensor) -> np.ndarray:
     return complex_abs(tensor.detach().cpu().movedim(1, -1)).numpy()
 
 def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray, final: np.ndarray, t: int):
+    fontsize = 12
     f, a = plt.subplots(3, 2)
     # f.set_size_inches(6, 9)
+    ticks = [min(gt.min(), init.min(), final.min(), np.abs(init - gt).min(), np.abs(final - gt).min()),
+             max(gt.max(), init.max(), final.max(), np.abs(init - gt).max(), np.abs(final - gt).max())]
 
-    a[0,0].imshow(gt, cmap='gray')
-    a[0,0].axis("off")
-    a[0,0].set_title(f"GT time {t}")
-
-    a[1,0].imshow(init, cmap='gray')
-    a[1,0].axis("off")
-    a[1,0].set_title(f"Initial recon time {t}")
-
-    a[2,0].imshow(final, cmap='gray')
-    a[2,0].axis("off")
-    a[2,0].set_title(f"Final recon time {t}")
+    use_imshow_on_axes(a[0,0], gt, True, f"GT time {t}", fontsize, True, ticks=ticks)
+    use_imshow_on_axes(a[1,0], init, True, f"Initial recon time {t}", fontsize, False)
+    use_imshow_on_axes(a[2,0], final, True, f"Final recon time {t}", fontsize, False)
     
-    # a[0,1].imshow(np.abs(gt - gt), cmap='gray')
-    a[0,1].axis("off")
+    a[0,1].axis("off")    
+    use_imshow_on_axes(a[1,1], np.abs(init - gt), True, "Error", fontsize, False)
+    use_imshow_on_axes(a[2,1], np.abs(final - gt), True, "Error", fontsize, False)
 
-    a[1,1].imshow(np.abs(init - gt), cmap='gray')
-    a[1,1].axis("off")
-    a[1,1].set_title(f"Error")
-
-    a[2,1].imshow(np.abs(final - gt), cmap='gray')
-    a[2,1].axis("off")
-    a[2,1].set_title(f"Error")
-    f.tight_layout()
+    # f.tight_layout()
     pdf.savefig(f)
     plt.close(f)
 
@@ -91,32 +96,19 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
     fontsize = 8
     f, a = plt.subplots(abs_phi.shape[0], 4, gridspec_kw={'width_ratios': [1, 1, 1, 1]})
     # f.set_size_inches(8, 10)
+    ticks = [min(gt.min(), final.min()), max(gt.max(), final.max())]
 
-    a[0,0].imshow(gt[0], cmap='gray')
-    a[0,0].axis("off")
-    a[0,0].set_title("GT at time 0", fontsize=fontsize)
-
-    a[0,1].imshow(final[0], cmap='gray')
-    a[0,1].axis("off")
-    a[0,1].set_title("Final recon at time 0", fontsize=fontsize)
-
+    use_imshow_on_axes(a[0,0], gt[0], True, "GT at time 0", fontsize, False)
+    use_imshow_on_axes(a[0,1], final[0], True, "Final recon at time 0", fontsize, True, ticks=ticks)
     a[0,2].axis("off")
     a[0,3].axis("off")
 
     for t in range(1, abs_phi.shape[0]):
-        a[t,0].imshow(gt[t], cmap='gray')
-        a[t,0].axis("off")
-        a[t,0].set_title(f"GT at time {t}", fontsize=fontsize)
+        use_imshow_on_axes(a[t,0], gt[t], True, f"GT at time {t}", fontsize, False)
+        use_imshow_on_axes(a[t,1], final[t], True, f"Final recon at time {t}", fontsize, False)
 
-        a[t,1].imshow(final[t], cmap='gray')
-        a[t,1].axis("off")
-        a[t,1].set_title(f"Final recon at time {t}", fontsize=fontsize)
-
-        deform_dir = flow_to_color(rel_phi[t])
-        a[t,2].imshow(deform_dir)
-        a[t,2].axis("off")
-        a[t,2].set_title(f"Deformation at time {t}", fontsize=fontsize)
-
+        deform_dir = flow_to_color(rel_phi[t])        
+        use_imshow_on_axes(a[t,2], deform_dir, True, f"Deformation at time {t}", fontsize, False, cmap=None)
         draw_deformed_grid(abs_phi[t], a[t, 3])
         a[t,3].set_title(f"Deformed grid at time {t}", fontsize=fontsize)
         
@@ -134,27 +126,18 @@ def create_figure_for_velocity(pdf: PdfPages, final: np.ndarray, rel_vel: np.nda
     fontsize = 8
     f, a = plt.subplots(rel_vel.shape[0], 3)
     # f.set_size_inches(6, 10)
+    ticks = [final.min(), final.max()]
+    ticks_vel = [np.linalg.norm(rel_vel, axis=-1).min(), np.linalg.norm(rel_vel, axis=-1).max()]
 
-    a[0,0].imshow(final[0], cmap='gray')
-    a[0,0].axis("off")
-    a[0,0].set_title("Final recon at time 0", fontsize=fontsize)
-
+    use_imshow_on_axes(a[0,0], final[0], True, "Final recon at time 0", fontsize, True, ticks=ticks)
     a[0,1].axis("off")
     a[0,2].axis("off")
 
     for t in range(1, rel_vel.shape[0]):
-        a[t,0].imshow(final[t], cmap='gray')
-        a[t,0].axis("off")
-        a[t,0].set_title(f"Final recon at time {t}", fontsize=fontsize)
-
+        use_imshow_on_axes(a[t,0], final[t], True, f"Final recon at time {t}", fontsize, False)
         vel_dir = flow_to_color(rel_vel[t-1])
-        a[t,1].imshow(vel_dir)
-        a[t,1].axis("off")
-        a[t,1].set_title(f"Velocity direction at time {t}", fontsize=fontsize)
-
-        a[t,2].imshow(np.linalg.norm(rel_vel[t-1], axis=-1), cmap="gray")
-        a[t,2].axis("off")
-        a[t,2].set_title(f"Velocity norm at time {t}", fontsize=fontsize)
+        use_imshow_on_axes(a[t,1], vel_dir, True, f"Velocity direction at time {t}", fontsize, False, cmap=None)
+        use_imshow_on_axes(a[t,2], np.linalg.norm(rel_vel[t-1], axis=-1), True, f"Velocity norm at time {t}", fontsize, True, ticks=ticks_vel)
     
     f.tight_layout()
     pdf.savefig(f)

@@ -85,12 +85,13 @@ def reshape_phi_and_vel(abs_phi, rel_vel, moving):
         rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
     return abs_phi, rel_phi, rel_vel
 
-def reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, losses, reduce):
+def reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, init_recon, losses, reduce):
     slice_ndx = fixed.shape[-1] // 2
     if reduce:
         fixed = fixed[..., slice_ndx]
         moved = moved[..., slice_ndx]
         moved_im = moved_im[..., slice_ndx]
+        init_recon = init_recon[..., slice_ndx]
         rel_phi = rel_phi[..., slice_ndx, :-1]
         abs_phi = abs_phi[..., slice_ndx, :-1]
         if rel_vel is not None:
@@ -99,7 +100,7 @@ def reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs
             seg_fix = seg_fix[..., slice_ndx]
             pred_segs = pred_segs[..., slice_ndx]
     sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce else losses['sim']['loss']
-    return fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss
+    return fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, init_recon, sim_loss
 
 # add_cmr_eval_metrics, psnr, ssim and nmse function implementations are based on the official CMRxRecon evaluation code https://github.com/CmrxRecon/CMRxRecon/blob/main/Evaluation/Evaluation.py
 def psnr(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:

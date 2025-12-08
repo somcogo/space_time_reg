@@ -96,6 +96,9 @@ if __name__ == '__main__':
     parser.add_argument("--lambda_recon", type=float,
                         dest="lambda_recon", default=1,
                         help="loss weight for the reconstruction regularizer")
+    parser.add_argument("--recon_scale", type=float,
+                        dest="recon_scale", default=0.1,
+                        help="scale for the reconstruction regularizer")
     
     parser.add_argument("--use_nreps", action=argparse.BooleanOptionalAction,
                         dest="use_nreps", default=True,

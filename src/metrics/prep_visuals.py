@@ -64,6 +64,11 @@ def prep_image_space_comp(moved_im, gt_im):
     im_space_comp = (im_space_comp*255).to(torch.uint8).permute(1, 2, 0)
     return im_space_comp
 
+def prep_init_recon(init_recon: torch.Tensor):
+    init_im = complex_abs(init_recon.movedim(1, -1))
+    init_grid = make_grid(init_im.unsqueeze(1), nrow=5, normalize=True)
+    init_grid = (init_grid*255).to(torch.uint8).permute(1, 2, 0)
+    return init_grid
 
 def prep_vel_vis(rel_vel):
     rel_act_velocity_color = []
