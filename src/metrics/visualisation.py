@@ -112,7 +112,7 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
         a[t,1].axis("off")
         a[t,1].set_title(f"Final recon at time {t}", fontsize=fontsize)
 
-        deform_dir = flow_to_color(abs_phi[t])
+        deform_dir = flow_to_color(rel_phi[t])
         a[t,2].imshow(deform_dir)
         a[t,2].axis("off")
         a[t,2].set_title(f"Deformation at time {t}", fontsize=fontsize)

@@ -156,7 +156,7 @@ def draw_deformed_grid(phi: torch.Tensor, ax: Axes) -> tuple[Axes]:
     ax.set_yticklabels([])
     ax.set_frame_on(False)
     ax.tick_params(tick1On=False)
-    ax.set_aspect('equal')
+    # ax.set_aspect('equal')
     # return ax
 
 
