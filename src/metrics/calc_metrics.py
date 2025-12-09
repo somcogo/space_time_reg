@@ -52,7 +52,7 @@ def calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, 
         
         if last_val:
             init_imgs = prep_init_recon(init_recon)
-            imgs_to_save['imgs/init_recon'] = seg_all
+            imgs_to_save['imgs/init_recon'] = init_imgs
 
         imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, config, abs_phi.shape[0], fixed.shape[1:], reduce_dim=reduce)
     else:

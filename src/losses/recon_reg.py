@@ -3,11 +3,12 @@ import torch
 from learned_regularizers.priors import WCRR, ParameterLearningWrapper
 
 def get_recon_regularizer(config):
-    reg = WCRR(sigma=config.recon_scale, weak_convexity=0.0).to(config.device)
-    regu = ParameterLearningWrapper(reg, device=config.device)
+    reg = WCRR(sigma=0.1, weak_convexity=0.0).to(config.device)
+    wrapped_reg = ParameterLearningWrapper(reg, device=config.device)
     weights = torch.load('learned_regularizers/weights/bilevel_CT/CRR_bilevel_JFB_for_CT.pt', map_location=config.device)
-    regu.load_state_dict(weights)
-    regu.eval()
-    for p in regu.parameters():
+    weights['scale'] = torch.tensor(config.recon_scale)
+    wrapped_reg.load_state_dict(weights)
+    wrapped_reg.eval()
+    for p in wrapped_reg.parameters():
         p.requires_grad_(False)
-    return regu
+    return wrapped_reg
