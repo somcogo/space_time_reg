@@ -9,13 +9,14 @@ from PIL import Image
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from fastmri import fft2c, ifft2c
+from argparse import Namespace
 
 from src.models.siren import Siren
 from src.siren import training, dataio, modules, loss_functions
 from src.utils.spatial_utils import generate_coord_tensor
 from src.losses.recon_reg import get_recon_regularizer
 
-def reconstruct_initial_frame(logger: logging.Logger, config, recon: nn.Parameter, gt: torch.Tensor, forw: nn.Module):
+def reconstruct_initial_frame(logger: logging.Logger, config: Namespace, recon: nn.Parameter, gt: torch.Tensor, forw: nn.Module):
     optimizer = torch.optim.Adam([recon], lr=config.recon_lr)
     # recon = recon.unsqueeze(0).to(config.device)
     gt = gt.to(config.device)

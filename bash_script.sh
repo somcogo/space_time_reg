@@ -2,7 +2,7 @@
 lossfn="mse"
 depth="3"
 dim="64"
-epochs="500"
+epochs="50"
 recon_epochs="500"
 tp="5"
 ts=0.1
@@ -14,11 +14,11 @@ dset="cmr_P001_Acc04"
 solver="euler"
 netw="sirenensemble"
 
-folder="cmr/recon_grid_search2"
+folder="cmr/recon_grid_search3"
 comm=""
 
 lr="1e-4"
-recon_lr=1e-3
+recon_lr=1e-6
 weight_decay=0
 lam_negJ=0
 lam_grd=0
@@ -43,7 +43,7 @@ nrep=no-
 
 start_frame=0
 
-export CUDA_VISIBLE_DEVICES="0"
+export CUDA_VISIBLE_DEVICES="7"
 
 for recon_scale in 1e-1 1e0 1e-2 1e1 1e-3 1e2 1e-4
 do
