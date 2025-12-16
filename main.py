@@ -47,6 +47,9 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float,
                         dest="lr", default=0.01,
                         help="learning rate")
+    parser.add_argument("--init_lr", type=float,
+                        dest="init_lr", default=0.1,
+                        help="reconstruction learning rate for initial recon")
     parser.add_argument("--recon_lr", type=float,
                         dest="recon_lr", default=0.1,
                         help="reconstruction learning rate")
@@ -155,6 +158,10 @@ if __name__ == '__main__':
     parser.add_argument("--downsamples", type=list,
                         dest="downsamples", default=[8, 4, 2, 1],
                         help="Factor to downsample by")
+    
+    parser.add_argument("--detach_grads", type=argparse.BooleanOptionalAction,
+                        dest="detach_grads", default=True,
+                        help="Used in nmAPG for recon init")
     
     config = parser.parse_args()
 

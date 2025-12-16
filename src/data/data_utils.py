@@ -10,14 +10,64 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from fastmri import fft2c, ifft2c
 from argparse import Namespace
+from deepinv.optim.data_fidelity import L2Distance
 
 from src.models.siren import Siren
 from src.siren import training, dataio, modules, loss_functions
 from src.utils.spatial_utils import generate_coord_tensor
 from src.losses.recon_reg import get_recon_regularizer
+from learned_regularizers.evaluation.nmAPG import nmAPG
+
+# Based on reconstruct_nmAPG from learned_regularizers https://github.com/johertrich/LearnedRegularizers/blob/main/evaluation/nmAPG.py
+def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor, gt: torch.Tensor, forw: nn.Module):
+    x0 = recon
+    gt = gt.to(config.device)
+    loss_fn = L2Distance()
+    regularizer = get_recon_regularizer(config)
+    def energy(val, y_in):
+        with torch.no_grad():
+            sim_loss = config.lambda_st * loss_fn(forw(val), y_in)
+            reg_loss = config.lambda_recon * regularizer.g(val.flatten(0,1).unsqueeze(1)).reshape(val.shape[0], -1).sum(1)
+            fun = sim_loss + reg_loss
+        if config.detach_grads:
+            fun = fun.detach()
+        return fun.reshape(-1)
+    
+    def energy_grad(val, y_in):
+        sim_grad = config.lambda_st * calc_sim_grad(loss_fn, forw, val, y_in)
+        reg_grad = config.lambda_recon * regularizer.grad(val.flatten(0,1).unsqueeze(1)).reshape(val.shape)
+        grad = sim_grad + reg_grad
+        if config.detach_grads:
+            grad = grad.detach()
+        return grad
+
+    energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
+    
+    t0 = time.time()
+    x, L, i, converged = nmAPG(x0=x0,
+                               y=gt,
+                               f=energy,
+                               nabla=energy_grad,
+                               f_and_nabla=energy_and_grad,
+                               max_iter=config.recon_epochs,
+                               verbose=config.debug,
+                               tol=1e-10)
+    t1 = time.time()
+    print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
+    return x
+
+def calc_sim_grad(loss_fn, forw, val, y_in):
+    with torch.enable_grad():
+        val = val.requires_grad_()
+        h = loss_fn(forw(val), y_in)
+        grad = torch.autograd.grad(
+            h, val, torch.ones_like(h), create_graph=True
+        )[0]
+    return grad
+
 
 def reconstruct_initial_frame(logger: logging.Logger, config: Namespace, recon: nn.Parameter, gt: torch.Tensor, forw: nn.Module):
-    optimizer = torch.optim.Adam([recon], lr=config.recon_lr)
+    optimizer = torch.optim.Adam([recon], lr=config.init_lr)
     # recon = recon.unsqueeze(0).to(config.device)
     gt = gt.to(config.device)
     loss_fn = nn.MSELoss(reduction='mean')
