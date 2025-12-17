@@ -51,7 +51,7 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
                                f_and_nabla=energy_and_grad,
                                max_iter=config.recon_epochs,
                                verbose=config.debug,
-                               tol=1e-10)
+                               tol=1e-6)
     t1 = time.time()
     print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
     return x

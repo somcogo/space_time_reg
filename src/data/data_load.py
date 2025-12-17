@@ -189,8 +189,10 @@ def prepare_inverse_case(logger, config):
         forward_method = FTAndSubsample(kspace_mask)
         inverse_method = ZeroFillAndIFT(kspace_mask)
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
-        recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
-        # recon_init = reconstruct_initial_frame_learned_reg(config=config, recon=recon_init, gt=fixed, forw=forward_method)
+        if config.use_nmAPG:
+            recon_init = reconstruct_initial_frame_learned_reg(config=config, recon=recon_init, gt=fixed, forw=forward_method)
+        else:
+            recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
         inverse_FT = FastmriIFT()
         gt_im = inverse_FT(gt_kspace_data)
     elif 'full' in config.dataset:

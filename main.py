@@ -99,6 +99,9 @@ if __name__ == '__main__':
     parser.add_argument("--lambda_recon", type=float,
                         dest="lambda_recon", default=1,
                         help="loss weight for the reconstruction regularizer")
+    parser.add_argument("--lambda_init_recon", type=float,
+                        dest="lambda_init_recon", default=1,
+                        help="loss weight for the reconstruction regularizer during initial recon")
     parser.add_argument("--recon_scale", type=float,
                         dest="recon_scale", default=0.1,
                         help="scale for the reconstruction regularizer")
@@ -162,6 +165,9 @@ if __name__ == '__main__':
     parser.add_argument("--detach_grads", type=argparse.BooleanOptionalAction,
                         dest="detach_grads", default=True,
                         help="Used in nmAPG for recon init")
+    parser.add_argument("--use_nmAPG", type=argparse.BooleanOptionalAction,
+                        dest="use_nmAPG", default=True,
+                        help="Used nmAPG for initial recon")
     
     config = parser.parse_args()
 
