@@ -27,7 +27,7 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
     def energy(val, y_in):
         with torch.no_grad():
             sim_loss = config.lambda_st * loss_fn(forw(val), y_in)
-            reg_loss = config.lambda_recon * regularizer.g(val.flatten(0,1).unsqueeze(1)).reshape(val.shape[0], -1).sum(1)
+            reg_loss = config.lambda_init_recon * regularizer.g(val.flatten(0,1).unsqueeze(1)).reshape(val.shape[0], -1).sum(1)
             fun = sim_loss + reg_loss
         if config.detach_grads:
             fun = fun.detach()
@@ -35,7 +35,7 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
     
     def energy_grad(val, y_in):
         sim_grad = config.lambda_st * calc_sim_grad(loss_fn, forw, val, y_in)
-        reg_grad = config.lambda_recon * regularizer.grad(val.flatten(0,1).unsqueeze(1)).reshape(val.shape)
+        reg_grad = config.lambda_init_recon * regularizer.grad(val.flatten(0,1).unsqueeze(1)).reshape(val.shape)
         grad = sim_grad + reg_grad
         if config.detach_grads:
             grad = grad.detach()
@@ -77,7 +77,7 @@ def reconstruct_initial_frame(logger: logging.Logger, config: Namespace, recon: 
     for epoch in range(1, config.recon_epochs + 1):
         optimizer.zero_grad()
         sim_loss = config.lambda_st * loss_fn(forw(recon), gt)
-        reg_loss = config.lambda_recon * regularizer.g(recon.flatten(0,1).unsqueeze(1)).mean()
+        reg_loss = config.lambda_init_recon * regularizer.g(recon.flatten(0,1).unsqueeze(1)).mean()
         loss_sum = sim_loss + reg_loss
         loss_sum.backward()
         optimizer.step()

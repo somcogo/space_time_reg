@@ -162,11 +162,11 @@ if __name__ == '__main__':
                         dest="downsamples", default=[8, 4, 2, 1],
                         help="Factor to downsample by")
     
-    parser.add_argument("--detach_grads", type=argparse.BooleanOptionalAction,
+    parser.add_argument("--detach_grads", action=argparse.BooleanOptionalAction,
                         dest="detach_grads", default=True,
                         help="Used in nmAPG for recon init")
-    parser.add_argument("--use_nmAPG", type=argparse.BooleanOptionalAction,
-                        dest="use_nmAPG", default=True,
+    parser.add_argument("--use_nmapg", action=argparse.BooleanOptionalAction,
+                        dest="use_nmapg", default=False,
                         help="Used nmAPG for initial recon")
     
     config = parser.parse_args()
