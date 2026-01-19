@@ -32,7 +32,8 @@ class Siren(nn.Module):
                     if i == 0:
                         self.layers[-1].weight.uniform_(-1 / layers[i], 1 / layers[i])
                     elif i == self.n_layers - 1 and last_init_zero:
-                        self.layers[-1].weight.uniform_(-1e-3, 1e-3)
+                        val = 1/600
+                        self.layers[-1].weight.uniform_(-val, val)
                         self.layers[-1].bias.zero_()
                     else:
                         self.layers[-1].weight.uniform_(

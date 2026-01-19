@@ -190,12 +190,17 @@ if __name__ == '__main__':
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega,
+                    #    'last_init_zero':True}
                        'last_init_zero':'cmr' in config.dataset}
     elif 'wire' in config.func_name:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega,
                        'scale':config.wire_scale}
+
+    if config.recon_scale == 0:
+        config.recon_scale = None    
+    
     config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)

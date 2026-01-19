@@ -173,11 +173,11 @@ def prepare_non_inverse_case(config):
 def prepare_inverse_case(logger, config):
     if  'Acc04' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax.pt')[:,config.slice_number].permute(0, 3, 1, 2)
+        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = (raw_kspace_data[:1] != 0)
 
-        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,config.slice_number].permute(0, 3, 1, 2)
+        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
 
         smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
@@ -197,7 +197,7 @@ def prepare_inverse_case(logger, config):
         gt_im = inverse_FT(gt_kspace_data)
     elif 'full' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax.pt')[:,config.slice_number].permute(0, 3, 1, 2)
+        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = (raw_kspace_data[:1] != 0)
 
@@ -211,8 +211,6 @@ def prepare_inverse_case(logger, config):
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
         recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
         gt_im = inverse_method(raw_kspace_data)
-    with torch.no_grad():
-        logger.info(f'After loading and init: fixed image sum {inverse_method(fixed).abs().sum((1,2,3))}, moving image sum {recon_init.abs().sum((1,2,3))}, fixed fourier sum {fixed.abs().sum((1,2,3))}')
     return recon_init, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
 
 def prepare_inputs(logger, config):

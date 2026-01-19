@@ -146,15 +146,15 @@ def prep_vel_lap_vis(lap, config, img_shape):
     return lap_grid
 
 def prep_phi_grad_vis(phi_grad):
-    phi_grad_norm = make_grid(torch.linalg.norm(phi_grad, dim=-1).unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.1))
+    phi_grad_norm = make_grid(torch.linalg.norm(phi_grad, dim=-1).unsqueeze(1), nrow=5, normalize=True, value_range=(0, 0.05))
     phi_grad_norm = (phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0)
     return phi_grad_norm
 
 def draw_deformed_grid(phi: torch.Tensor, ax: Axes) -> tuple[Axes]:
     # fig, ax = plt.subplots()
-    for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/16)):
+    for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/64)):
         ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
-    for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/16)):
+    for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/64)):
         ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
     ax.grid(True)
     ax.set_xticklabels([])

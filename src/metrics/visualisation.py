@@ -95,7 +95,7 @@ def prep_phi(phi: torch.Tensor, gt: np.ndarray) -> np.ndarray:
 def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray):
     fontsize = 8
     f, a = plt.subplots(abs_phi.shape[0], 4, gridspec_kw={'width_ratios': [1, 1, 1, 1]})
-    # f.set_size_inches(8, 10)
+    f.set_size_inches(12, abs_phi.shape[0]*2)
     ticks = [min(gt.min(), final.min()), max(gt.max(), final.max())]
 
     use_imshow_on_axes(a[0,0], gt[0], True, "GT at time 0", fontsize, False)
@@ -125,9 +125,9 @@ def prep_vel(vel: torch.Tensor, gt: np.ndarray) -> np.ndarray:
 def create_figure_for_velocity(pdf: PdfPages, final: np.ndarray, rel_vel: np.ndarray):
     fontsize = 8
     f, a = plt.subplots(rel_vel.shape[0], 3)
-    # f.set_size_inches(6, 10)
+    f.set_size_inches(9, rel_vel.shape[0]*2)
     ticks = [final.min(), final.max()]
-    ticks_vel = [np.linalg.norm(rel_vel, axis=-1).min(), np.linalg.norm(rel_vel, axis=-1).max()]
+    # ticks_vel = [np.linalg.norm(rel_vel, axis=-1).min(), np.linalg.norm(rel_vel, axis=-1).max()]
 
     use_imshow_on_axes(a[0,0], final[0], True, "Final recon at time 0", fontsize, True, ticks=ticks)
     a[0,1].axis("off")
@@ -137,7 +137,8 @@ def create_figure_for_velocity(pdf: PdfPages, final: np.ndarray, rel_vel: np.nda
         use_imshow_on_axes(a[t,0], final[t], True, f"Final recon at time {t}", fontsize, False)
         vel_dir = flow_to_color(rel_vel[t-1])
         use_imshow_on_axes(a[t,1], vel_dir, True, f"Velocity direction at time {t}", fontsize, False, cmap=None)
-        use_imshow_on_axes(a[t,2], np.linalg.norm(rel_vel[t-1], axis=-1), True, f"Velocity norm at time {t}", fontsize, True, ticks=ticks_vel)
+        normed_vel = np.linalg.norm(rel_vel[t-1], axis=-1)
+        use_imshow_on_axes(a[t,2], normed_vel, True, f"Velocity norm at time {t}", fontsize, True, ticks=[normed_vel.min(), normed_vel.max()])
     
     f.tight_layout()
     pdf.savefig(f)
