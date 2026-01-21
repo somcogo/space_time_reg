@@ -175,13 +175,13 @@ def prepare_inverse_case(logger, config):
         patient = config.dataset.split('_')[1][1:]
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
-        kspace_mask = (raw_kspace_data[:1] != 0)
+        kspace_mask = (raw_kspace_data != 0)
 
         gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
 
         smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
-        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
+        fixed = raw_kspace_data[kspace_mask].reshape(smaller_shape)
         moving_inr = None
         seg_moving = None
         seg_fixed = None
@@ -199,10 +199,10 @@ def prepare_inverse_case(logger, config):
         patient = config.dataset.split('_')[1][1:]
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
-        kspace_mask = (raw_kspace_data[:1] != 0)
+        kspace_mask = (raw_kspace_data != 0)
 
         smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
-        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
+        fixed = raw_kspace_data[kspace_mask].reshape(smaller_shape)
         moving_inr = None
         seg_moving = None
         seg_fixed = None

@@ -168,6 +168,9 @@ if __name__ == '__main__':
     parser.add_argument("--use_nmapg", action=argparse.BooleanOptionalAction,
                         dest="use_nmapg", default=False,
                         help="Used nmAPG for initial recon")
+    parser.add_argument("--random_mask", action=argparse.BooleanOptionalAction,
+                        dest="random_mask", default=False,
+                        help="Use randomized kspace mask")
     
     config = parser.parse_args()
 

@@ -152,9 +152,9 @@ def prep_phi_grad_vis(phi_grad):
 
 def draw_deformed_grid(phi: torch.Tensor, ax: Axes) -> tuple[Axes]:
     # fig, ax = plt.subplots()
-    for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/64)):
+    for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/32)):
         ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
-    for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/64)):
+    for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/32)):
         ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
     ax.grid(True)
     ax.set_xticklabels([])

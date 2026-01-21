@@ -2,6 +2,7 @@ import copy
 from functools import partial
 import logging
 import time
+import random
 
 import torch
 from torch import nn
@@ -209,7 +210,7 @@ class FTAndSubsample(nn.Module):
     def forward(self, image: torch.Tensor):
         spectrum = fft2c(image.movedim(1, -1)).movedim(-1, 1)
         new_shape = list(image.shape[:2]) + [-1] + list(image.shape[3:])
-        return spectrum[self.mask.expand(spectrum.shape)].reshape(new_shape)
+        return spectrum[self.mask].reshape(new_shape)
     
 class ZeroFillAndIFT(nn.Module):
     def __init__(self, kspace_mask):
@@ -217,8 +218,42 @@ class ZeroFillAndIFT(nn.Module):
         self.register_buffer("mask", kspace_mask)
 
     def forward(self, spectrum: torch.Tensor):
-        full_shape = [spectrum.shape[0]] + list(self.mask.shape[1:])
-        full_spectrum = torch.zeros(full_shape, device=spectrum.device)
-        full_spectrum[self.mask.expand(full_spectrum.shape)] = spectrum.flatten()
+        full_spectrum = torch.zeros(self.mask.shape, device=spectrum.device)
+        full_spectrum[self.mask] = spectrum.flatten()
         image = ifft2c(full_spectrum.movedim(1, -1)).movedim(-1, 1)
         return image
+    
+def generate_standard_mask(shape: torch.Size, factor: int):
+    h = shape[-2]
+    start = h//2 - 12
+    end = h//2 + 12
+
+    set1 = set(range(start, end))
+    set2 = set(range(0, h, factor))
+    indices = list(set1.union(set2))
+
+    mask = torch.zeros(shape)
+    mask[..., indices, :] = 1
+
+    return mask
+
+def generate_random_mask(shape: torch.Size, factor: int):
+    h = shape[-2]
+    start = h//2 - 12
+    end = h//2 + 12
+
+    set1 = set(range(start, end))
+    set2 = set(random.sample(range(h), h//factor))
+    indices = list(set1.union(set2))
+
+    mask = torch.zeros(shape)
+    mask[..., indices, :] = 1
+
+    return mask
+
+def get_kspace_mask(config, kspace_data, factor):
+    if config.random_mask:
+        mask = generate_random_mask(kspace_data.shape, factor)
+    else:
+        mask = generate_standard_mask(kspace_data.shape, factor)
+    return mask

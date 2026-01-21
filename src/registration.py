@@ -42,6 +42,7 @@ def registration(config, writer, logger:logging.Logger):
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
     downsample = 1
+    all_metrics = []
 
     for epoch in range(1, config.epochs + 1):
 
@@ -81,6 +82,7 @@ def registration(config, writer, logger:logging.Logger):
             collect_imgs = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
             metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, init_recon, func, ST, collect_imgs)
             log_metrics(config, metrics, writer, epoch, imgs_to_save)
+            all_metrics.append({'metrics':copy.deepcopy(metrics), 'losses':copy.deepcopy(losses)})
 
         time_stamps[5, epoch-1] = time.time()
         if epoch == 1 or log_epoch:
@@ -106,7 +108,7 @@ def registration(config, writer, logger:logging.Logger):
     with torch.no_grad():
         metrics, imgs_to_save = calculate_metrics(losses, config, abs_phi, rel_vel, fixed, moving, seg_mov, seg_fix, moved, moved_im, gt_im, init_recon, func, ST, collect_imgs=True, last_val=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
-        prep_vis_summary_pdf(config, gt_im, init_recon, best_moved_im, best_phi, best_vel)
+        prep_vis_summary_pdf(config, gt_im, init_recon, best_moved_im, best_phi, best_vel, all_metrics)
     best_images = imgs_to_save
 
     logger.info('-------------------------------------------------')

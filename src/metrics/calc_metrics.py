@@ -68,7 +68,7 @@ def get_relevant_loss_names(config):
     include_all = False
     # include_all = config.debug
     if config.lambda_negJ > 0 or config.lambda_grd > 0 or include_all:
-        losses['negJ'] = {'name':'Vel negative det J',
+        losses['negJ'] = {'name':'Phi negative det J',
                        'lambda':config.lambda_negJ,
                        'time':0.}
         losses['grd'] = {'name':'Vel gradient',
