@@ -13,7 +13,7 @@ solver="euler"
 netw="sirenensemble"
 
 folder="cmr/debug_init_recon"
-comm="reg_weights_"
+comm="reg_weights_scoreCT"
 
 lr=1e-4 #1e-4 1e-6
 init_lr=1e-2
