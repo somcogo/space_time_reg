@@ -5,10 +5,11 @@ import nibabel as nib
 from torch import nn
 import h5py
 from fastmri.data import transforms as T
+from fastmri import complex_abs
 
 from src.models.siren import Siren
 from src.siren import modules
-from .data_utils import reconstruct_initial_frame, reconstruct_initial_frame_learned_reg, FTAndSubsample, ZeroFillAndIFT, FastmriFT, FastmriIFT
+from .data_utils import reconstruct_initial_frame, reconstruct_initial_frame_learned_reg, FTAndSubsample, ZeroFillAndIFT, FastmriFT, FastmriIFT, generate_random_mask
 
 def load_and_prepare_cmrxrecon(file_name):
     hf_m = h5py.File(file_name)
@@ -175,7 +176,10 @@ def prepare_inverse_case(logger, config):
         patient = config.dataset.split('_')[1][1:]
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
-        kspace_mask = (raw_kspace_data != 0)
+        if config.random_mask:
+            kspace_mask = generate_random_mask(raw_kspace_data.shape, 4)
+        else:
+            kspace_mask = (raw_kspace_data != 0)
 
         gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
@@ -195,6 +199,15 @@ def prepare_inverse_case(logger, config):
             recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
         inverse_FT = FastmriIFT()
         gt_im = inverse_FT(gt_kspace_data)
+        with torch.no_grad():
+            print('ks gt max min', gt_kspace_data.max(), gt_kspace_data.min())
+            print('inv forw subsample gt max min', forward_method(inverse_FT(gt_kspace_data)).max(), forward_method(inverse_FT(gt_kspace_data)).min())
+            print('fixed max min', fixed.max(), fixed.min())
+            print('recon init max min', forward_method(recon_init.detach().cpu()).max(), forward_method(recon_init.detach().cpu()).min())
+
+            print('gt max min', gt_im.max(), gt_im.min())
+            print('fixed ZF inv max min', inverse_method(fixed).max(), inverse_method(fixed).min())
+            print('recon init max min', recon_init.detach().cpu().max(), recon_init.detach().cpu().min())
     elif 'full' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)

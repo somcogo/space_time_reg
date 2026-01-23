@@ -232,7 +232,7 @@ def generate_standard_mask(shape: torch.Size, factor: int):
     set2 = set(range(0, h, factor))
     indices = list(set1.union(set2))
 
-    mask = torch.zeros(shape)
+    mask = torch.zeros(shape, dtype=bool)
     mask[..., indices, :] = 1
 
     return mask
@@ -246,7 +246,7 @@ def generate_random_mask(shape: torch.Size, factor: int):
     set2 = set(random.sample(range(h), h//factor))
     indices = list(set1.union(set2))
 
-    mask = torch.zeros(shape)
+    mask = torch.zeros(shape, dtype=bool)
     mask[..., indices, :] = 1
 
     return mask

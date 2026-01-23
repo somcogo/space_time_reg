@@ -66,7 +66,7 @@ def use_imshow_on_axes(axes: Axes, image: np.ndarray, axis_off: bool, title: str
         axes.axis("off")
     axes.set_title(title, fontsize=fontsize)
     if use_cbar:
-        add_cbar(plt_img, fontsize // 2, ticks)
+        add_cbar(plt_img, fontsize * 2 // 3, ticks)
 
 def prep_tensor(tensor: torch.Tensor) -> np.ndarray:
     return complex_abs(tensor.detach().cpu().movedim(1, -1)).numpy()
@@ -108,19 +108,20 @@ def prep_phi(phi: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     return phi
 
 def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: list):
-    fontsize = 8
-    f, a = plt.subplots(abs_phi.shape[0], 7, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1, 1, 1]})
-    f.set_size_inches(21, abs_phi.shape[0]*2)
+    fontsize = 12
+    f, a = plt.subplots(abs_phi.shape[0], 8, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1]})
+    f.set_size_inches(24, abs_phi.shape[0]*2)
 
     use_imshow_on_axes(a[0,0], gt[0], True, "GT at time 0", fontsize, False)
     use_imshow_on_axes(a[0,1], final[0], True, "Final recon at time 0", fontsize, False)
     a[0,2].plot(losses['Reconstruction reg'])
     a[0,2].set_title('Recon loss', fontsize=fontsize)
     a[0,3].axis("off")
-    a[0,4].plot(losses['Similarity loss'][:,0])
-    a[0,4].set_title('Sim loss', fontsize=fontsize)
-    a[0,5].axis("off")
+    a[0,4].axis("off")
+    a[0,5].plot(losses['Similarity loss'][:,0])
+    a[0,5].set_title('Sim loss', fontsize=fontsize)
     a[0,6].axis("off")
+    a[0,7].axis("off")
 
     for t in range(1, abs_phi.shape[0]):
         use_imshow_on_axes(a[t,0], gt[t], True, f"GT at time {t}", fontsize, False)
@@ -131,14 +132,17 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
         draw_deformed_grid(abs_phi[t], a[t, 3])
         a[t,3].set_title(f"Deformed grid at time {t}", fontsize=fontsize)
 
-        a[t,4].plot(losses['Similarity loss'][:,t])
-        a[t,4].set_title('Sim loss', fontsize=fontsize)
+        phi_norm = np.linalg.norm(rel_phi[t], axis=-1)
+        use_imshow_on_axes(a[t,4], phi_norm, True, f"Final recon at time {t}", fontsize, True, ticks=[phi_norm.min(), phi_norm.max()])
+
+        a[t,5].plot(losses['Similarity loss'][:,t])
+        a[t,5].set_title('Sim loss', fontsize=fontsize)
         
-        a[t,5].plot(losses['Phi negative det J'][:,t])
-        a[t,5].set_title('Phi Jacobian loss', fontsize=fontsize)
+        a[t,6].plot(losses['Phi negative det J'][:,t])
+        a[t,6].set_title('Phi Jacobian loss', fontsize=fontsize)
         
-        a[t,6].plot(losses['Vel gradient'][:,t-1])
-        a[t,6].set_title('Vel grad loss', fontsize=fontsize)
+        a[t,7].plot(losses['Vel gradient'][:,t-1])
+        a[t,7].set_title('Vel grad loss', fontsize=fontsize)
         
     f.tight_layout()
     pdf.savefig(f)
@@ -151,7 +155,7 @@ def prep_vel(vel: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     return vel
 
 def create_figure_for_velocity(pdf: PdfPages, final: np.ndarray, rel_vel: np.ndarray):
-    fontsize = 8
+    fontsize = 10
     f, a = plt.subplots(rel_vel.shape[0], 3)
     f.set_size_inches(9, rel_vel.shape[0]*2)
     ticks = [final.min(), final.max()]

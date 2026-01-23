@@ -9,7 +9,7 @@ from torchdiffeq import odeint_adjoint as odeint
 
 from src.models.factory import get_func
 from src.losses.losses import calculate_losses
-from src.metrics.calc_metrics import get_relevant_loss_names, calculate_metrics
+from src.metrics.calc_metrics import get_relevant_loss_names, calculate_metrics, calc_init_metrics
 from src.metrics.visualisation import prep_vis_summary_pdf
 from src.utils.spatial_utils import generate_coord_tensor, upsample_img_seg, get_relative_vel
 from src.utils.spatial_transformer import get_spatial_transformer
@@ -20,6 +20,7 @@ def registration(config, writer, logger:logging.Logger):
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     init_recon, moving_inr, fixed, gt_im, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
     moving = nn.Parameter(init_recon[0].clone())
+    init_recon = init_recon.detach()
     dims = len(fixed.shape) - 2
     if 'siren' in config.func_name or 'wire' in config.func_name:
         config.func_kwargs['layers'][0] = dims
@@ -43,6 +44,9 @@ def registration(config, writer, logger:logging.Logger):
     losses_to_calc = get_relevant_loss_names(config)
     downsample = 1
     all_metrics = []
+
+    init_metrics, init_imgs = calc_init_metrics(gt_im=gt_im, init_recon=init_recon)
+    log_metrics(config, init_metrics, writer, 0, init_imgs, True)
 
     for epoch in range(1, config.epochs + 1):
 
@@ -135,4 +139,4 @@ def registration(config, writer, logger:logging.Logger):
             name = descr_str + name + ':'
         logger.info(f'{name:<30} {loss_dict['time']:.4f}')
 
-    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, best_images, best_losses, time_stamps, best_epoch, best_moving, best_moved_im
+    return best_phi, best_vel, coord_tensor, best_moved, best_st_dict, best_images, best_losses, time_stamps, best_epoch, best_moving, best_moved_im, init_recon

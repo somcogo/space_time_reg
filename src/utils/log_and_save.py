@@ -24,6 +24,7 @@ def save_results(config, output):
                  'epoch':output[8],
                  'moving':output[9],
                  'moved_img_space':output[10],
+                 'recon_init':output[11].detach().cpu(),
                  'config':vars(config)}
     np_save_path = os.path.join(config.log_path, 'np_imgs.npy')
     np_save_dict = {'images':output[5]}
