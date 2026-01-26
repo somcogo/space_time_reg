@@ -172,20 +172,20 @@ def prepare_non_inverse_case(config):
     return moving, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
 
 def prepare_inverse_case(logger, config):
-    if  'Acc04' in config.dataset:
+    if 'Acc04' in config.dataset:
         patient = config.dataset.split('_')[1][1:]
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         if config.random_mask:
             kspace_mask = generate_random_mask(raw_kspace_data.shape, 4)
         else:
-            kspace_mask = (raw_kspace_data != 0)
+            kspace_mask = (raw_kspace_data[:1] != 0)
 
         gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
 
         smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
-        fixed = raw_kspace_data[kspace_mask].reshape(smaller_shape)
+        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
         moving_inr = None
         seg_moving = None
         seg_fixed = None

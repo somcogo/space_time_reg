@@ -210,7 +210,7 @@ class FTAndSubsample(nn.Module):
     def forward(self, image: torch.Tensor):
         spectrum = fft2c(image.movedim(1, -1)).movedim(-1, 1)
         new_shape = list(image.shape[:2]) + [-1] + list(image.shape[3:])
-        return spectrum[self.mask].reshape(new_shape)
+        return spectrum[self.mask.expand(spectrum.shape)].reshape(new_shape)
     
 class ZeroFillAndIFT(nn.Module):
     def __init__(self, kspace_mask):
@@ -218,8 +218,10 @@ class ZeroFillAndIFT(nn.Module):
         self.register_buffer("mask", kspace_mask)
 
     def forward(self, spectrum: torch.Tensor):
-        full_spectrum = torch.zeros(self.mask.shape, device=spectrum.device)
-        full_spectrum[self.mask] = spectrum.flatten()
+        full_shape = [spectrum.shape[0]] + list(self.mask.shape[1:])
+        full_spectrum = torch.zeros(full_shape, device=spectrum.device)
+        print(self.mask.shape, full_spectrum.shape, spectrum.shape)
+        full_spectrum[self.mask.expand(full_spectrum.shape)] = spectrum.flatten()
         image = ifft2c(full_spectrum.movedim(1, -1)).movedim(-1, 1)
         return image
     
