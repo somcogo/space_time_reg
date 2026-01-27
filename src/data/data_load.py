@@ -9,7 +9,8 @@ from fastmri import complex_abs
 
 from src.models.siren import Siren
 from src.siren import modules
-from .data_utils import reconstruct_initial_frame, reconstruct_initial_frame_learned_reg, FTAndSubsample, ZeroFillAndIFT, FastmriFT, FastmriIFT, generate_random_mask
+from .data_utils import reconstruct_initial_frame, reconstruct_initial_frame_learned_reg, generate_random_mask
+from .fft_utils import FTAndSubsample, ZeroFillAndIFT, FastmriFT, FastmriIFT
 
 def load_and_prepare_cmrxrecon(file_name):
     hf_m = h5py.File(file_name)
@@ -194,7 +195,7 @@ def prepare_inverse_case(logger, config):
         inverse_method = ZeroFillAndIFT(kspace_mask)
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
         if config.use_nmapg:
-            recon_init = reconstruct_initial_frame_learned_reg(config=config, recon=recon_init, gt=fixed, forw=forward_method)
+            recon_init = reconstruct_initial_frame_learned_reg(config=config, recon=recon_init, gt=fixed, forw=forward_method, adj=inverse_method)
         else:
             recon_init = reconstruct_initial_frame(logger=logger, config=config, recon=recon_init, gt=fixed, forw=forward_method)
         inverse_FT = FastmriIFT()

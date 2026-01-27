@@ -9,7 +9,6 @@ from torch import nn
 from PIL import Image
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
-from fastmri import fft2c, ifft2c, fftshift, ifftshift
 from argparse import Namespace
 from deepinv.optim.data_fidelity import L2Distance
 
@@ -20,27 +19,42 @@ from src.losses.recon_reg import get_recon_regularizer
 from learned_regularizers.evaluation.nmAPG import nmAPG
 
 # Based on reconstruct_nmAPG from learned_regularizers https://github.com/johertrich/LearnedRegularizers/blob/main/evaluation/nmAPG.py
-def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor, gt: torch.Tensor, forw: nn.Module):
+def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor, gt: torch.Tensor, forw: nn.Module, adj: nn.Module, tol=1e-6):
     x0 = recon
     gt = gt.to(config.device)
     loss_fn = L2Distance()
     regularizer = get_recon_regularizer(config)
+    scale = 204 / 69
     def energy(val, y_in):
         with torch.no_grad():
-            sim_loss = config.lambda_st * loss_fn(forw(val), y_in)
-            reg_loss = config.lambda_init_recon * regularizer.g(val.flatten(0,1).unsqueeze(1)).reshape(val.shape[0], -1).sum(1)
-            fun = sim_loss + reg_loss
+            # sim_loss = config.lambda_st * loss_fn(forw(val), y_in)
+            # reg_loss = config.lambda_init_recon * regularizer.g(val.flatten(0,1).unsqueeze(1)).reshape(val.shape[0], -1).sum(1)
+            # fun = sim_loss + reg_loss
+            # print(sim_loss.shape, reg_loss.shape)
+            res = forw(val) - y_in
+            dc = scale * 0.5 * (res ** 2).sum((1,2,3))
+            reg = config.lambda_init_recon * regularizer.g(
+                val.flatten(0,1).unsqueeze(1)
+            ).reshape(val.shape[0], -1).sum(1)
+            fun = dc + reg
+            # print(f'Im space max {val.detach().abs().max():.4f}, energy {val.detach().abs().sum():.1f}, K space max {forw(val).detach().abs().max():.4f}, energy {forw(val).detach().abs().sum():.1f}, sim loss {dc.detach().mean().cpu()}, reg {reg.detach().mean().cpu()}')
         if config.detach_grads:
             fun = fun.detach()
         return fun.reshape(-1)
     
     def energy_grad(val, y_in):
-        sim_grad = config.lambda_st * calc_sim_grad(loss_fn, forw, val, y_in)
-        reg_grad = config.lambda_init_recon * regularizer.grad(val.flatten(0,1).unsqueeze(1)).reshape(val.shape)
-        grad = sim_grad + reg_grad
-        if config.detach_grads:
-            grad = grad.detach()
-        return grad
+        res = forw(val) - y_in
+        dc_grad = adj(res)
+        reg_grad = config.lambda_init_recon * regularizer.grad(
+            val.flatten(0,1).unsqueeze(1)
+        ).reshape(val.shape)
+        return dc_grad + reg_grad
+        # sim_grad = config.lambda_st * calc_sim_grad(loss_fn, forw, val, y_in)
+        # reg_grad = config.lambda_init_recon * regularizer.grad(val.flatten(0,1).unsqueeze(1)).reshape(val.shape)
+        # grad = sim_grad + reg_grad
+        # if config.detach_grads:
+        #     grad = grad.detach()
+        # return grad
 
     energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
     
@@ -52,7 +66,7 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
                                f_and_nabla=energy_and_grad,
                                max_iter=config.recon_epochs,
                                verbose=config.debug,
-                               tol=1e-6)
+                               tol=tol)
     t1 = time.time()
     print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
     return x
@@ -185,97 +199,6 @@ class SingleImgDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.img
-    
-class FastmriFT(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, image: torch.Tensor):
-        spectrum = fft2c_new(image.movedim(1, -1)).movedim(-1, 1)
-        return spectrum
-    
-class FastmriIFT(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, spectrum: torch.Tensor):
-        image = ifft2c_new(spectrum.movedim(1, -1)).movedim(-1, 1)
-        return image
-    
-def fft2c_new(data: torch.Tensor, norm: str = "ortho") -> torch.Tensor:
-    """
-    Apply centered 2 dimensional Fast Fourier Transform.
-
-    Args:
-        data: Complex valued input data containing at least 3 dimensions:
-            dimensions -3 & -2 are spatial dimensions and dimension -1 has size
-            2. All other dimensions are assumed to be batch dimensions.
-        norm: Normalization mode. See ``torch.fft.fft``.
-
-    Returns:
-        The FFT of the input.
-    """
-    if not data.shape[-1] == 2:
-        raise ValueError("Tensor does not have separate complex dim.")
-
-    data = ifftshift(data, dim=[-3, -2])
-    data = torch.view_as_real(
-        torch.fft.fftn(  # type: ignore
-            torch.view_as_complex(data), dim=(-2, -1), norm=norm
-        )
-    )
-    data = fftshift(data, dim=[-3, -2])
-
-    return data
-    
-def ifft2c_new(data: torch.Tensor, norm: str = "ortho") -> torch.Tensor:
-    """
-    Apply centered 2-dimensional Inverse Fast Fourier Transform.
-
-    Args:
-        data: Complex valued input data containing at least 3 dimensions:
-            dimensions -3 & -2 are spatial dimensions and dimension -1 has size
-            2. All other dimensions are assumed to be batch dimensions.
-        norm: Normalization mode. See ``torch.fft.ifft``.
-
-    Returns:
-        The IFFT of the input.
-    """
-    if not data.shape[-1] == 2:
-        raise ValueError("Tensor does not have separate complex dim.")
-
-    data = ifftshift(data, dim=[-3, -2])
-    data = torch.view_as_real(
-        torch.fft.ifftn(  # type: ignore
-            torch.view_as_complex(data), dim=(-2, -1), norm=norm
-        )
-    )
-    data = fftshift(data, dim=[-3, -2])
-
-    return data
-
-class FTAndSubsample(nn.Module):
-    def __init__(self, kspace_mask):
-        super().__init__()
-        self.register_buffer("mask", kspace_mask)
-
-    def forward(self, image: torch.Tensor):
-        spectrum = fft2c_new(image.movedim(1, -1)).movedim(-1, 1)
-        new_shape = list(image.shape[:2]) + [-1] + list(image.shape[3:])
-        return spectrum[self.mask.expand(spectrum.shape)].reshape(new_shape)
-    
-class ZeroFillAndIFT(nn.Module):
-    def __init__(self, kspace_mask):
-        super().__init__()
-        self.register_buffer("mask", kspace_mask)
-
-    def forward(self, spectrum: torch.Tensor):
-        full_shape = [spectrum.shape[0]] + list(self.mask.shape[1:])
-        full_spectrum = torch.zeros(full_shape, device=spectrum.device)
-        print(self.mask.shape, full_spectrum.shape, spectrum.shape)
-        full_spectrum[self.mask.expand(full_spectrum.shape)] = spectrum.flatten()
-        image = ifft2c_new(full_spectrum.movedim(1, -1)).movedim(-1, 1)
-        return image
     
 def generate_standard_mask(shape: torch.Size, factor: int):
     h = shape[-2]
