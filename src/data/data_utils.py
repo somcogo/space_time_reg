@@ -22,9 +22,7 @@ from learned_regularizers.evaluation.nmAPG import nmAPG
 def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor, gt: torch.Tensor, forw: nn.Module, adj: nn.Module, tol=1e-6):
     x0 = recon
     gt = gt.to(config.device)
-    loss_fn = L2Distance()
     regularizer = get_recon_regularizer(config)
-    scale = 204 / 69
     def energy(val, y_in):
         with torch.no_grad():
             # sim_loss = config.lambda_st * loss_fn(forw(val), y_in)
@@ -32,7 +30,7 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
             # fun = sim_loss + reg_loss
             # print(sim_loss.shape, reg_loss.shape)
             res = forw(val) - y_in
-            dc = scale * 0.5 * (res ** 2).sum((1,2,3))
+            dc = 0.5 * (res ** 2).sum((1,2,3))
             reg = config.lambda_init_recon * regularizer.g(
                 val.flatten(0,1).unsqueeze(1)
             ).reshape(val.shape[0], -1).sum(1)
@@ -57,6 +55,23 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
         # return grad
 
     energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
+
+    def data_fit(val, y_in):
+        with torch.no_grad():
+            res = forw(val) - y_in
+            dc = 0.5 * (res ** 2).sum((1,2,3))
+        if config.detach_grads:
+            dc = dc.detach()
+        return dc.reshape(-1)
+    
+    def reg_value(val):
+        with torch.no_grad():
+            reg = config.lambda_init_recon * regularizer.g(
+                val.flatten(0,1).unsqueeze(1)
+            ).reshape(val.shape[0], -1).sum(1)
+        if config.detach_grads:
+            reg = reg.detach()
+        return reg.reshape(-1)
     
     t0 = time.time()
     x, L, i, converged = nmAPG(x0=x0,
@@ -66,7 +81,9 @@ def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor
                                f_and_nabla=energy_and_grad,
                                max_iter=config.recon_epochs,
                                verbose=config.debug,
-                               tol=tol)
+                               tol=tol,
+                               data_fit=data_fit,
+                               reg=reg_value)
     t1 = time.time()
     print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
     return x

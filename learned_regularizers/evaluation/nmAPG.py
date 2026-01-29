@@ -38,7 +38,8 @@ def nmAPG(
     verbose: bool = False,  # set to True for some debug prints
 
     # TODO: DELETE AFTER DEBUGGING DONE
-    data_fit = None
+    data_fit = None,
+    reg = None
 ):
     """
     Algorithm 4: nonmonotone APG with line search
@@ -65,6 +66,8 @@ def nmAPG(
     x_bar_old = x_bar.clone()
     grad_old = grad.clone()
 
+
+    print(f'Before opt energy {f(x, y).detach().cpu()}, data fit {data_fit(x, y).detach().cpu()}, reg {reg(x).detach().cpu()}')
     # Main loop
     for i in range(max_iter):
         assert not torch.any(
@@ -173,7 +176,7 @@ def nmAPG(
         condition = res >= tol
         idx = condition.nonzero().view(-1)  # Update which data to still iterate on
 
-        print(f'Iter {i}, energy {f(x, y).detach().cpu()}, data fit {data_fit(x, y).detach().cpu()}')
+        print(f'Iter {i}, energy {f(x, y).detach().cpu()}, data fit {data_fit(x, y).detach().cpu()}, reg {reg(x).detach().cpu()}')
         if torch.max(res) < tol:
             if verbose:
                 print(f"Converged in iter {i}, tol {torch.max(res).item():.6f}")
