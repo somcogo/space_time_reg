@@ -12,7 +12,7 @@ _func_conv_nd_table = {
     2: F.conv2d,
     3: F.conv3d
 }
-
+# https://github.com/BailiangJ/normalized_gradient_field_pytorch/blob/master/normalized_gradient_field.py
 
 def spatial_filter_nd(x: torch.Tensor, kernel: torch.Tensor, mode: str = 'replicate') -> torch.Tensor:
     """ N-dimensional spatial filter with padding.
