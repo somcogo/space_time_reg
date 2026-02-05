@@ -1,221 +1,48 @@
-import copy
-from functools import partial
-import logging
-import time
 import random
+import argparse
 
+import numpy as np
 import torch
 from torch import nn
-from PIL import Image
-from torch.optim import Adam
-from torch.utils.data import DataLoader, Dataset
-from argparse import Namespace
-from deepinv.optim.data_fidelity import L2Distance
 
-from src.models.siren import Siren
-from src.siren import training, dataio, modules, loss_functions
-from src.utils.spatial_utils import generate_coord_tensor
-from src.losses.recon_reg import get_recon_regularizer
-from learned_regularizers.evaluation.nmAPG import nmAPG
-
-# Based on reconstruct_nmAPG from learned_regularizers https://github.com/johertrich/LearnedRegularizers/blob/main/evaluation/nmAPG.py
-def reconstruct_initial_frame_learned_reg(config: Namespace, recon: torch.Tensor, gt: torch.Tensor, forw: nn.Module, adj: nn.Module, tol=1e-6):
-    x0 = recon
-    gt = gt.to(config.device)
-    regularizer = get_recon_regularizer(config)
-    def energy(val, y_in):
-        with torch.no_grad():
-            # sim_loss = config.lambda_st * loss_fn(forw(val), y_in)
-            # reg_loss = config.lambda_init_recon * regularizer.g(val.flatten(0,1).unsqueeze(1)).reshape(val.shape[0], -1).sum(1)
-            # fun = sim_loss + reg_loss
-            # print(sim_loss.shape, reg_loss.shape)
-            res = forw(val) - y_in
-            dc = 0.5 * (res ** 2).sum((1,2,3))
-            reg = config.lambda_init_recon * regularizer.g(
-                val.flatten(0,1).unsqueeze(1)
-            ).reshape(val.shape[0], -1).sum(1)
-            fun = dc + reg
-            # print(f'Im space max {val.detach().abs().max():.4f}, energy {val.detach().abs().sum():.1f}, K space max {forw(val).detach().abs().max():.4f}, energy {forw(val).detach().abs().sum():.1f}, sim loss {dc.detach().mean().cpu()}, reg {reg.detach().mean().cpu()}')
-        if config.detach_grads:
-            fun = fun.detach()
-        return fun.reshape(-1)
-    
-    def energy_grad(val, y_in):
-        res = forw(val) - y_in
-        dc_grad = adj(res)
-        reg_grad = config.lambda_init_recon * regularizer.grad(
-            val.flatten(0,1).unsqueeze(1)
-        ).reshape(val.shape)
-        return dc_grad + reg_grad
-        # sim_grad = config.lambda_st * calc_sim_grad(loss_fn, forw, val, y_in)
-        # reg_grad = config.lambda_init_recon * regularizer.grad(val.flatten(0,1).unsqueeze(1)).reshape(val.shape)
-        # grad = sim_grad + reg_grad
-        # if config.detach_grads:
-        #     grad = grad.detach()
-        # return grad
-
-    energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
-
-    def data_fit(val, y_in):
-        with torch.no_grad():
-            res = forw(val) - y_in
-            dc = 0.5 * (res ** 2).sum((1,2,3))
-        if config.detach_grads:
-            dc = dc.detach()
-        return dc.reshape(-1)
-    
-    def reg_value(val):
-        with torch.no_grad():
-            reg = config.lambda_init_recon * regularizer.g(
-                val.flatten(0,1).unsqueeze(1)
-            ).reshape(val.shape[0], -1).sum(1)
-        if config.detach_grads:
-            reg = reg.detach()
-        return reg.reshape(-1)
-    
-    t0 = time.time()
-    x, L, i, converged = nmAPG(x0=x0,
-                               y=gt,
-                               f=energy,
-                               nabla=energy_grad,
-                               f_and_nabla=energy_and_grad,
-                               max_iter=config.recon_epochs,
-                               verbose=config.debug,
-                               tol=tol,
-                               data_fit=data_fit,
-                               reg=reg_value)
-    t1 = time.time()
-    print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
-    return x
-
-def calc_sim_grad(loss_fn, forw, val, y_in):
-    with torch.enable_grad():
-        val = val.requires_grad_()
-        h = loss_fn(forw(val), y_in)
-        grad = torch.autograd.grad(
-            h, val, torch.ones_like(h), create_graph=True
-        )[0]
-    return grad
+from .fft_utils import FastmriFT, FastmriIFT, FTAndSubsample, ZeroFillAndIFT
 
 
-def reconstruct_initial_frame(logger: logging.Logger, config: Namespace, recon: nn.Parameter, gt: torch.Tensor, forw: nn.Module):
-    optimizer = torch.optim.Adam([recon], lr=config.init_lr)
-    # recon = recon.unsqueeze(0).to(config.device)
-    gt = gt.to(config.device)
-    loss_fn = nn.MSELoss(reduction='mean')
-    regularizer = get_recon_regularizer(config)
-    best_loss = 1e8
-    t0 = time.time()
-    for epoch in range(1, config.recon_epochs + 1):
-        optimizer.zero_grad()
-        sim_loss = config.lambda_st * loss_fn(forw(recon), gt)
-        reg_loss = config.lambda_init_recon * regularizer.g(recon.flatten(0,1).unsqueeze(1)).mean()
-        loss_sum = sim_loss + reg_loss
-        loss_sum.backward()
-        optimizer.step()
-        if loss_sum <= best_loss:
-            best_recon = recon.detach().clone()
-            best_loss = loss_sum.detach().clone()
-    t1 = time.time()
-    if logger is not None:
-        logger.info(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
-    return best_recon
+def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
+    # TODO: rewrite with option for other patients, downsamlpming factors, start frame and # of frames
+    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
+    if config.dataset == 'cmr_test1':
+        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:1] != 0)
+    elif config.dataset == 'cmr_test2':
+        kspace_mask = torch.ones_like(gt_kspace_data, dtype=bool)
+        raw_kspace_data = gt_kspace_data
+    elif config.dataset == 'cmr_test3':
+        kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)
+        raw_kspace_data = torch.zeros_like(gt_kspace_data)
+        raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
+    return raw_kspace_data, gt_kspace_data, kspace_mask
 
-def fit_neural_reps(data, args):
-    n_reps = []
-    for time_point in range(data.shape[0]):
-        lr = 1e-4
-        num_epochs = 10000
-        steps_til_summary = 1000
-        dset = SingleImgDataset(Image.fromarray(data[time_point]))
-        if len(data.shape) == 3:
-            coord_dataset = dataio.Implicit2DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
-        else:
-            coord_dataset = dataio.Implicit3DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
+def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Module]:
+    if config.dataset == 'cmr_test1' or config.dataset == 'cmr_test3' or config.dataset == 'cmr_test4':
+        full_forw = FastmriFT()
+        full_adj = FastmriIFT()
+        forw_subs = FTAndSubsample(mask)
+        forw_subs_adj = ZeroFillAndIFT(mask)
+    elif config.dataset == 'cmr_test2':
+        full_forw = FastmriFT()
+        full_adj = FastmriIFT()
+        forw_subs = FastmriFT()
+        forw_subs_adj = FastmriIFT()
+    return full_forw, full_adj, forw_subs, forw_subs_adj
 
-        dataloader = DataLoader(coord_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor) -> nn.Parameter:
+    if config.init == 'zero':
+        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
+    elif config.init == 'gt':
+        recon_init = nn.Parameter(gt_im.clone(), requires_grad=True)
+    return recon_init
 
-        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=data.shape[1:], device=args.device)
-        model.cuda()
-
-        loss_fn = partial(loss_functions.image_mse, None)
-
-        n_rep = training.train(model=model, train_dataloader=dataloader, epochs=num_epochs, lr=lr,
-                    steps_til_summary=steps_til_summary, loss_fn=loss_fn, device=args.device)
-        n_reps.append(n_rep)
-    return n_reps
-
-def fit_siren_to_img(img, num_epochs=2000, lr=1e-4, device='cuda', layers=[2, 256, 256, 256, 1], min_coord=-1, max_coord=1, omega=30):
-    img_shape = img.shape
-    rep = Siren(layers=layers, omega=omega)
-    rep.to(device)
-    optim = Adam(params=rep.parameters(), lr=lr)
-    loss_fn = torch.nn.MSELoss()
-
-    coord_tensor = generate_coord_tensor(img_shape, device, min_coord=min_coord, max_coord=max_coord)
-    gt = torch.from_numpy(img).to(device)
-
-    min_loss = 1e10
-    best_epoch = 0
-    for epoch in range(num_epochs):
-        pred = rep(torch.tensor([], device=device), coord_tensor)
-        pred = pred.reshape(img_shape)
-        loss = loss_fn(pred, gt.float())
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        if loss < min_loss:
-            min_loss = loss
-            best_st_dict = rep.state_dict()
-            best_epoch = epoch
-        if (epoch + 1) % 500 == 0 or epoch == 0:
-            print(f'Epoch {epoch+1}/{num_epochs}, curr loss {loss}, best loss {min_loss} from epoch {best_epoch}')
-    best_nrep = copy.deepcopy(rep)
-    best_nrep.load_state_dict(best_st_dict)
-
-    return best_nrep, best_st_dict
-
-def fit_siren_to_flow(flow, num_epochs=2000, lr=1e-4, device='cuda', layers=[3, 256, 256, 256, 3], min_coord=-1, max_coord=1, omega=30):
-    flow_shape = flow.shape
-    rep = Siren(layers=layers, omega=omega)
-    rep.to(device)
-    optim = Adam(params=rep.parameters(), lr=lr)
-    loss_fn = torch.nn.MSELoss()
-
-    coord_tensor = generate_coord_tensor(flow_shape[:-1], device, min_coord=min_coord, max_coord=max_coord)
-    gt = torch.from_numpy(flow).to(device)
-
-    min_loss = 1e10
-    best_epoch = 0
-    for epoch in range(num_epochs):
-        pred = rep(torch.tensor([], device=device), coord_tensor)
-        pred = pred.reshape(flow_shape)
-        loss = loss_fn(pred, gt.float())
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        if loss < min_loss:
-            min_loss = loss
-            best_st_dict = rep.state_dict()
-            best_epoch = epoch
-        if (epoch + 1) % 500 == 0 or epoch == 0:
-            print(f'Epoch {epoch+1}/{num_epochs}, curr loss {loss}, best loss {min_loss} from epoch {best_epoch}')
-    best_nrep = copy.deepcopy(rep)
-    best_nrep.load_state_dict(best_st_dict)
-
-    return best_nrep, best_st_dict
-        
-class SingleImgDataset(Dataset):
-    def __init__(self, img):
-        super().__init__()
-        self.img = img
-        self.img_channels = 1
-
-    def __len__(self):
-        return 1
-
-    def __getitem__(self, idx):
-        return self.img
     
 def generate_standard_mask(shape: torch.Size, factor: int):
     h = shape[-2]
@@ -245,9 +72,27 @@ def generate_random_mask(shape: torch.Size, factor: int):
 
     return mask
 
+def generate_random_mask2(shape: torch.Size, factor: int):
+    rate = 1 / factor
+    h = shape[-2]
+    start = h//2 - 12
+    end = h//2 + 12
+
+    set1 = set(range(start, end))
+    mask = torch.rand((h)) < rate
+    set2 = set(np.arange(h)[mask])
+    indices = list(set1.union(set2))
+
+    mask = torch.zeros(shape, dtype=bool)
+    mask[..., indices, :] = 1
+
+    return mask
+
 def get_kspace_mask(config, kspace_data, factor):
-    if config.random_mask:
+    if config.mask == 'random':
         mask = generate_random_mask(kspace_data.shape, factor)
+    elif config.mask == 'random2':
+        mask = generate_random_mask2(kspace_data.shape, factor)
     else:
         mask = generate_standard_mask(kspace_data.shape, factor)
     return mask

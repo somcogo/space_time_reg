@@ -7,7 +7,7 @@ from src.losses.sim_loss import get_sim_loss_fn
 from src.losses.grad_calc import fin_diff_Jacobian, get_Laplacian, get_autograd_Jacobian
 from src.losses.recon_reg import get_recon_regularizer
 
-def calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_series, coord_tensor, losses, downsample, ST):
+def calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_series, coord_tensor, losses, ST):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
     moving = moving.to(config.device)
@@ -21,7 +21,7 @@ def calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, 
     moved_imgs_imspace = None
     for loss_type, loss_dict in losses.items():
         t1 = time.time()
-        l, m, m_image = calc_single_loss(loss_type, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST)
+        l, m, m_image = calc_single_loss(loss_type, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, ST)
         t2 = time.time()
 
         moved_imgs = m if m is not None else moved_imgs
@@ -34,23 +34,23 @@ def calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, 
 
     return loss_sum, losses, moved_imgs, moved_imgs_imspace
 
-def calc_single_loss(loss_name, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, downsample, ST):
+def calc_single_loss(loss_name, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, coord_tensor, shape, config, time_series, ST):
     if loss_name == 'sim':
-        return similarity_loss(moving, moving_inr, fixed, forw, config, downsample, ST)
+        return similarity_loss(moving, moving_inr, fixed, forw, config, ST)
     elif loss_name == 'negJ':
-        return negJ_loss(abs_phi, coord_tensor, shape, downsample)
+        return negJ_loss(abs_phi, coord_tensor, shape)
     elif loss_name == 'grd':
-        return vel_grad_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample)
+        return vel_grad_loss(rel_vel, func, coord_tensor, shape, config, time_series)
     elif loss_name == 'lap':
-        return vel_lap_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample)
+        return vel_lap_loss(rel_vel, func, coord_tensor, shape, config, time_series)
     elif loss_name == 'pgr':
-        return phi_grad_loss(abs_phi, coord_tensor, shape, downsample)
+        return phi_grad_loss(abs_phi, coord_tensor, shape)
     elif loss_name == 'hyper_el':
         return compute_hyper_elastic_loss(abs_phi, rel_vel, func, coord_tensor, shape, config, time_series)
     elif loss_name == 'recon_reg':
         return compute_recon_reg_loss(moving, config)
 
-def similarity_loss(moving, moving_inr, fixed, forw, config, downsample, ST):
+def similarity_loss(moving, moving_inr, fixed, forw, config, ST):
     loss_fn = get_sim_loss_fn(config, moving)
     
     expanded_shape = [fixed.shape[0]] + list(moving.shape)
@@ -62,28 +62,28 @@ def similarity_loss(moving, moving_inr, fixed, forw, config, downsample, ST):
     moved = forw(moved_im)
     loss = loss_fn(fixed, moved)
     
-    return loss * (downsample ** (3 - len(moving.shape[2:]))), moved.detach().cpu(), moved_im.detach().cpu()
+    return loss, moved.detach().cpu(), moved_im.detach().cpu()
 
-def negJ_loss(abs_phi, coord_tensor, shape, downsample):
+def negJ_loss(abs_phi, coord_tensor, shape):
     rel_phi = abs_phi - coord_tensor
     phi_reshaped = rel_phi.reshape(shape)
     phi_J = fin_diff_Jacobian(phi_reshaped)
-    loss = neg_Jdet_loss(phi_J) / downsample**3
+    loss = neg_Jdet_loss(phi_J)
     return loss, None, None
 
-def vel_grad_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample):
+def vel_grad_loss(rel_vel, func, coord_tensor, shape, config, time_series):
     J = get_Jacobian(rel_vel, func, coord_tensor, shape, config, time_series)
-    loss = torch.linalg.vector_norm(J, dim=-1) / downsample
+    loss = torch.linalg.vector_norm(J, dim=-1)
     return loss, None, None
 
-def vel_lap_loss(rel_vel, func, coord_tensor, shape, config, time_series, downsample):
+def vel_lap_loss(rel_vel, func, coord_tensor, shape, config, time_series):
     lap = get_Laplacian(rel_vel, func, coord_tensor, shape, config, time_series)
-    loss = torch.linalg.vector_norm(lap, dim=-1) / downsample
+    loss = torch.linalg.vector_norm(lap, dim=-1)
     return loss, None, None
 
-def phi_grad_loss(abs_phi, coord_tensor, shape, downsample):
+def phi_grad_loss(abs_phi, coord_tensor, shape):
     phi_J = get_phi_Jacobian(abs_phi, coord_tensor, shape)
-    loss = torch.linalg.vector_norm(phi_J, dim=-1) / downsample
+    loss = torch.linalg.vector_norm(phi_J, dim=-1)
     return loss, None, None
 
 def compute_recon_reg_loss(moving, config):
@@ -99,13 +99,8 @@ def neg_Jdet_loss(J):
     return out
 
 def get_Jacobian(rel_vel, func, coord_tensor, shape, config, time_series):
-    if config.fin_diff_grad:
-        vel_reshaped = rel_vel.reshape(shape)
-        J = fin_diff_Jacobian(vel_reshaped)
-    elif config.autograd_grid:
-        J = get_autograd_Jacobian(func, time_series, dims=shape[-1], coord_tensor=coord_tensor)
-    else:
-        J = get_autograd_Jacobian(func, time_series, dims=shape[-1], coord_tensor=None)
+    vel_reshaped = rel_vel.reshape(shape)
+    J = fin_diff_Jacobian(vel_reshaped)
     return J
 
 def get_phi_Jacobian(abs_phi, coord_tensor, shape):

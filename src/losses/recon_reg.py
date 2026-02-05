@@ -8,6 +8,8 @@ def get_recon_regularizer(config):
     weights = torch.load('learned_regularizers/weights/bilevel_CT/CRR_bilevel_JFB_for_CT.pt', map_location=config.device)
     if config.recon_scale is not None:
         weights['scale'] = torch.tensor(config.recon_scale, device=config.device) * torch.ones_like(wrapped_reg.scale, device=config.device)
+    if config.reg_alpha is not None:
+        weights['alpha'] = torch.tensor(config.reg_alpha, device=config.device) * torch.ones_like(wrapped_reg.alpha, device=config.device)
     wrapped_reg.load_state_dict(weights)
     wrapped_reg.eval()
     for p in wrapped_reg.parameters():

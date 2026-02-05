@@ -16,6 +16,9 @@ from src.utils.spatial_transformer import get_spatial_transformer
 from src.utils.log_and_save import log_metrics
 from src.data.data_load import prepare_inputs
 
+def registration_iter():
+    pass
+
 def registration(config, writer, logger:logging.Logger):
     time_points = torch.linspace(0, 1, config.time_points, device=config.device)
     init_recon, moving_inr, fixed, gt_im, seg_mov, seg_fix, forw, inverse = prepare_inputs(logger, config)
@@ -42,7 +45,6 @@ def registration(config, writer, logger:logging.Logger):
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
-    downsample = 1
     all_metrics = []
 
     init_metrics, init_imgs = calc_init_metrics(gt_im=gt_im, init_recon=init_recon)
@@ -65,13 +67,10 @@ def registration(config, writer, logger:logging.Logger):
         # rel_vel = get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim=config.debug)
         abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
 
-        # TODO: don't forget to remove clip
-        # abs_phi = torch.clamp(abs_phi, min=-1, max=1)
-
         ST = get_spatial_transformer(abs_phi, moving.shape, config)
 
         time_stamps[1, epoch-1] = time.time()
-        loss_sum, losses, moved, moved_im = calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_points, coord_tensor, losses_to_calc, downsample, ST)
+        loss_sum, losses, moved, moved_im = calculate_losses(config, moving, moving_inr, fixed, forw, abs_phi, rel_vel, func, time_points, coord_tensor, losses_to_calc, ST)
 
         time_stamps[2, epoch-1] = time.time()
         loss_sum.backward()

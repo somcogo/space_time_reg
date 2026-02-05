@@ -14,7 +14,7 @@ from src.registration import registration
 from src.eval import evaluate
 torch.set_num_threads(8)
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--exp_name", type=str,
@@ -70,20 +70,14 @@ if __name__ == '__main__':
                         help="logging level")
     parser.add_argument("--log_cadence", type=int,
                         dest="log_cadence", default=10,
-                        help="how ofter on log loss")
+                        help="how often to log to terminal during registration")
     
+    parser.add_argument("--lambda_st", type=float,
+                        dest="lambda_st", default=1,
+                        help="loss weight for similarity loss")
     parser.add_argument("--lambda_negJ", type=float,
                         dest="lambda_negJ", default=0.1,
                         help="loss weight for neg J")
-    parser.add_argument("--lambda_smt", type=float,
-                        dest="lambda_smt", default=1,
-                        help="loss weight for flow gradient L2 norm")
-    parser.add_argument("--lambda_mag", type=float,
-                        dest="lambda_mag", default=1,
-                        help="loss weight for v magnitude")
-    parser.add_argument("--lambda_st", type=float,
-                        dest="lambda_st", default=1,
-                        help="loss weight for space-time loss")
     parser.add_argument("--lambda_grd", type=float,
                         dest="lambda_grd", default=1,
                         help="loss weight for velocity gradient L2 norm")
@@ -109,12 +103,6 @@ if __name__ == '__main__':
     parser.add_argument("--use_nreps", action=argparse.BooleanOptionalAction,
                         dest="use_nreps", default=True,
                         help="Whether to use neural representations to calculate the similarity losses")
-    parser.add_argument("--use_t", action=argparse.BooleanOptionalAction,
-                        dest="use_t", default=False,
-                        help="Use NODER insead of NODEO")
-    parser.add_argument("--const_phi", action=argparse.BooleanOptionalAction,
-                        dest="const_phi", default=False,
-                        help="Use constant phi between time points")
     parser.add_argument("--siren_depth", type=int,
                         dest="siren_depth", default=3,
                         help="Number of hidden layers in the siren network")
@@ -136,15 +124,6 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int,
                         dest="seed", default="0",
                         help="Set manual seed")
-    parser.add_argument("--fin_diff_grad", action=argparse.BooleanOptionalAction,
-                        dest="fin_diff_grad", default=False,
-                        help="Use finite differences to calculate grad loss instead of autograd")
-    parser.add_argument("--use_grid", action=argparse.BooleanOptionalAction,
-                        dest="use_grid", default=True,
-                        help="Use grid to evaluate the similarity loss. If False, use random points")
-    parser.add_argument("--autograd_grid", action=argparse.BooleanOptionalAction,
-                        dest="autograd_grid", default=True,
-                        help="Use grid to evaluate the grad loss. If False, use random points. Only for autograd")
     parser.add_argument("--atol", type=float,
                         dest="atol", default=1e-9,
                         help="Absolute tolerance for the ODE solver")
@@ -180,16 +159,7 @@ if __name__ == '__main__':
     random.seed(config.seed + 1)
     np.random.seed(config.seed + 2)
 
-    img_sz = (168, 168) if config.dataset in ['rot', 'rot_slow', 'rot_slow2'] else (128, 128)
-    if config.func_name == 'nodeo':
-        func_kwargs = {'img_sz':img_sz,
-                       'smoothing_kernel':'GK',
-                       'smoothing_win':15,
-                       'smoothing_pass':1,
-                       'ds':2,
-                       'bs':16,
-                       'use_t':config.use_t}
-    elif 'siren' in config.func_name:
+    if 'siren' in config.func_name:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega,
@@ -202,13 +172,12 @@ if __name__ == '__main__':
                        'scale':config.wire_scale}
 
     if config.recon_scale == 0:
-        config.recon_scale = None    
+        config.recon_scale = None
     
     config.func_kwargs = func_kwargs
     config.log_path = os.path.join(config.log_path, config.exp_name)
     os.makedirs(config.log_path, exist_ok=True)
     config.step_size = None if config.step_size == 0 else config.step_size
-    # config.schedule = [1, 51, 101, 151] if config.schedule == None else config.schedule
     config.schedule = [1] if config.schedule == None else config.schedule
     config.downsamples = [1]
 
@@ -218,3 +187,6 @@ if __name__ == '__main__':
     output = registration(config, writer, logger)
     # evaluate(config, output)
     save_results(config, output)
+
+if __name__ == '__main__':
+    main()

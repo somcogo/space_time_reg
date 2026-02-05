@@ -1,166 +1,158 @@
-import argparse
 import os
-import time
-from typing import Callable, List
+os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+import argparse
+from operator import itemgetter
 
 import torch
-from torch import nn
+from torch.utils.tensorboard import SummaryWriter
 import fastmri
 
-from learned_regularizers.evaluation.nmAPG import nmAPG
-from src.data.data_utils import reconstruct_initial_frame_learned_reg
-from src.data.fft_utils import FTAndSubsample, ZeroFillAndIFT, FastmriIFT, FastmriFT
-from src.losses.recon_reg import get_recon_regularizer
+from src.data.recon_init import init_using_nmAPG, init_with_grad_desc
+from src.data.data_utils import get_data, get_operators, get_init, get_kspace_mask
 
 def train(config: argparse.Namespace):
-    raw_kspace_data, gt_kspace_data = get_data(config)
+    raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
     
-    kspace_mask = (raw_kspace_data[:1] != 0)
+    # kspace_mask = get_kspace_mask(config, raw_kspace_data, config.factor)
+    # kspace_mask = (raw_kspace_data[:1] != 0)
     full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
 
     smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
     fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
+    fixed = fixed.to(config.device)
 
     gt_im = full_adj(gt_kspace_data)
     gt_im = gt_im.to(config.device)
     recon_init = get_init(config, raw_kspace_data, gt_im)
 
-    reg = get_reg(config)
-    data_fit, reg_eval, energy, energy_grad = get_functions(config, reg, forw_subs, forw_subs_adj)
-    energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
-    
-    t0 = time.time()
-    x, L, i, converged = nmAPG(x0=recon_init,
-                               y=fixed,
-                               f=energy,
-                               nabla=energy_grad,
-                               f_and_nabla=energy_and_grad,
-                               max_iter=config.recon_epochs,
-                               verbose=config.debug,
-                               tol=config.tol,
-                               data_fit=data_fit,
-                               reg=reg_eval)
-    t1 = time.time()
-    print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
+    if config.method == 'nmapg':
+        recon_init, metrics = init_using_nmAPG(config, recon_init, fixed, forw_subs, forw_subs_adj, logger=None)
+    elif config.method == 'graddes':
+        recon_init, metrics = init_with_grad_desc(config, recon_init, fixed, forw_subs)
+    return recon_init.detach().cpu(), gt_im.detach().cpu(), metrics
 
-    with torch.no_grad():
-        print('gt max min', gt_im.abs().max(), gt_im.min(), 'recon init max min', recon_init.abs().max(), recon_init.min())
-        gtabs = fastmri.complex_abs(gt_im.movedim(1, -1))
-        reconabs = fastmri.complex_abs(recon_init.detach().cpu().movedim(1, -1))
-        print('gt max min', gtabs.max(), gtabs.min(), 'recon init max min', reconabs.max(), reconabs.min())
-        print(f'Max abs diff {(gtabs-reconabs).abs().max() / gtabs.max()}, max abs of diff value {(gt_im - recon_init.detach().cpu()).abs().max() / gt_im.abs().max()}')
+def log_metrics(config, rec, gt_im, metrics):
+    writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))
 
-def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
-    if config.data == 'cmr_test1':
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
-        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
-    elif config.data == 'cmr_test2':
-        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
-        raw_kspace_data = gt_kspace_data
-    return raw_kspace_data, gt_kspace_data
+    if metrics is not None:
+        for epoch in range(metrics.shape[0]):
+            writer.add_scalar('losses/data_fit', metrics[epoch, 0], global_step=epoch)
+            writer.add_scalar('losses/reg_value', metrics[epoch, 1], global_step=epoch)
+            writer.add_scalar('losses/total_energy', metrics[epoch].sum(), global_step=epoch)
+    else:
+        epoch = config.recon_epochs
 
-def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Module]:
-    if config.data == 'cmr_test1':
-        full_forw = FastmriFT()
-        full_adj = FastmriIFT()
-        forw_subs = FTAndSubsample(mask)
-        forw_subs_adj = ZeroFillAndIFT(mask)
-    elif config.data == 'cmr_test2':
-        full_forw = FastmriFT()
-        full_adj = FastmriIFT()
-        forw_subs = FastmriFT()
-        forw_subs_adj = FastmriIFT()
-    return full_forw, full_adj, forw_subs, forw_subs_adj
+    rec_abs = fastmri.complex_abs(rec.movedim(1, -1))
+    gt_abs = fastmri.complex_abs(gt_im.movedim(1, -1))
 
-def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor) -> nn.Parameter:
-    if config.init == 'zero':
-        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
-    elif config.init == 'gt':
-        recon_init = nn.Parameter(gt_im.clone(), requires_grad=True)
-    return recon_init
+    a = max(gt_im.max()-gt_im.min(), rec.max()-rec.min())
+    rec = rec / a
+    gt_im = gt_im / a
 
-def get_reg(config: argparse.Namespace) -> nn.Module:
-    if config.reg == 'learned':
-        reg = get_recon_regularizer(config)
-    return reg
-                  
-def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.Module, adj: nn.Module) -> list[Callable]:
-    def data_fit(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            diff = forw(val) - y_in
-            df = 0.5 * (diff ** 2).sum((1,2,3))
-        if config.detach_grads:
-            df = df.detach()
-        return df.reshape(-1)
-    
-    def reg_eval(val: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            reg = config.lambda_init_recon * regularizer.g(
-                val.flatten(0,1).unsqueeze(1)
-            ).reshape(val.shape[0], -1).sum(1)
-        if config.detach_grads:
-            reg = reg.detach()
-        return reg.reshape(-1)
-    
-    def energy(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
-        df = data_fit(val, y_in)
-        reg = reg_eval(val)
-        fun = df + reg
-        if config.detach_grads:
-            fun = fun.detach()
-        return fun.reshape(-1)
-    
-    def energy_grad(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
-        diff = forw(val) - y_in
-        df_grad = adj(diff)
-        reg_grad = config.lambda_init_recon * regularizer.grad(
-            val.flatten(0,1).unsqueeze(1)
-        ).reshape(val.shape)
-        return df_grad + reg_grad
-    
-    return data_fit, reg_eval, energy, energy_grad
+    b = max(gt_abs.max(), rec_abs.max())
+    rec_abs = rec_abs / b
+    gt_abs = gt_abs / b
 
+    writer.add_image('image/gt_real', gt_im[0,0].abs(), global_step=epoch, dataformats='HW')
+    writer.add_image('image/gt_imag', gt_im[0,1].abs(), global_step=epoch, dataformats='HW')
+    writer.add_image('image/rec_real', rec[0,0].abs(), global_step=epoch, dataformats='HW')
+    writer.add_image('image/rec_imag', rec[0,1].abs(), global_step=epoch, dataformats='HW')
+    writer.add_image('image/error_real', (gt_im[0,0]-rec[0,0]).abs()/(gt_im[0,0]-rec[0,0]).abs().max(), global_step=epoch, dataformats='HW')
+    writer.add_image('image/error_imag', (gt_im[0,1]-rec[0,1]).abs()/(gt_im[0,1]-rec[0,1]).abs().max(), global_step=epoch, dataformats='HW')
 
-config = argparse.Namespace(
-    dataset='cmr_P001_Acc04',
-    slice_number=0,
-    start_frame=0,
-    time_points=1,
-    device='cuda',
-    recon_scale=13,
-    recon_epochs=20,
-    debug=True,
-    lambda_st=1,
-    lambda_init_recon=10,
-    detach_grads=True,
-    init_lr=1e-4,
-)
+    real_scaled = torch.zeros_like(gt_im[0,0])
+    real_mask = gt_im[0,0] > 0.0
+    real_scaled[real_mask] = (gt_im[0,0]-rec[0,0]).abs()[real_mask] / gt_im[0,0][real_mask]
+    imag_scaled = torch.zeros_like(gt_im[0,1])
+    imag_mask = gt_im[0,1] > 0.0
+    imag_scaled[imag_mask] = (gt_im[0,1]-rec[0,1]).abs()[imag_mask] / gt_im[0,1][imag_mask]
+    writer.add_image('image/error_real_scaled', real_scaled, global_step=epoch, dataformats='HW')
+    writer.add_image('image/error_imag_scaled', imag_scaled, global_step=epoch, dataformats='HW')
+
+    writer.add_image('comp_abs/gt', gt_abs, global_step=epoch, dataformats='CHW')
+    writer.add_image('comp_abs/rec', rec_abs, global_step=epoch, dataformats='CHW')
+    writer.add_image('comp_abs/error', (gt_abs-rec_abs).abs()/(gt_abs-rec_abs).abs().max(), global_step=epoch, dataformats='CHW')
+
+    abs_scaled = torch.zeros_like(gt_abs)
+    abs_mask = gt_abs > 0.0
+    abs_scaled[abs_mask] = (gt_abs-rec_abs).abs()[abs_mask] / gt_abs[abs_mask]
+    writer.add_image('comp_abs/error_scaled', abs_scaled, global_step=epoch, dataformats='CHW')
+
+    writer.add_scalar('error/max', (gt_im-rec).abs().max(), global_step=epoch)
+    writer.add_scalar('error/mean', (gt_im-rec).abs().mean(), global_step=epoch)
+    writer.add_scalar('error/cabs_max', (gt_abs-rec_abs).abs().max(), global_step=epoch)
+    writer.add_scalar('error/cabs_mean', (gt_abs-rec_abs).abs().mean(), global_step=epoch)
+
+    return (gt_abs-rec_abs).abs().mean()
 
 def main(**kwargs) -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--recon_alpha", type=float, default=1)
+    parser.add_argument("--dataset", type=str, default='cmr_test1')
+    parser.add_argument("--init", type=str, default='zero')
+    parser.add_argument("--reg", type=str, default='learned')
+    parser.add_argument("--method", type=str, default='graddes')
+    parser.add_argument("--mask", type=str, default='random2')
+    # parser.add_argument("--slice_number", type=int, default=0)
+    # parser.add_argument("--start_frame", type=int, default=0)
+    # parser.add_argument("--time_points", type=int, default=1)
+    parser.add_argument("--init_lr", type=float, default=1e-2)
     parser.add_argument("--recon_scale", type=float, default=1e-1)
-    parser.add_argument("--recon_epochs", type=float, default=500)
+    parser.add_argument("--reg_alpha", type=float, default=1)
+    parser.add_argument("--recon_epochs", type=float, default=150)
     parser.add_argument("--lambda_st", type=float, default=1)
-    parser.add_argument("--lambda_recon", type=float, default=1e-9)
+    parser.add_argument("--lambda_init_recon", type=float, default=1e-9)
+    parser.add_argument("--tol", type=float, default=1e-4)
+    parser.add_argument("--factor", type=float, default=4)
     parser.add_argument("--log_path", type=str, default='test')
 
     config = parser.parse_args()
     d = vars(config)
     for (k, v) in kwargs.items():
         d[k] = v
-
-    config.log_path = os.path.join('log/recon_init', config.log_path)
+    
+    if config.recon_scale == 0:
+        config.recon_scale = None
+    if config.reg_alpha == 0:
+        config.reg_alpha = None
+    config.debug = True
+    config.detach_grads = True
+    config.log_path = os.path.join('log/graddes_debug_folder/mask_factor', config.log_path)
     config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train(config)
+
+    rec, gt_im, metrics = train(config)
+    mean_error = log_metrics(config, rec, gt_im, metrics)
+    os.makedirs(os.path.join(config.log_path, 'imgs'), exist_ok=True)
+    torch.save(rec.detach().cpu(), os.path.join(config.log_path, 'imgs', 'rec.pt'))
+    return mean_error
 
 if __name__ == '__main__':
     warnings = []
-    for lr in [1e0, ]:
-        for scale in [1e-1, 1e0, 1e1, 1e2, 1e3]: # 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3
-            for lam in [1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4]:
-                try:
-                    main(recon_lr=lr, recon_scale=scale, lambda_recon=lam, log_path=f'lr-{lr}-sc-{scale}-lam-{lam}')
-                except:
-                    warnings.append(f'lr-{lr}-sc-{scale}-lam-{lam}\n')
+    results = []
+    alpha = 0
+    scale = 10
+    reg = 'learned'
+    method = 'graddes'
+    # for lam in [1e-5]:
+    #     for lr in [1e-2, ]:
+    lam = 1e-5
+    lr = 1e-2
+    factor = 1
+    dset = 'cmr_test3'
+    mask = 'random2'
+    for factor in [4, 3.5, 3, 2.5, 2, 1.5, 1]:
+        try:
+            name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}'
+            err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset)
+            results.append([name, err])
+        except Exception as e:
+            warnings.append(name + ' error ' + str(e) + '\n')
+    sorted_res = sorted(results, key=itemgetter(1))
+    print('--------------------------')
+    print('Warnings:')
     print(*warnings)
+    print('--------------------------')
+    print(f'Best result: name {sorted_res[0][0]} error {sorted_res[0][1]}')
+    print('--------------------------')
+    print('All res')
+    for res in sorted_res:
+        print(res)
