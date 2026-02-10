@@ -1,3 +1,6 @@
+from argparse import Namespace
+from logging import Logger
+
 import torch
 import numpy as np
 import nibabel as nib
@@ -7,7 +10,7 @@ from fastmri.data import transforms as T
 
 from src.models.siren import Siren
 from src.siren import modules
-from .data_utils import get_data, get_operators, get_init, get_kspace_mask
+from .data_utils import get_data, get_operators, get_init
 from .recon_init import init_using_nmAPG, init_with_grad_desc
 
 def load_and_prepare_cmrxrecon(file_name):
@@ -166,34 +169,47 @@ def prepare_non_inverse_case(config):
     seg_moving = segs[:1].expand(segs.shape).unsqueeze(1).float() if segs is not None else None
     seg_fixed = segs
     forward_method = nn.Identity()
-    inverse_method = nn.Identity()
-    gt_im = None
-    return moving, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forward_method, inverse_method
+    gt_im = imgs
+    recon = imgs
 
-def prepare_inverse_case(logger, config):
-    raw_kspace_data, gt_kspace_data = get_data(config)
+    moving = moving.to(config.device)
+    moving_inr = moving_inr.to(config.device)
+    fixed = fixed.to(config.device)
+    forward_method = forward_method.to(config.device)
+    return [moving, moving_inr, fixed, forward_method], [recon, gt_im, seg_moving, seg_fixed]
+
+def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
+    raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
     
     # TODO: if init debug is done, redo with generated masks to be able to switch
     # kspace_mask = get_kspace_mask(config, raw_kspace_data, factor=4)
-    kspace_mask = (raw_kspace_data[:1] != 0)
+    # kspace_mask = (raw_kspace_data[:1] != 0)
     full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
 
     smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
     fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
+    fixed = fixed.to(config.device)
 
     gt_im = full_adj(gt_kspace_data)
     gt_im = gt_im.to(config.device)
-    recon_init = get_init(config, raw_kspace_data, gt_im)
+    init = get_init(config, raw_kspace_data, gt_im)
 
     if config.use_nmapg:
-        init_recon, init_metrics = init_using_nmAPG(config, recon_init, fixed, forw_subs, forw_subs_adj)
+        recon, init_metrics = init_using_nmAPG(config, init, fixed, forw_subs, forw_subs_adj, logger)
     else:
-        init_recon, init_metrics = init_with_grad_desc(config, recon_init, forw_subs)
+        recon, init_metrics = init_with_grad_desc(config, init, forw_subs)
+
+    recon = recon.detach()
+    moving = nn.Parameter(recon[0].clone())
 
     
     moving_inr = None
     seg_moving = None
     seg_fixed = None
+
+    moving = moving.to(config.device)
+    fixed = fixed.to(config.device)
+    forw_subs = forw_subs.to(config.device)
 
 
     # if 'Acc04' in config.dataset:
@@ -213,10 +229,15 @@ def prepare_inverse_case(logger, config):
     #     moving_inr = None
     #     seg_moving = None
     #     seg_fixed = None
-    return recon_init, moving_inr, fixed, gt_im, seg_moving, seg_fixed, forw_subs, forw_subs_adj
+    return [moving, moving_inr, fixed, forw_subs], [recon, gt_im, seg_moving, seg_fixed]
 
-def prepare_inputs(logger, config):
+def prepare_inputs(config: Namespace, logger: Logger) -> list:
     if 'cmr' in config.dataset:
-        return prepare_inverse_case(logger, config)
+        inputs, eval_inputs = prepare_inverse_case(config, logger)
     else:
-        return prepare_non_inverse_case(config)
+        inputs, eval_inputs = prepare_non_inverse_case(config)
+    
+    time_points = torch.linspace(0, 1, config.time_points, device=config.device)
+    config.func_kwargs['time_points'] = time_points
+    inputs.append(time_points)
+    return inputs, eval_inputs

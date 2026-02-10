@@ -1,10 +1,13 @@
+from argparse import Namespace
+
 import torch
-import torch.nn.functional as F
+from torch import nn
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from fastmri import complex_abs
 
 from src.utils.spatial_utils import generate_coord_tensor
+from src.utils.spatial_transformer import GridSampleTransformer
 
 def calc_oasis_dice(segs, ST):
     input_seg = segs[:1].expand(segs.shape).unsqueeze(1).float()
@@ -25,7 +28,7 @@ def calc_dice(array1, array2, labels):
         dicem[idx] = top / bottom
     return dicem
 
-def add_losses(losses, metrics):
+def add_losses(losses: dict, metrics: dict) -> dict:
     total = 0.
     for loss_type, loss_dict in losses.items():
         metrics[f'losses/{loss_dict['name']}'] = loss_dict['lambda'] * loss_dict['mean']
@@ -34,27 +37,28 @@ def add_losses(losses, metrics):
     metrics['losses/total_loss'] = total
     return metrics
 
-def add_grad_stats(network, metrics):
-    grads = [p.grad for p in network.parameters()]
-    if grads[0] is not None:
-        grads = torch.tensor([g.norm() for g in grads])
-        names = [n for n, p in network.named_parameters()]
-        metrics['grad_stats/mean_grad'] = grads.mean()
-        metrics['grad_stats/min_grad'] = grads.min()
-        metrics['grad_stats/max_grad'] = grads.max()
+def add_grad_stats(network: nn.Module, metrics: dict) -> dict:
+    if network is not None:
+        grads = [p.grad for p in network.parameters()]
+        if grads[0] is not None:
+            grads = torch.tensor([g.norm() for g in grads])
+            names = [n for n, p in network.named_parameters()]
+            metrics['grad_stats/mean_grad'] = grads.mean()
+            metrics['grad_stats/min_grad'] = grads.min()
+            metrics['grad_stats/max_grad'] = grads.max()
 
-        for i in range(len(names)):
-            metrics[f'all_grads/{names[i]}'] = grads[i]
+            for i in range(len(names)):
+                metrics[f'all_grads/{names[i]}'] = grads[i]
     return metrics
     
-def add_vel_stats(rel_vel, metrics):
+def add_vel_stats(rel_vel: torch.Tensor, metrics: dict) -> dict:
     if rel_vel is not None:
         metrics['vel_stats/rel_max'] = rel_vel.max()
         metrics['vel_stats/rel_min'] = rel_vel.min()
         metrics['vel_stats/rel_mean'] = rel_vel.mean()
     return metrics
     
-def add_dices(config, seg_fix, seg_mov, ST, metrics):
+def add_dices(config: Namespace, seg_fix: torch.Tensor, seg_mov: torch.Tensor, ST: GridSampleTransformer, metrics: dict) -> list[dict, torch.Tensor]:
     if seg_fix is not None:
         if 'oasis' in config.dataset:
             dice, pred_segs = calc_oasis_dice(segs=seg_mov, ST=ST)
@@ -74,24 +78,23 @@ def add_dices(config, seg_fix, seg_mov, ST, metrics):
         pred_segs = None
     return metrics, pred_segs
 
-def reshape_phi_and_vel(abs_phi, rel_vel, moving):
+def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:
     phi_shape = [-1] + list(moving.shape)[1:] + [len(moving.shape) - 1]
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
-    rel_phi = (abs_phi - coord_tensor).reshape(phi_shape).numpy()
+    rel_phi = (abs_phi - coord_tensor).reshape(phi_shape)
     abs_phi = abs_phi.reshape(phi_shape)
     if rel_vel is not None:
         vel_shape = [rel_vel.shape[0]] + phi_shape[1:]
         rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
     return abs_phi, rel_phi, rel_vel
 
-def reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, init_recon, losses, reduce):
+def reduce_dim(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch.Tensor, rel_phi: torch.Tensor, rel_vel: torch.Tensor, seg_fix: torch.Tensor, pred_segs: torch.Tensor, abs_phi: torch.Tensor, losses: dict, reduce: bool) -> list[torch.Tensor]:
     slice_ndx = fixed.shape[-1] // 2
     if reduce:
         fixed = fixed[..., slice_ndx]
         moved = moved[..., slice_ndx]
         moved_im = moved_im[..., slice_ndx]
-        init_recon = init_recon[..., slice_ndx]
         rel_phi = rel_phi[..., slice_ndx, :-1]
         abs_phi = abs_phi[..., slice_ndx, :-1]
         if rel_vel is not None:
@@ -100,7 +103,7 @@ def reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs
             seg_fix = seg_fix[..., slice_ndx]
             pred_segs = pred_segs[..., slice_ndx]
     sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce else losses['sim']['loss']
-    return fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, init_recon, sim_loss
+    return fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss
 
 # add_cmr_eval_metrics, psnr, ssim and nmse function implementations are based on the official CMRxRecon evaluation code https://github.com/CmrxRecon/CMRxRecon/blob/main/Evaluation/Evaluation.py
 def psnr(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
@@ -117,7 +120,7 @@ def nmse(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
     """Compute Normalized Mean Squared Error (NMSE)"""
     return np.array(np.linalg.norm(gt - pred) ** 2 / np.linalg.norm(gt) ** 2)
 
-def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor):
+def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> list[np.ndarray]:
     gt_recon = gt_recon.cpu().numpy()
     pred_recon = pred_recon.cpu().numpy()
     psnr_array = np.zeros((gt_recon.shape[0], gt_recon.shape[1]))
@@ -131,7 +134,7 @@ def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor):
             nmse_array[t, c] = nmse(gt / gt.max(), pred / pred.max())
     return psnr_array, ssim_array, nmse_array
 
-def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: dict):
+def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: dict) -> dict:
     moved_im_img = complex_abs(moved_im.movedim(1, -1)).unsqueeze(1)
     gt_im_img = complex_abs(gt_im.movedim(1, -1)).unsqueeze(1)
     full_psnr, full_ssim, full_nmse = calc_cmr_eval_metrics(moved_im_img, gt_im_img)

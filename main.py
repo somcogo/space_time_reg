@@ -1,17 +1,19 @@
 import argparse
 import os
 import random
-from typing import Union
-from types import NoneType
 
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
-from src.utils.log_and_save import save_results
+from src.utils.log_and_save import save_results, log_metrics
 from src.utils.logger import get_logger
 from src.registration import registration
 from src.eval import evaluate
+from src.data.data_load import prepare_inputs
+from src.models.factory import get_func
+from src.metrics.calc_metrics import calc_init_metrics
+
 torch.set_num_threads(8)
 
 def main():
@@ -150,6 +152,18 @@ def main():
     parser.add_argument("--random_mask", action=argparse.BooleanOptionalAction,
                         dest="random_mask", default=False,
                         help="Use randomized kspace mask")
+    parser.add_argument("--init", type=str,
+                        dest="init", default='zero',
+                        help="How the value of the recon when starting the initial reconstruction")
+    parser.add_argument("--reg", type=str,
+                        dest="reg", default='learned',
+                        help="Type of regularizer to use")
+    parser.add_argument("--reg_alpha", type=float,
+                        dest="reg_alpha", default=0.,
+                        help="Alpha to use for the regularizer")
+    parser.add_argument("--tol", type=float,
+                        dest="tol", default=1e-6,
+                        help="Tolerance to use in nmAPG")
     
     config = parser.parse_args()
 
@@ -184,9 +198,26 @@ def main():
     logger = get_logger(config.log_level)
     logger.info(f'Starting experiment with name {config.exp_name}')
     writer = SummaryWriter(os.path.join(config.log_path, 'tensorboard'))
-    output = registration(config, writer, logger)
-    # evaluate(config, output)
-    save_results(config, output)
+
+
+
+    inputs, eval_inputs = prepare_inputs(config, logger)
+    init_metrics, init_imgs = calc_init_metrics(eval_inputs=eval_inputs)
+    log_metrics(config, init_metrics, writer, 0, init_imgs, True)
+
+    fixed = inputs[2]
+    dims = len(fixed.shape) - 2
+    config.func_kwargs['layers'][0] = dims
+    config.func_kwargs['layers'][-1] = dims
+        
+    func = get_func(config.func_name, config.func_kwargs)
+    func = func.to(config.device)
+
+
+
+    output = registration(config, writer, logger, inputs, eval_inputs, func)
+    imgs_to_save = evaluate(config, writer, logger, output, inputs, eval_inputs)
+    save_results(config, output, eval_inputs, imgs_to_save)
 
 if __name__ == '__main__':
     main()

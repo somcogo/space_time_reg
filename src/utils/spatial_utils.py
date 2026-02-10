@@ -1,4 +1,7 @@
+from argparse import Namespace
+
 import torch
+from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
@@ -19,14 +22,7 @@ def upsample_img_seg(img, seg, config, epoch):
     new_seg = F.interpolate(seg.unsqueeze(1), size=new_shape, mode='nearest-exact').squeeze(1) if seg is not None else seg
     return new_img, new_seg, downsample
 
-def apply_grid_sample(input_img, phi, mode='bilinear'):
-    grid = phi.reshape(phi.shape[0], *input_img.shape[2:], len(input_img.shape[2:]))
-    grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
-    moved = F.grid_sample(input_img, grid, align_corners=False, mode=mode)
-    return moved
-
-def get_relative_vel(func, config, time_points, coord_tensor, keep_batch_dim):
-    # if config.fin_diff_grad and config.lambda_grd + config.lambda_negJ + config.lambda_lap + config.lambda_hel > 0:
+def get_relative_vel(config: Namespace, func: nn.Module, coord_tensor: torch.Tensor, time_points: torch.Tensor, keep_batch_dim) -> torch.Tensor|None:
     if (config.func_name == 'siren' or config.func_name == 'wire'):
         rel_vel = func(time_points[-1], coord_tensor).unsqueeze(0)
     elif ('siren' in config.func_name or 'wire' in config.func_name) and ('t' in config.func_name or 'ensemble' in config.func_name):

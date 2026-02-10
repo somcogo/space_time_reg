@@ -2,15 +2,15 @@ import torch
 
 from src.losses.normalized_gradient_field import spatial_filter_nd, _grad_param
 
-def get_Laplacian(rel_vel, func, coord_tensor, shape, config, time_series):
-    if config.fin_diff_grad:
-        vel_reshaped = rel_vel.reshape(shape)
-        J = fin_diff_Jacobian(vel_reshaped)
-        lap = fin_Laplacian_from_Jac(J)
-    elif config.autograd_grid:
-        lap = get_autograd_Laplacian(func, time_series, dims=shape[-1], coord_tensor=coord_tensor)
-    else:
-        lap = get_autograd_Laplacian(func, time_series, dims=shape[-1], coord_tensor=None)
+def get_Jacobian(rel_vel, shape):
+    vel_reshaped = rel_vel.reshape(shape)
+    J = fin_diff_Jacobian(vel_reshaped)
+    return J
+
+def get_Laplacian(rel_vel, shape):
+    vel_reshaped = rel_vel.reshape(shape)
+    J = fin_diff_Jacobian(vel_reshaped)
+    lap = fin_Laplacian_from_Jac(J)
     return lap
 
 def fin_diff_Jacobian(f):

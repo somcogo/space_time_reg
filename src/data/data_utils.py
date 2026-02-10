@@ -10,10 +10,10 @@ from .fft_utils import FastmriFT, FastmriIFT, FTAndSubsample, ZeroFillAndIFT
 
 def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
     # TODO: rewrite with option for other patients, downsamlpming factors, start frame and # of frames
-    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
+    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
     if config.dataset == 'cmr_test1':
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:1,0].permute(0, 3, 1, 2)
-        kspace_mask = (raw_kspace_data[:1] != 0)
+        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
+        kspace_mask = (raw_kspace_data[:2] != 0)
     elif config.dataset == 'cmr_test2':
         kspace_mask = torch.ones_like(gt_kspace_data, dtype=bool)
         raw_kspace_data = gt_kspace_data
