@@ -47,17 +47,18 @@ def prep_moved_img_vis(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch
         fixed = fixed.squeeze(1)
         moved = moved.squeeze(1)
         moved_im = moved_im.squeeze(1)
-        moving = moving.squeeze(1)
+        moving = moving.squeeze(0)
+
     reg_last = make_grid([torch.stack([fixed[-1], moved[-1], moved[-1]])], nrow=2, normalize=True)
     reg_all = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed, moved)], nrow=5, normalize=True)
     reg_imspace = make_grid(moved_im.unsqueeze(1), nrow=5, normalize=True)
     moving = (moving - moving.min()) / (moving.max() - moving.min())
 
-
     reg_last = (reg_last*255).to(torch.uint8).permute(1, 2, 0)
     reg_all = (reg_all*255).to(torch.uint8).permute(1, 2, 0)
     reg_imspace = (reg_imspace*255).to(torch.uint8).permute(1, 2, 0)
     moving_im = (torch.stack([moving]*3, dim=2)*255).to(torch.uint8)
+
     return reg_last, reg_all, reg_imspace, moving_im
 
 def prep_image_space_comp(moved_im: torch.Tensor, gt_im: torch.Tensor) -> torch.Tensor:

@@ -32,7 +32,10 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
     moving.requires_grad_(True)
-    logger.info(f'Set require_grad for recon to {moving.requires_grad}')
+    if logger is not None:
+        logger.info(f'Set require_grad for recon to {moving.requires_grad}')
+    else:
+        print(f'Set require_grad for recon to {moving.requires_grad}')
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
@@ -47,7 +50,6 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         # TODO: reimplement downsampling
         # if len(config.schedule) > 1  and epoch in config.schedule:
         #     imgs, segs, downsample = upsample_img_seg(og_img, og_seg, config, epoch)
-
         coord_tensor = generate_coord_tensor(moving.shape[1:], config.device)
         coord_tensor.requires_grad = True
         log_epoch = epoch % config.log_cadence == 0
@@ -79,7 +81,10 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
             log_msg = f'Epoch {epoch:4d}/{config.epochs}, Losses '
             for loss_type, loss_dict in loss_outputs[0].items():
                 log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['mean']:.5f}     '
-            logger.info(log_msg)
+            if logger is not None:
+                logger.info(log_msg)
+            else:
+                print(log_msg)
         if loss_sum <= best_loss and epoch > config.schedule[-1]:
             best_model_out = model_outputs
             best_loss_out = loss_outputs

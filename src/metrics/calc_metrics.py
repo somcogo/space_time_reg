@@ -23,7 +23,8 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inp
 
     metrics = {}
     metrics = add_losses(losses, metrics)
-    metrics = add_cmr_eval_metrics(moved_im, gt_im, metrics)
+    if 'cmr' in config.dataset:
+        metrics = add_cmr_eval_metrics(moved_im, gt_im, metrics)
     if extended_log:
         metrics = add_grad_stats(func, metrics)
         metrics = add_vel_stats(rel_vel, metrics)
