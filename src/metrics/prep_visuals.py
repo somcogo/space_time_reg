@@ -48,6 +48,11 @@ def prep_moved_img_vis(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch
         moved = moved.squeeze(1)
         moved_im = moved_im.squeeze(1)
         moving = complex_abs(moving.movedim(0, -1))
+    elif config.dataset == 'heart_gt_ft_abs':
+        fixed = fixed.squeeze(1)
+        moved = moved.squeeze(1)
+        moved_im = complex_abs(moved_im.movedim(1,-1))
+        moving = complex_abs(moving.movedim(0, -1))
     else:
         fixed = fixed.squeeze(1)
         moved = moved.squeeze(1)

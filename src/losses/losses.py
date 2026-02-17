@@ -2,6 +2,7 @@ import time
 
 import torch
 import torch.nn.functional as F
+import fastmri
 
 from src.losses.sim_loss import get_sim_loss_fn
 from src.losses.grad_calc import get_Laplacian, get_Jacobian
@@ -58,6 +59,9 @@ def similarity_loss(config, inputs, model_outputs):
     else:
         moved_im = ST.apply(moving)
     moved = forw(moved_im)
+    if config.dataset == 'heart_gt_ft_abs':
+        # fixed = fastmri.complex_abs(fixed.movedim(1,-1))
+        moved = fastmri.complex_abs(moved.movedim(1,-1)).unsqueeze(1)
     loss = loss_fn(fixed, moved)
     
     return loss, moved.detach().cpu(), moved_im.detach().cpu()
