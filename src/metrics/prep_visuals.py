@@ -43,6 +43,11 @@ def prep_moved_img_vis(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch
         moved = complex_abs(moved.movedim(1, -1))
         moved_im = complex_abs(moved_im.movedim(1, -1))
         moving = complex_abs(moving.movedim(0, -1))
+    elif config.dataset == 'heart_gt_no_ft_no_abs':
+        fixed = fixed.squeeze(1)
+        moved = moved.squeeze(1)
+        moved_im = moved_im.squeeze(1)
+        moving = complex_abs(moving.movedim(0, -1))
     else:
         fixed = fixed.squeeze(1)
         moved = moved.squeeze(1)
@@ -50,8 +55,8 @@ def prep_moved_img_vis(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch
         moving = moving.squeeze(0)
 
     reg_last = make_grid([torch.stack([fixed[-1], moved[-1], moved[-1]])], nrow=2, normalize=True)
-    reg_all = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed, moved)], nrow=5, normalize=True)
-    reg_imspace = make_grid(moved_im.unsqueeze(1), nrow=5, normalize=True)
+    reg_all = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed, moved)], nrow=6, normalize=True)
+    reg_imspace = make_grid(moved_im.unsqueeze(1), nrow=6, normalize=True)
     moving = (moving - moving.min()) / (moving.max() - moving.min())
 
     reg_last = (reg_last*255).to(torch.uint8).permute(1, 2, 0)

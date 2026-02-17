@@ -10,7 +10,7 @@ from IPython.display import HTML
 # import tensorflow.compat.v1 as tf
 # tf.disable_eager_execution()
 
-from src.data.data_utils import SingleImgDataset, DataLoader, dataio, modules, partial, loss_functions, training
+# from src.data.data_utils import SingleImgDataset, DataLoader, dataio, modules, partial, loss_functions, training
 
 def create_animation(img_to_animate):
     animation.embed_limit = 10
@@ -168,26 +168,26 @@ def construct_complex_fourier_toy():
 #     sess.close()
 #     return tf_im
 
-def fit_INR(data, device):
-    # data shape (C, H, W) or (C, H, W, D)
-    n_reps = []
-    lr = 1e-4
-    num_epochs = 10000
-    steps_til_summary = 1000
-    for time_point in range(data.shape[0]):
-        dset = SingleImgDataset(Image.fromarray(data[time_point]))
-        if len(data.shape) == 3:
-            coord_dataset = dataio.Implicit2DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
-        else:
-            coord_dataset = dataio.Implicit3DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
+# def fit_INR(data, device):
+#     # data shape (C, H, W) or (C, H, W, D)
+#     n_reps = []
+#     lr = 1e-4
+#     num_epochs = 10000
+#     steps_til_summary = 1000
+#     for time_point in range(data.shape[0]):
+#         dset = SingleImgDataset(Image.fromarray(data[time_point]))
+#         if len(data.shape) == 3:
+#             coord_dataset = dataio.Implicit2DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
+#         else:
+#             coord_dataset = dataio.Implicit3DWrapper(dset, sidelength=data.shape[1:], compute_diff='all')
 
-        dataloader = DataLoader(coord_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+#         dataloader = DataLoader(coord_dataset, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
 
-        model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=data.shape[1:], device=device)
-        model.to(device)
+#         model = modules.SingleBVPNet(type='sine', mode='mlp', sidelength=data.shape[1:], device=device)
+#         model.to(device)
 
-        loss_fn = partial(loss_functions.image_mse, None)
-        n_rep = training.train(model=model, train_dataloader=dataloader, epochs=num_epochs, lr=lr,
-                    steps_til_summary=steps_til_summary, loss_fn=loss_fn, device=device)
-        n_reps.append(n_rep)
-    return n_reps
+#         loss_fn = partial(loss_functions.image_mse, None)
+#         n_rep = training.train(model=model, train_dataloader=dataloader, epochs=num_epochs, lr=lr,
+#                     steps_til_summary=steps_til_summary, loss_fn=loss_fn, device=device)
+#         n_reps.append(n_rep)
+#     return n_reps

@@ -15,7 +15,7 @@ def calc_init_metrics(eval_inputs: list[torch.Tensor]) -> list[dict]:
     return metrics, imgs_to_save
 
 def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inputs: list, model_outputs: list, loss_outputs: list, extended_log=False):
-    abs_phi, rel_vel, ST = model_outputs
+    rel_vel, abs_phi, ST = model_outputs
     losses, moved, moved_im = loss_outputs
     moving, _, fixed, _, _ = inputs
     _, gt_im, seg_moving, seg_fixed = eval_inputs

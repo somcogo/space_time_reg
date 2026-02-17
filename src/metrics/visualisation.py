@@ -27,9 +27,9 @@ def prep_vis_summary_pdf(config: Namespace,
     phi_pdf_path = os.path.join(pdf_dir_path, 'deformation.pdf')
     vel_pdf_path = os.path.join(pdf_dir_path, 'velocity.pdf')
     T, C, H, W = gt.shape
-    gt = prep_tensor(gt)
-    init = prep_tensor(init_recon)
-    final = prep_tensor(final_recon)
+    gt = prep_tensor(config, gt)
+    init = prep_tensor(config, init_recon)
+    final = prep_tensor(config, final_recon)
     gt, init, final = norm_arrays(gt, init, final)
     abs_phi = prep_phi(abs_phi, gt)
     rel_vel = prep_vel(rel_vel, gt)
@@ -68,8 +68,12 @@ def use_imshow_on_axes(axes: Axes, image: np.ndarray, axis_off: bool, title: str
     if use_cbar:
         add_cbar(plt_img, fontsize * 2 // 3, ticks)
 
-def prep_tensor(tensor: torch.Tensor) -> np.ndarray:
-    return complex_abs(tensor.detach().cpu().movedim(1, -1)).numpy()
+def prep_tensor(config: Namespace, tensor: torch.Tensor) -> np.ndarray:
+    if 'cmr' in config.dataset:
+        out = complex_abs(tensor.detach().cpu().movedim(1, -1)).numpy()
+    else:
+        out = tensor.squeeze(1).detach().cpu().numpy()
+    return out
 
 def norm_arrays(gt: np.ndarray, init: np.ndarray, final: np.ndarray):
     mx = max(gt.max(), init.max(), final.max())

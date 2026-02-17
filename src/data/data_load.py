@@ -169,8 +169,8 @@ def prepare_non_inverse_case(config):
     seg_moving = segs[:1].expand(segs.shape).unsqueeze(1).float() if segs is not None else None
     seg_fixed = segs
     forward_method = nn.Identity()
-    gt_im = imgs
-    recon = imgs
+    gt_im = imgs.unsqueeze(1)
+    recon = imgs.unsqueeze(1)
 
     moving = moving.to(config.device)
     moving_inr = moving_inr.to(config.device)
