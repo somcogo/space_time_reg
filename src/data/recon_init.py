@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import torch
 from torch import nn
+import fastmri
 
 from .nmapg import nmAPG
 from src.losses.recon_reg import get_recon_regularizer
@@ -96,8 +97,10 @@ def init_with_grad_desc(config: argparse.Namespace,
 
     metrics = np.zeros((config.recon_epochs+1, 2)) if config.debug else None
     if config.debug:
-        sim_loss = config.lambda_st * loss_fn(forw(recon), gt).detach().cpu()
-        reg_loss = config.lambda_init_recon * regularizer.g(recon.flatten(0,1).unsqueeze(1)).mean().detach().cpu()
+        pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+        pred = (pred + 1e-8).sqrt()
+        sim_loss = config.lambda_st * loss_fn(pred, gt).detach().cpu()
+        reg_loss = config.lambda_init_recon * regularizer.g(pred).mean().detach().cpu()
         metrics[0] = [sim_loss, reg_loss]
         print(f'Before opt energy {sim_loss+reg_loss}, data fit {sim_loss}, reg {reg_loss}')
 
@@ -105,10 +108,13 @@ def init_with_grad_desc(config: argparse.Namespace,
     t0 = time.time()
     for epoch in range(1, config.recon_epochs + 1):
         optimizer.zero_grad()
-        sim_loss = config.lambda_st * loss_fn(forw(recon), gt)
-        reg_loss = config.lambda_init_recon * regularizer.g(recon.flatten(0,1).unsqueeze(1)).mean()
+        pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+        pred = (pred + 1e-8).sqrt()
+        sim_loss = config.lambda_st * loss_fn(pred, gt)
+        reg_loss = config.lambda_init_recon * regularizer.g(pred).mean()
         loss_sum = sim_loss + reg_loss
         loss_sum.backward()
+        print(recon.grad.abs().max(), sim_loss)
         optimizer.step()
         if loss_sum <= best_loss:
             best_recon = recon.detach().clone()
