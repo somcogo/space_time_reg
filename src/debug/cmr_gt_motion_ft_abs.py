@@ -33,7 +33,8 @@ def train(config):
     forw = torch.nn.Identity()
 
     fixed = gt_im
-    fixed = fastmri.complex_abs(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
+    fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
+    fixed = (fixed + 1e-8).sqrt()
     gt_im = gt_im.to(config.device)
     recon = gt_im
     moving = torch.nn.Parameter(gt_im[0].clone())
@@ -59,17 +60,17 @@ def train(config):
     logger = None
     
 
-
+    # with torch.autograd.set_detect_anomaly(True):
     out = registration(config=config,
-                       writer=writer,
-                       logger=logger,
-                       inputs=inputs,
-                       eval_inputs=eval_inputs,
-                       func=func)
+                    writer=writer,
+                    logger=logger,
+                    inputs=inputs,
+                    eval_inputs=eval_inputs,
+                    func=func)
 
     model_outputs, loss_outputs, _, _, epoch, all_metrics, time_stamps, _ = out
     init_recon, gt_im, _, _ = eval_inputs
-    abs_phi, rel_vel, _ = model_outputs
+    rel_vel, abs_phi, _ = model_outputs
     loss_dict, _, moved_im = loss_outputs
     
     with torch.no_grad():
@@ -79,7 +80,7 @@ def train(config):
         # loss_outputs[2] = loss_outputs[2].transpose(0,1).reshape(24, 1, 204, 512)
         metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
-        # prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
+        prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
 
     print('-------------------------------------------------')
     print(f'Time spent (sec) over {config.epochs} iterations')
@@ -119,16 +120,16 @@ def main(**kwargs):
     train(config)
 
 if __name__ == '__main__':
-    debug = True
+    debug = False
 
-    epochs = 100
-    lr=1e-6
+    epochs = 1000
+    lr=1e-4
     solver = 'euler'
     step_size = 0.01
     func_name = 'sirenensemble'
     lambda_st = 1
-    lambda_grd = 0
-    lambda_negJ = 0.
+    # lambda_grd = 0.
+    lambda_negJ = 1e-10
     lambda_hel = 0.
     lambda_pgr = 0.
     lambda_lap = 0.
@@ -140,9 +141,9 @@ if __name__ == '__main__':
 
     dataset = 'heart_gt_ft_abs'
     device='cuda'
-    for lambda_grd in [0.]:
+    for lambda_grd in [1e-4]:
         # for lambda_negJ in [1e-2, 1e-3, 1e-4, 1e-5]:
-            comment = f'first_try2-lr{lr}-grd{lambda_grd}-e{epochs}'
+            comment = f'vis-lr{lr}-grd{lambda_grd}-e{epochs}'
             main(
                 log_cadence=50,
                 epochs=epochs,

@@ -164,6 +164,12 @@ def main():
     parser.add_argument("--tol", type=float,
                         dest="tol", default=1e-6,
                         help="Tolerance to use in nmAPG")
+    parser.add_argument("--factor", type=int,
+                        dest="factor", default=4,
+                        help="Downsampling factor for CMR kspace mask")
+    parser.add_argument("--mask", type=str,
+                        dest="mask", default='st',
+                        help="How to generate kspace mask")
     
     config = parser.parse_args()
 

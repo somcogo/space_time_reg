@@ -17,7 +17,7 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger, output: l
     
     with torch.no_grad():
         metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
-        log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
+        log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
         prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
 
     logger.info('-------------------------------------------------')

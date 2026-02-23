@@ -15,7 +15,11 @@ from src.eval import evaluate
 from src.metrics.calc_metrics import calculate_metrics
 from src.utils.log_and_save import log_metrics
 from src.metrics.visualisation import prep_vis_summary_pdf
-from src.data.fft_utils import FastmriFT, FastmriIFT
+from src.data.fft_utils import FastmriFT, FastmriIFT, FTAndSubsample
+from src.data.data_utils import get_kspace_mask
+
+import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 
 torch.manual_seed(0)
 random.seed(1)
@@ -25,12 +29,13 @@ def train(config):
     gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:,0].permute(0, 3, 1, 2)
     ift = FastmriIFT()
     gt_im = ift(gt_kspace_data)
-    gt_im = fastmri.complex_abs(gt_im.movedim(1, -1)).unsqueeze(1)
+    kspace_mask = get_kspace_mask(config, gt_kspace_data, factor=4)
 
-    forw = torch.nn.Identity()
+    forw = FTAndSubsample(kspace_mask)
 
-    fixed = gt_im
-    fixed = fixed.to(config.device)
+    fixed = forw(gt_im)
+    fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
+    fixed = (fixed + 1e-8).sqrt()
     gt_im = gt_im.to(config.device)
     recon = gt_im
     moving = torch.nn.Parameter(gt_im[0].clone())
@@ -56,23 +61,31 @@ def train(config):
     logger = None
     
 
-
+    # with torch.autograd.set_detect_anomaly(True):
     out = registration(config=config,
-                       writer=writer,
-                       logger=logger,
-                       inputs=inputs,
-                       eval_inputs=eval_inputs,
-                       func=func)
+                    writer=writer,
+                    logger=logger,
+                    inputs=inputs,
+                    eval_inputs=eval_inputs,
+                    func=func)
 
     model_outputs, loss_outputs, _, _, epoch, all_metrics, time_stamps, _ = out
     init_recon, gt_im, _, _ = eval_inputs
-    abs_phi, rel_vel, _ = model_outputs
+    rel_vel, abs_phi, _ = model_outputs
     loss_dict, _, moved_im = loss_outputs
     
     with torch.no_grad():
+        # inputs[0] = fastmri.complex_abs(inputs[0].movedim(0,-1))
+        # inputs[2] = inputs[2].transpose(0,1).reshape(24, 1, 204, 512)
+        # loss_outputs[1] = loss_outputs[1].transpose(0,1).reshape(24, 1, 204, 512)
+        # loss_outputs[2] = loss_outputs[2].transpose(0,1).reshape(24, 1, 204, 512)
         metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
-        # prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
+        prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
+
+    os.makedirs(os.path.join(config.log_path, 'res'), exist_ok=True)
+    torch.save(model_outputs[1].detach().cpu(), os.path.join(config.log_path, 'res', 'abs_phi.pt'))
+    torch.save(model_outputs[0].detach().cpu(), os.path.join(config.log_path, 'res', 'rel_vel.pt'))
 
     print('-------------------------------------------------')
     print(f'Time spent (sec) over {config.epochs} iterations')
@@ -108,20 +121,22 @@ def main(**kwargs):
         # 'bs': 16,
         # 'use_t': False,
     }
-    config.log_path = os.path.join('log/motion_test_cmr/heart_gt_no_ft_abs', config.comment)
+    config.log_path = os.path.join('log/motion_test_cmr/heart_gt_ft_sample_abs', config.comment)
     train(config)
 
 if __name__ == '__main__':
     debug = False
 
-    epochs = 2000
-    lr=1e-4
+    mask = 'st'
+
+    epochs = 1000
+    lr=1e-3
     solver = 'euler'
     step_size = 0.01
     func_name = 'sirenensemble'
     lambda_st = 1
-    lambda_grd = 1e-3
-    lambda_negJ = 0.
+    # lambda_grd = 0
+    lambda_negJ = 1e-10
     lambda_hel = 0.
     lambda_pgr = 0.
     lambda_lap = 0.
@@ -131,11 +146,11 @@ if __name__ == '__main__':
     time_points = 12
     schedule = [1]
 
-    dataset = 'heart_gt_no_ft'
+    dataset = 'heart_gt_ft_abs'
     device='cuda'
-    for lambda_grd in [0.]:
+    for lambda_grd in [1e-4]:
         # for lambda_negJ in [1e-2, 1e-3, 1e-4, 1e-5]:
-            comment = f'comparison-lr{lr}-grd{lambda_grd}-e{epochs}'
+            comment = f'vis-lr{lr}-grd{lambda_grd}-e{epochs}'
             main(
                 log_cadence=50,
                 epochs=epochs,
@@ -163,4 +178,6 @@ if __name__ == '__main__':
                 lambda_lap=lambda_lap,
                 lambda_recon=lambda_recon,
                 weight_decay=weight_decay,
+
+                mask=mask,
             )

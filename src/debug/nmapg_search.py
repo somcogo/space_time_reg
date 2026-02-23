@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import argparse
 from operator import itemgetter
 
@@ -83,7 +83,7 @@ def log_metrics(config, rec, gt_im, metrics):
     writer.add_scalar('error/cabs_max', (gt_abs-rec_abs).abs().max(), global_step=epoch)
     writer.add_scalar('error/cabs_mean', (gt_abs-rec_abs).abs().mean(), global_step=epoch)
 
-    return (gt_abs-rec_abs).abs().mean()
+    return (gt_abs-rec_abs).abs().mean(), (gt_abs-rec_abs).abs().max()
 
 def main(**kwargs) -> None:
     parser = argparse.ArgumentParser()
@@ -116,43 +116,46 @@ def main(**kwargs) -> None:
         config.reg_alpha = None
     config.debug = True
     config.detach_grads = True
-    config.log_path = os.path.join('log/graddes_debug_folder/mask_factor', config.log_path)
+    config.log_path = os.path.join('log/nmapg_debug_folder/lam_scale_search', config.log_path)
     config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     rec, gt_im, metrics = train(config)
-    mean_error = log_metrics(config, rec, gt_im, metrics)
+    mean_error, max_error = log_metrics(config, rec, gt_im, metrics)
     os.makedirs(os.path.join(config.log_path, 'imgs'), exist_ok=True)
     torch.save(rec.detach().cpu(), os.path.join(config.log_path, 'imgs', 'rec.pt'))
-    return mean_error
+    return mean_error, max_error
 
 if __name__ == '__main__':
     warnings = []
     results = []
-    alpha = 0
+    alpha = 6
     scale = 10
     reg = 'learned'
-    method = 'graddes'
+    method = 'nmapg'
     # for lam in [1e-5]:
     #     for lr in [1e-2, ]:
     lam = 1e-5
     lr = 1e-2
-    factor = 1
-    dset = 'cmr_test3'
-    mask = 'random2'
-    for factor in [4, 3.5, 3, 2.5, 2, 1.5, 1]:
-        try:
-            name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}'
-            err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset)
-            results.append([name, err])
-        except Exception as e:
-            warnings.append(name + ' error ' + str(e) + '\n')
-    sorted_res = sorted(results, key=itemgetter(1))
+    factor = 4
+    dset = 'cmr_P001'
+    mask = 'st'
+    for scale in [0, 10, 15, 5, -5]:
+        for lam in [1e1, 1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5]:
+            try:
+                name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}'
+                mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0)
+                results.append([name, mean_err, max_err])
+            except Exception as e:
+                warnings.append(name + ' error ' + str(e) + '\n')
+    mean_sorted = sorted(results, key=itemgetter(1))
+    max_sorted = sorted(results, key=itemgetter(2))
     print('--------------------------')
     print('Warnings:')
     print(*warnings)
     print('--------------------------')
-    print(f'Best result: name {sorted_res[0][0]} error {sorted_res[0][1]}')
+    print(f'Best mean result: name {mean_sorted[0][0]} error {mean_sorted[0][1]}')
+    print(f'Best max result: name {max_sorted[0][0]} error {max_sorted[0][1]}')
     print('--------------------------')
     print('All res')
-    for res in sorted_res:
+    for res in max_sorted:
         print(res)

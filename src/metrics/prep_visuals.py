@@ -38,17 +38,17 @@ def prep_moved_img_vis(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch
     fixed = fixed.detach().cpu()
     moving = moving.detach().cpu()
 
-    if 'cmr' in config.dataset:
-        fixed = complex_abs(fixed.movedim(1, -1))
-        moved = complex_abs(moved.movedim(1, -1))
-        moved_im = complex_abs(moved_im.movedim(1, -1))
-        moving = complex_abs(moving.movedim(0, -1))
-    elif config.dataset == 'heart_gt_no_ft_no_abs':
+    # if 'cmr' in config.dataset:
+    #     fixed = complex_abs(fixed.movedim(1, -1))
+    #     moved = complex_abs(moved.movedim(1, -1))
+    #     moved_im = complex_abs(moved_im.movedim(1, -1))
+    #     moving = complex_abs(moving.movedim(0, -1))
+    if config.dataset == 'heart_gt_no_ft_no_abs':
         fixed = fixed.squeeze(1)
         moved = moved.squeeze(1)
         moved_im = moved_im.squeeze(1)
         moving = complex_abs(moving.movedim(0, -1))
-    elif config.dataset == 'heart_gt_ft_abs':
+    elif config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
         fixed = fixed.squeeze(1)
         moved = moved.squeeze(1)
         moved_im = complex_abs(moved_im.movedim(1,-1))
@@ -147,9 +147,9 @@ def prep_phi_grad_vis(phi_grad: torch.Tensor) -> torch.Tensor:
 def draw_deformed_grid(phi: torch.Tensor, ax: Axes) -> tuple[Axes]:
     # fig, ax = plt.subplots()
     for i in range(0, phi.shape[0], math.ceil(phi.shape[0]/32)):
-        ax.plot(phi[i, :, 0], phi[i, :, 1], 'r-', linewidth=0.5)
+        ax.plot(phi[i, :, 1], -phi[i, :, 0], 'r-', linewidth=0.5)
     for i in range(0, phi.shape[1], math.ceil(phi.shape[1]/32)):
-        ax.plot(phi[:, i, 0], phi[:, i, 1], 'r-', linewidth=0.5)
+        ax.plot(phi[:, i, 1], -phi[:, i, 0], 'r-', linewidth=0.5)
     ax.grid(True)
     ax.set_xticklabels([])
     ax.set_yticklabels([])

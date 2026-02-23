@@ -31,7 +31,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
-    moving.requires_grad_(True)
+    moving.requires_grad_(False)
     if logger is not None:
         logger.info(f'Set require_grad for recon to {moving.requires_grad}')
     else:
@@ -86,8 +86,9 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
             else:
                 print(log_msg)
         if loss_sum <= best_loss and epoch > config.schedule[-1]:
-            best_model_out = model_outputs
-            best_loss_out = loss_outputs
+            best_loss = loss_sum
+            best_model_out = [model_outputs[0].clone(), model_outputs[1].clone(), None]
+            best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone(), loss_outputs[2].clone()]
             best_moving = inputs[0]
             best_st_dict = func.state_dict()
             best_epoch = epoch

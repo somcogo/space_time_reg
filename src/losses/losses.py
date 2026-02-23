@@ -59,9 +59,10 @@ def similarity_loss(config, inputs, model_outputs):
     else:
         moved_im = ST.apply(moving)
     moved = forw(moved_im)
-    if config.dataset == 'heart_gt_ft_abs':
+    if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
         # fixed = fastmri.complex_abs(fixed.movedim(1,-1))
-        moved = fastmri.complex_abs(moved.movedim(1,-1)).unsqueeze(1)
+        moved = fastmri.complex_abs_sq(moved.movedim(1,-1)).unsqueeze(1)
+        moved = (moved + 1e-8).sqrt()
     loss = loss_fn(fixed, moved)
     
     return loss, moved.detach().cpu(), moved_im.detach().cpu()

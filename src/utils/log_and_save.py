@@ -13,6 +13,7 @@ def log_metrics(config: Namespace, metrics: dict, writer: SummaryWriter, epoch: 
     if imgs_to_log is not None and (config.debug or last_val):
         for k, v in imgs_to_log.items():
             writer.add_image(k, v, epoch, dataformats='HWC', )
+    writer.flush()
     
 def save_results(config: Namespace, output: list, eval_inputs: list, images: dict[torch.Tensor]) -> None:
     model_outputs, loss_outputs, moving, st_dict, epoch, _, time_stamps, coords = output

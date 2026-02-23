@@ -6,6 +6,7 @@ import numpy as np
 import nibabel as nib
 from torch import nn
 import h5py
+import fastmri
 from fastmri.data import transforms as T
 
 from src.models.siren import Siren
@@ -196,8 +197,15 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
 
     if config.use_nmapg:
         recon, init_metrics = init_using_nmAPG(config, init, fixed, forw_subs, forw_subs_adj, logger)
+        # recon = torch.zeros_like(init)
+        # for t in range(init.shape[0]):
+        #     r, init_metrics = init_using_nmAPG(config, init[t:t+1], fixed[t:t+1], forw_subs, forw_subs_adj, logger)
+        #     recon[t] = r.detach()
     else:
-        recon, init_metrics = init_with_grad_desc(config, init, forw_subs)
+        recon, init_metrics = init_with_grad_desc(config, init, fixed, forw_subs)
+        
+    fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
+    fixed = (fixed + 1e-8).sqrt()
 
     recon = recon.detach()
     moving = nn.Parameter(recon[0].clone())

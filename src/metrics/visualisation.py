@@ -69,7 +69,7 @@ def use_imshow_on_axes(axes: Axes, image: np.ndarray, axis_off: bool, title: str
         add_cbar(plt_img, fontsize * 2 // 3, ticks)
 
 def prep_tensor(config: Namespace, tensor: torch.Tensor) -> np.ndarray:
-    if 'cmr' in config.dataset:
+    if 'cmr' in config.dataset or config.dataset == 'heart_gt_ft_abs':
         out = complex_abs(tensor.detach().cpu().movedim(1, -1)).numpy()
     else:
         out = tensor.squeeze(1).detach().cpu().numpy()
@@ -133,11 +133,12 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
 
         deform_dir = flow_to_color(rel_phi[t])        
         use_imshow_on_axes(a[t,2], deform_dir, True, f"Deformation at time {t}", fontsize, False, cmap=None)
-        draw_deformed_grid(abs_phi[t], a[t, 3])
+        draw_deformed_grid(torch.from_numpy(abs_phi[t]), a[t, 3])
         a[t,3].set_title(f"Deformed grid at time {t}", fontsize=fontsize)
+        a[t,3].set_box_aspect(abs_phi.shape[1]/abs_phi.shape[2])
 
         phi_norm = np.linalg.norm(rel_phi[t], axis=-1)
-        use_imshow_on_axes(a[t,4], phi_norm, True, f"Final recon at time {t}", fontsize, True, ticks=[phi_norm.min(), phi_norm.max()])
+        use_imshow_on_axes(a[t,4], phi_norm, True, f"Deformation norm at time {t}", fontsize, True, ticks=[phi_norm.min(), phi_norm.max()])
 
         a[t,5].plot(losses['Similarity loss'][:,t])
         a[t,5].set_title('Sim loss', fontsize=fontsize)
