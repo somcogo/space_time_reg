@@ -89,7 +89,9 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
 def init_with_grad_desc(config: argparse.Namespace,
                         recon: nn.Parameter,
                         gt: torch.Tensor,
-                        forw: nn.Module,):
+                        forw: nn.Module,
+                        sim_use_abs: bool = False,
+                        reg_use_abs: bool = False):
     optimizer = torch.optim.Adam([recon], lr=config.init_lr)
     gt = gt.to(config.device)
     loss_fn = nn.MSELoss(reduction='mean')
@@ -97,9 +99,17 @@ def init_with_grad_desc(config: argparse.Namespace,
 
     metrics = np.zeros((config.recon_epochs+1, 2)) if config.debug else None
     if config.debug:
-        pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
-        pred = (pred + 1e-8).sqrt()
+        if sim_use_abs:
+            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+            pred = (pred + 1e-8).sqrt()
+        else:
+            pred = forw(recon)
         sim_loss = config.lambda_st * loss_fn(pred, gt).detach().cpu()
+        if reg_use_abs:
+            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+            pred = (pred + 1e-8).sqrt()
+        else:
+            pred = forw(recon).flatten(0,1).unsqueeze(1)
         reg_loss = config.lambda_init_recon * regularizer.g(pred).mean().detach().cpu()
         metrics[0] = [sim_loss, reg_loss]
         print(f'Before opt energy {sim_loss+reg_loss}, data fit {sim_loss}, reg {reg_loss}')
@@ -108,13 +118,23 @@ def init_with_grad_desc(config: argparse.Namespace,
     t0 = time.time()
     for epoch in range(1, config.recon_epochs + 1):
         optimizer.zero_grad()
-        pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
-        pred = (pred + 1e-8).sqrt()
+        
+        if sim_use_abs:
+            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+            pred = (pred + 1e-8).sqrt()
+        else:
+            pred = forw(recon)
         sim_loss = config.lambda_st * loss_fn(pred, gt)
+        
+        if reg_use_abs:
+            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+            pred = (pred + 1e-8).sqrt()
+        else:
+            pred = forw(recon).flatten(0,1).unsqueeze(1)
         reg_loss = config.lambda_init_recon * regularizer.g(pred).mean()
+        
         loss_sum = sim_loss + reg_loss
         loss_sum.backward()
-        print(recon.grad.abs().max(), sim_loss)
         optimizer.step()
         if loss_sum <= best_loss:
             best_recon = recon.detach().clone()
