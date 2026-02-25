@@ -110,10 +110,10 @@ def init_with_grad_desc(config: argparse.Namespace,
             pred = forw(recon)
         sim_loss = config.lambda_st * loss_fn(pred, gt).detach().cpu()
         if reg_use_abs:
-            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+            pred = fastmri.complex_abs_sq(recon.movedim(1,-1)).unsqueeze(1)
             pred = (pred + 1e-8).sqrt()
         else:
-            pred = forw(recon).flatten(0,1).unsqueeze(1)
+            pred = recon.flatten(0,1).unsqueeze(1)
         reg_loss = config.lambda_init_recon * regularizer.g(pred).mean().detach().cpu()
         metrics[0] = [sim_loss, reg_loss]
         print(f'Before opt energy {sim_loss+reg_loss}, data fit {sim_loss}, reg {reg_loss}')
@@ -131,10 +131,10 @@ def init_with_grad_desc(config: argparse.Namespace,
         sim_loss = config.lambda_st * loss_fn(pred, gt)
         
         if reg_use_abs:
-            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
+            pred = fastmri.complex_abs_sq(recon.movedim(1,-1)).unsqueeze(1)
             pred = (pred + 1e-8).sqrt()
         else:
-            pred = forw(recon).flatten(0,1).unsqueeze(1)
+            pred = recon.flatten(0,1).unsqueeze(1)
         reg_loss = config.lambda_init_recon * regularizer.g(pred).mean()
         
         loss_sum = sim_loss + reg_loss
