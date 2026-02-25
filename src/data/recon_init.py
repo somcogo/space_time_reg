@@ -98,6 +98,10 @@ def init_with_grad_desc(config: argparse.Namespace,
     regularizer = get_recon_regularizer(config)
 
     metrics = np.zeros((config.recon_epochs+1, 2)) if config.debug else None
+
+    if sim_use_abs:
+        gt = fastmri.complex_abs_sq(gt.movedim(1,-1)).unsqueeze(1)
+        gt = (gt + 1e-8).sqrt()
     if config.debug:
         if sim_use_abs:
             pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
