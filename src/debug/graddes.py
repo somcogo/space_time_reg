@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import argparse
 from operator import itemgetter
 
@@ -125,7 +125,7 @@ def main(**kwargs) -> None:
 if __name__ == '__main__':
     warnings = []
     results = []
-    alpha = 1
+    alpha = 0
     # scale = 10
     reg = 'learned'
     method = 'graddes'
