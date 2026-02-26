@@ -54,11 +54,15 @@ def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Mod
         forw_subs_adj = ZeroFillAndIFT(mask)
     return full_forw, full_adj, forw_subs, forw_subs_adj
 
-def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor) -> nn.Parameter:
+def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor, fixed_adj: torch.Tensor) -> nn.Parameter:
     if config.init == 'zero':
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
     elif config.init == 'gt':
         recon_init = nn.Parameter(gt_im.clone(), requires_grad=True)
+    elif config.init == 'rand':
+        recon_init = torch.nn.Parameter(torch.randn_like(raw_kspace_data, device=config.device)*1e-3, requires_grad=True)
+    elif config.init == 'adj':
+        recon_init = torch.nn.Parameter(fixed_adj.clone(), requires_grad=True)
     return recon_init
 
     

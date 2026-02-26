@@ -24,7 +24,7 @@ def train(config: argparse.Namespace):
 
     gt_im = full_adj(gt_kspace_data)
     gt_im = gt_im.to(config.device)
-    recon_init = get_init(config, raw_kspace_data, gt_im)
+    recon_init = get_init(config, raw_kspace_data, gt_im, forw_subs_adj(fixed))
 
     if config.method == 'nmapg':
         recon_init, metrics = init_using_nmAPG(config, recon_init, fixed, forw_subs, forw_subs_adj, logger=None)
@@ -135,7 +135,7 @@ def main(**kwargs) -> None:
 if __name__ == '__main__':
     warnings = []
     results = []
-    alpha = 6
+    alpha = 0
     scale = 10
     reg = 'learned'
     method = 'nmapg'
@@ -148,14 +148,16 @@ if __name__ == '__main__':
     mask = 'st'
     init_loss = 'log_mag'
     init_reg_abs = True
+    # init = 'zero'
     for scale in [0, 10, 15, 5, -5]:
-        for lam in [1e4, 1e2, 1e0, 1e-2, 1e-4]:
-            try:
-                name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}'
-                mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs)
-                results.append([name, mean_err, max_err])
-            except Exception as e:
-                warnings.append(name + ' error ' + str(e) + '\n')
+        for lam in [1e6, 1e5, 1e4, 1e3, 1e2, 1e1, 1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]:
+            for init in ['adj', 'zero', 'rand']:
+                try:
+                    name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
+                    mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs, init=init)
+                    results.append([name, mean_err, max_err])
+                except Exception as e:
+                    warnings.append(name + ' error ' + str(e) + '\n')
     mean_sorted = sorted(results, key=itemgetter(1))
     max_sorted = sorted(results, key=itemgetter(2))
     print('--------------------------')
