@@ -87,7 +87,7 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
             df = magnitude_l1(val, y_in, forw, config)
         elif config.init_loss == 'log_mag':
             df = log_magnitude(val, y_in, forw, config)
-        else:
+        elif config.init_loss == 'l2':
             df = complex_l2(val, y_in, forw, config)
         return df
     

@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 import argparse
 from operator import itemgetter
 
@@ -9,6 +9,7 @@ import fastmri
 
 from src.data.recon_init import init_using_nmAPG, init_with_grad_desc
 from src.data.data_utils import get_data, get_operators, get_init, get_kspace_mask
+from src.metrics.metric_utils import calc_cmr_eval_metrics
 
 def train(config: argparse.Namespace):
     raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
@@ -83,6 +84,12 @@ def log_metrics(config, rec, gt_im, metrics):
     writer.add_scalar('error/cabs_max', (gt_abs-rec_abs).abs().max(), global_step=epoch)
     writer.add_scalar('error/cabs_mean', (gt_abs-rec_abs).abs().mean(), global_step=epoch)
 
+    psnr_array, ssim_array, nmse_array = calc_cmr_eval_metrics(rec_abs, gt_abs)
+    writer.add_scalar('cmr metrics/psnr', psnr_array.mean(), global_step=epoch)
+    writer.add_scalar('cmr metrics/ssim', ssim_array.mean(), global_step=epoch)
+    writer.add_scalar('cmr metrics/nmse', nmse_array.mean(), global_step=epoch)
+    
+
     return (gt_abs-rec_abs).abs().mean(), (gt_abs-rec_abs).abs().max()
 
 def main(**kwargs) -> None:
@@ -98,7 +105,7 @@ def main(**kwargs) -> None:
     parser.add_argument("--init_lr", type=float, default=1e-2)
     parser.add_argument("--recon_scale", type=float, default=1e-1)
     parser.add_argument("--reg_alpha", type=float, default=1)
-    parser.add_argument("--recon_epochs", type=float, default=150)
+    parser.add_argument("--recon_epochs", type=float, default=50)
     parser.add_argument("--lambda_st", type=float, default=1)
     parser.add_argument("--lambda_init_recon", type=float, default=1e-9)
     parser.add_argument("--tol", type=float, default=1e-4)
@@ -116,7 +123,7 @@ def main(**kwargs) -> None:
         config.reg_alpha = None
     config.debug = True
     config.detach_grads = True
-    config.log_path = os.path.join('log/nmapg_debug_folder/lam_scale_search', config.log_path)
+    config.log_path = os.path.join('log/nmapg_debug_folder/loss_fn_search', config.log_path)
     config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     rec, gt_im, metrics = train(config)
@@ -139,11 +146,13 @@ if __name__ == '__main__':
     factor = 4
     dset = 'cmr_P001'
     mask = 'st'
+    init_loss = 'log_mag'
+    init_reg_abs = True
     for scale in [0, 10, 15, 5, -5]:
-        for lam in [1e1, 1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5]:
+        for lam in [1e4, 1e2, 1e0, 1e-2, 1e-4]:
             try:
-                name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}'
-                mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0)
+                name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}'
+                mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs)
                 results.append([name, mean_err, max_err])
             except Exception as e:
                 warnings.append(name + ' error ' + str(e) + '\n')
