@@ -11,6 +11,7 @@ import fastmri
 from .nmapg import nmAPG
 from src.losses.recon_reg import get_recon_regularizer
 from src.losses.tv import get_tv
+from .data_utils import complex_abs, real_abs
 
 
 def init_using_nmAPG(config: argparse.Namespace,
@@ -49,24 +50,53 @@ def get_reg(config: argparse.Namespace) -> nn.Module:
     elif config.reg == 'tv':
         reg = get_tv(config)
     return reg
+
+def complex_l2(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
+    diff = forw(val) - y_in
+    df = 0.5 * (diff ** 2).sum((1,2,3))
+    return df.reshape(-1)
+
+def magnitude_l1(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
+    val_abs = complex_abs(forw(val))
+    y_abs = complex_abs(y_in)
+    df = real_abs(val_abs - y_abs).sum((1,2,3))
+    return df.reshape(-1)
+
+def log_magnitude(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
+    val_abs = complex_abs(forw(val))
+    y_abs = complex_abs(y_in)
+    diff = torch.log(val_abs + 1e-8) - torch.log(y_abs - 1e-8)
+    df = 0.5 * (diff ** 2).sum((1,2,3))
+    return df.reshape(-1)
+
+def reg_on_abs(config: argparse.Namespace, val: torch.Tensor, regularizer: nn.Module) -> torch.Tensor:
+    val_abs = complex_abs(val)
+    reg = config.lambda_init_recon * regularizer.g(val_abs)
+    return reg.reshape(-1)
+
+def reg_without_abs(config: argparse.Namespace, val: torch.Tensor, regularizer: nn.Module) -> torch.Tensor:
+    reg = config.lambda_init_recon * regularizer.g(
+        val.flatten(0,1).unsqueeze(1)
+    ).reshape(val.shape[0], -1).sum(1)
+    return reg.reshape(-1)
+
                   
 def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.Module, adj: nn.Module) -> list[Callable]:
     def data_fit(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            diff = forw(val) - y_in
-            df = 0.5 * (diff ** 2).sum((1,2,3))
-        if config.detach_grads:
-            df = df.detach()
-        return df.reshape(-1)
+        if config.init_loss == 'mag_l1':
+            df = magnitude_l1(val, y_in, forw, config)
+        elif config.init_loss == 'log_mag':
+            df = log_magnitude(val, y_in, forw, config)
+        else:
+            df = complex_l2(val, y_in, forw, config)
+        return df
     
     def reg_eval(val: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            reg = config.lambda_init_recon * regularizer.g(
-                val.flatten(0,1).unsqueeze(1)
-            ).reshape(val.shape[0], -1).sum(1)
-        if config.detach_grads:
-            reg = reg.detach()
-        return reg.reshape(-1)
+        if config.init_reg_abs:
+            reg = reg_on_abs(config, val, regularizer)
+        else:
+            reg = reg_without_abs(config, val, regularizer)
+        return reg
     
     def energy(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
         df = data_fit(val, y_in)
@@ -77,12 +107,19 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
         return fun.reshape(-1)
     
     def energy_grad(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
-        diff = forw(val) - y_in
-        df_grad = adj(diff)
-        reg_grad = config.lambda_init_recon * regularizer.grad(
-            val.flatten(0,1).unsqueeze(1)
-        ).reshape(val.shape)
-        return df_grad + reg_grad
+        val_req = val.detach().clone().requires_grad_(True)
+        df = data_fit(val_req, y_in)
+        reg = reg_eval(val_req)
+
+        energy = df + reg
+        energy.backward()
+        return val_req.grad
+        # diff = forw(val) - y_in
+        # df_grad = adj(diff)
+        # reg_grad = config.lambda_init_recon * regularizer.grad(
+        #     val.flatten(0,1).unsqueeze(1)
+        # ).reshape(val.shape)
+        # return df_grad + reg_grad
     
     return data_fit, reg_eval, energy, energy_grad
 
@@ -100,18 +137,15 @@ def init_with_grad_desc(config: argparse.Namespace,
     metrics = np.zeros((config.recon_epochs+1, 2)) if config.debug else None
 
     if sim_use_abs:
-        gt = fastmri.complex_abs_sq(gt.movedim(1,-1)).unsqueeze(1)
-        gt = (gt + 1e-8).sqrt()
+        gt = complex_abs(gt)
     if config.debug:
         if sim_use_abs:
-            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
-            pred = (pred + 1e-8).sqrt()
+            pred = complex_abs(forw(recon))
         else:
             pred = forw(recon)
         sim_loss = config.lambda_st * loss_fn(pred, gt).detach().cpu()
         if reg_use_abs:
-            pred = fastmri.complex_abs_sq(recon.movedim(1,-1)).unsqueeze(1)
-            pred = (pred + 1e-8).sqrt()
+            pred = complex_abs(recon)
         else:
             pred = recon.flatten(0,1).unsqueeze(1)
         reg_loss = config.lambda_init_recon * regularizer.g(pred).mean().detach().cpu()
@@ -124,15 +158,13 @@ def init_with_grad_desc(config: argparse.Namespace,
         optimizer.zero_grad()
         
         if sim_use_abs:
-            pred = fastmri.complex_abs_sq(forw(recon).movedim(1,-1)).unsqueeze(1)
-            pred = (pred + 1e-8).sqrt()
+            pred = complex_abs(forw(recon))
         else:
             pred = forw(recon)
         sim_loss = config.lambda_st * loss_fn(pred, gt)
         
         if reg_use_abs:
-            pred = fastmri.complex_abs_sq(recon.movedim(1,-1)).unsqueeze(1)
-            pred = (pred + 1e-8).sqrt()
+            pred = complex_abs(recon)
         else:
             pred = recon.flatten(0,1).unsqueeze(1)
         reg_loss = config.lambda_init_recon * regularizer.g(pred).mean()

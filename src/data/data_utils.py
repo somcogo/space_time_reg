@@ -8,6 +8,17 @@ from torch import nn
 from .fft_utils import FastmriFT, FastmriIFT, FTAndSubsample, ZeroFillAndIFT
 
 
+def complex_abs(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    # Modelled after fastmri.complex_abs but includes eps
+    if not x.shape[1] == 2:
+        raise ValueError("Tensor does not have separate complex dim.")
+    x = (x**2).sum(dim=1, keepdim=True)
+    return (x + eps).sqrt()
+
+def real_abs(x:torch.Tensor) -> torch.Tensor:
+    return x.abs()
+
+
 def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
     # TODO: rewrite with option for other patients, downsamlpming factors, start frame and # of frames
     gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
