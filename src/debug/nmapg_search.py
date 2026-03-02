@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 from operator import itemgetter
 
@@ -10,6 +10,7 @@ import fastmri
 from src.data.recon_init import init_using_nmAPG, init_with_grad_desc
 from src.data.data_utils import get_data, get_operators, get_init, get_kspace_mask
 from src.metrics.metric_utils import calc_cmr_eval_metrics
+from src.metrics.init_vis import prep_vis_summary_pdf
 
 def train(config: argparse.Namespace):
     raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
@@ -123,41 +124,40 @@ def main(**kwargs) -> None:
         config.reg_alpha = None
     config.debug = True
     config.detach_grads = True
-    config.log_path = os.path.join('log/nmapg_debug_folder/loss_fn_search', config.log_path)
+    config.log_path = os.path.join('log/nmapg_debug_folder/alpha_search', config.log_path)
     config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     rec, gt_im, metrics = train(config)
     mean_error, max_error = log_metrics(config, rec, gt_im, metrics)
+    prep_vis_summary_pdf(config, gt_im, rec)
     os.makedirs(os.path.join(config.log_path, 'imgs'), exist_ok=True)
     torch.save(rec.detach().cpu(), os.path.join(config.log_path, 'imgs', 'rec.pt'))
+    torch.save(gt_im.detach().cpu(), os.path.join(config.log_path, 'imgs', 'gt.pt'))
     return mean_error, max_error
 
 if __name__ == '__main__':
     warnings = []
     results = []
-    alpha = 0
-    scale = 10
+    alpha = 1
+    # scale = 2
     reg = 'learned'
     method = 'nmapg'
-    # for lam in [1e-5]:
-    #     for lr in [1e-2, ]:
-    lam = 1e-5
+    # lam = 1e-2
     lr = 1e-2
     factor = 4
     dset = 'cmr_P001'
     mask = 'st'
-    init_loss = 'log_mag'
-    init_reg_abs = True
-    # init = 'zero'
-    for scale in [0, 10, 15, 5, -5]:
-        for lam in [1e6, 1e5, 1e4, 1e3, 1e2, 1e1, 1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]:
-            for init in ['adj', 'zero', 'rand']:
-                try:
-                    name = f'{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
-                    mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs, init=init)
-                    results.append([name, mean_err, max_err])
-                except Exception as e:
-                    warnings.append(name + ' error ' + str(e) + '\n')
+    init_loss = 'l2'
+    init_reg_abs = False
+    init = 'zero'
+    for scale in [2]:
+        for lam in [1e-2]:
+            try:
+                name = f'best-{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
+                mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs, init=init)
+                results.append([name, mean_err, max_err])
+            except Exception as e:
+                warnings.append(name + ' error ' + str(e) + '\n')
     mean_sorted = sorted(results, key=itemgetter(1))
     max_sorted = sorted(results, key=itemgetter(2))
     print('--------------------------')
