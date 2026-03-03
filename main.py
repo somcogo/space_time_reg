@@ -162,7 +162,7 @@ def main():
                         dest="reg_alpha", default=0.,
                         help="Alpha to use for the regularizer")
     parser.add_argument("--tol", type=float,
-                        dest="tol", default=1e-6,
+                        dest="tol", default=1e-4,
                         help="Tolerance to use in nmAPG")
     parser.add_argument("--factor", type=int,
                         dest="factor", default=4,
@@ -170,6 +170,12 @@ def main():
     parser.add_argument("--mask", type=str,
                         dest="mask", default='st',
                         help="How to generate kspace mask")
+    parser.add_argument("--init_loss", type=str,
+                        dest="init_loss", default='l2',
+                        help="Loss used for initial recon")
+    parser.add_argument("--init_reg_abs", action=argparse.BooleanOptionalAction,
+                        dest="init_reg_abs", default=False,
+                        help="Use the abs value of the image for the regularizer during initial recon")
     
     config = parser.parse_args()
 

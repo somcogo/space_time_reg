@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import argparse
 from operator import itemgetter
 
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     for scale in [2]:
         for lam in [1e-2]:
             try:
-                name = f'best-{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
+                name = f'best2-{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
                 mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs, init=init)
                 results.append([name, mean_err, max_err])
             except Exception as e:

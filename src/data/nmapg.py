@@ -73,8 +73,8 @@ def nmAPG(
     metrics = np.zeros((max_iter+1, 2)) if debug else None
 
     if debug:
-        df = data_fit(x,y).detach().cpu()
-        regval = reg(x).detach().cpu()
+        df = data_fit(x,y).detach().cpu().sum(0)
+        regval = reg(x).detach().cpu().sum(0)
         metrics[0] = np.array([df, regval]).squeeze()
         if logger is None:
             print(f'Before opt energy {df+regval}, data fit {df}, reg {regval}')
@@ -189,8 +189,8 @@ def nmAPG(
         idx = condition.nonzero().view(-1)  # Update which data to still iterate on
 
         if debug:
-            df = data_fit(x,y).detach().cpu()
-            regval = reg(x).detach().cpu()
+            df = data_fit(x,y).detach().cpu().sum(0)
+            regval = reg(x).detach().cpu().sum(0)
             metrics[i+1] = np.array([df, regval]).squeeze()
             if logger is None:
                 print(f'Iter {i+1}/{max_iter}, energy {df+regval}, data fit {df}, reg {regval}')

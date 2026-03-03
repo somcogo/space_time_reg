@@ -112,7 +112,7 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
         reg = reg_eval(val_req)
 
         energy = df + reg
-        energy.backward()
+        energy.sum().backward()
         return val_req.grad
         # diff = forw(val) - y_in
         # df_grad = adj(diff)

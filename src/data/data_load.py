@@ -193,7 +193,7 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
 
     gt_im = full_adj(gt_kspace_data)
     gt_im = gt_im.to(config.device)
-    init = get_init(config, raw_kspace_data, gt_im)
+    init = get_init(config, raw_kspace_data, gt_im, forw_subs_adj(fixed))
 
     if config.use_nmapg:
         recon, init_metrics = init_using_nmAPG(config, init, fixed, forw_subs, forw_subs_adj, logger)
@@ -218,25 +218,6 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
     moving = moving.to(config.device)
     fixed = fixed.to(config.device)
     forw_subs = forw_subs.to(config.device)
-
-
-    # if 'Acc04' in config.dataset:
-    #     patient = config.dataset.split('_')[1][1:]
-    #     raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
-    #     raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
-    #     gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
-    #     gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
-
-    #     moving_inr = None
-    #     seg_moving = None
-    #     seg_fixed = None
-    # elif 'full' in config.dataset:
-    #     patient = config.dataset.split('_')[1][1:]
-    #     raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
-    #     raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
-    #     moving_inr = None
-    #     seg_moving = None
-    #     seg_fixed = None
     return [moving, moving_inr, fixed, forw_subs], [recon, gt_im, seg_moving, seg_fixed]
 
 def prepare_inputs(config: Namespace, logger: Logger) -> list:
