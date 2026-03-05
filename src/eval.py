@@ -12,7 +12,7 @@ from src.metrics.visualisation import prep_vis_summary_pdf
 def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger, output: list, inputs: list, eval_inputs: list) -> dict[torch.Tensor]:
     model_outputs, loss_outputs, _, _, epoch, all_metrics, time_stamps, _ = output
     init_recon, gt_im, _, _ = eval_inputs
-    abs_phi, rel_vel, _ = model_outputs
+    rel_vel, abs_phi, _ = model_outputs
     loss_dict, _, moved_im = loss_outputs
     
     with torch.no_grad():

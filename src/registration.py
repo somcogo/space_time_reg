@@ -31,7 +31,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
-    moving.requires_grad_(False)
+    moving.requires_grad_(True)
     if logger is not None:
         logger.info(f'Set require_grad for recon to {moving.requires_grad}')
     else:
