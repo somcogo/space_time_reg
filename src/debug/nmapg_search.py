@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import argparse
 from operator import itemgetter
 
@@ -124,7 +124,7 @@ def main(**kwargs) -> None:
         config.reg_alpha = None
     config.debug = True
     config.detach_grads = True
-    config.log_path = os.path.join('log/nmapg_debug_folder/alpha_search', config.log_path)
+    config.log_path = os.path.join('log/nmapg_debug_folder/factor_test', config.log_path)
     config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     rec, gt_im, metrics = train(config)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     method = 'nmapg'
     # lam = 1e-2
     lr = 1e-2
-    factor = 4
+    factor = 1
     dset = 'cmr_P001'
     mask = 'st'
     init_loss = 'l2'
@@ -153,7 +153,7 @@ if __name__ == '__main__':
     for scale in [2]:
         for lam in [1e-2]:
             try:
-                name = f'best2-{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
+                name = f'factortest2-{dset}-{method}-{reg}-alpha-{alpha}-sc-{scale}-lam-{lam}-lr{lr}-factor{factor}-mask{mask}-loss-{init_loss}-rabs{init_reg_abs}-init{init}'
                 mean_err, max_err = main(reg_alpha=alpha, recon_scale=scale, lambda_init_recon=lam, log_path=name, reg=reg, method=method, init_lr=lr, factor=factor, mask=mask, dataset=dset, slice_number=0, time_points=1, start_frame=0, init_loss=init_loss, init_reg_abs=init_reg_abs, init=init)
                 results.append([name, mean_err, max_err])
             except Exception as e:

@@ -15,8 +15,9 @@ from src.utils.spatial_utils import generate_coord_tensor, get_relative_vel
 from src.utils.spatial_transformer import get_spatial_transformer
 from src.utils.log_and_save import log_metrics
 
-def get_model_outputs(config: Namespace, func: nn.Module, coord_tensor: torch.Tensor, time_points: torch.Tensor, inputs: list):
+def get_model_outputs(config: Namespace, func: nn.Module, coord_tensor: torch.Tensor, inputs: list):
     moving = inputs[0]
+    time_points = inputs[-1]
     rel_vel = get_relative_vel(config, func, coord_tensor, time_points, keep_batch_dim=True)
     abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
     ST = get_spatial_transformer(abs_phi, moving.shape, config)
@@ -24,14 +25,13 @@ def get_model_outputs(config: Namespace, func: nn.Module, coord_tensor: torch.Te
 
 def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs: list, eval_inputs: list, func: nn.Module):
     moving = inputs[0]
-    time_points = inputs[-1]
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if 'cmr' in config.dataset:
         optimizer.add_param_group({'params': moving, 'lr':config.recon_lr, 'weight_decay':0.})
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
-    moving.requires_grad_(True)
+    moving.requires_grad_(False)
     if logger is not None:
         logger.info(f'Set require_grad for recon to {moving.requires_grad}')
     else:
@@ -45,6 +45,12 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
 
 
     for epoch in range(1, config.epochs + 1):
+        # if epoch == 500:
+        #     moving.requires_grad_(True)
+        #     if logger is not None:
+        #         logger.info(f'Set require_grad for recon to {moving.requires_grad} at epoch {epoch}')
+        #     else:
+        #         print(f'Set require_grad for recon to {moving.requires_grad} at epoch {epoch}')
 
 
         # TODO: reimplement downsampling
@@ -56,7 +62,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         optimizer.zero_grad()
 
         time_stamps[0, epoch-1] = time.time()
-        model_outputs = get_model_outputs(config, func, coord_tensor, time_points, inputs)
+        model_outputs = get_model_outputs(config, func, coord_tensor, inputs)
 
         time_stamps[1, epoch-1] = time.time()
         loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord_tensor, losses_to_calc)

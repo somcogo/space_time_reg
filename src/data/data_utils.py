@@ -20,7 +20,6 @@ def real_abs(x:torch.Tensor) -> torch.Tensor:
 
 
 def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
-    # TODO: rewrite with option for other patients, downsamlpming factors, start frame and # of frames
     gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
     if config.dataset == 'cmr_test1':
         raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
@@ -34,11 +33,13 @@ def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
     elif 'cmr' in config.dataset:
         patient = config.dataset.split('_')[1][1:]        
-        raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
-        raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
+        # raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
+        # raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
         gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
-        kspace_mask = get_kspace_mask(config, raw_kspace_data, config.factor)
+        kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)
+        raw_kspace_data = torch.zeros_like(gt_kspace_data)
+        raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
     return raw_kspace_data, gt_kspace_data, kspace_mask
 
 def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Module]:
