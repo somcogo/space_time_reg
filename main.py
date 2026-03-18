@@ -176,6 +176,9 @@ def main():
     parser.add_argument("--init_reg_abs", action=argparse.BooleanOptionalAction,
                         dest="init_reg_abs", default=False,
                         help="Use the abs value of the image for the regularizer during initial recon")
+    parser.add_argument("--tm", type=int,
+                        dest="tm", default=0,
+                        help="Time frame to use as moving image")
     
     config = parser.parse_args()
 
@@ -196,7 +199,6 @@ def main():
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega,
                        'scale':config.wire_scale}
-
     if config.recon_scale == 0:
         config.recon_scale = None
     

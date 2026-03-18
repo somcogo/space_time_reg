@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import random
 
 import numpy as np
@@ -150,7 +150,7 @@ if __name__ == '__main__':
     device='cuda'
     for lambda_grd in [1e-4]:
         # for lambda_negJ in [1e-2, 1e-3, 1e-4, 1e-5]:
-            comment = f'vis-lr{lr}-grd{lambda_grd}-e{epochs}'
+            comment = f'vis2-lr{lr}-grd{lambda_grd}-e{epochs}'
             main(
                 log_cadence=50,
                 epochs=epochs,
@@ -162,6 +162,7 @@ if __name__ == '__main__':
                 debug=debug,
                 atol=1e-8,
                 rtol=1e-6,
+                tm=0,
                 step_size=step_size,
                 func_name=func_name,
                 comment=comment,

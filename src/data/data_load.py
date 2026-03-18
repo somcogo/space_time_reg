@@ -164,10 +164,10 @@ def prepare_non_inverse_case(config):
     models = models[config.start_frame:config.start_frame + config.time_points]
     segs = segs[config.start_frame:config.start_frame + config.time_points] if segs is not None else None
 
-    moving = imgs[0].unsqueeze(0)
-    moving_inr = models[0]
+    moving = imgs[config.tm].unsqueeze(0)
+    moving_inr = models[config.tm]
     fixed = imgs.unsqueeze(1)
-    seg_moving = segs[:1].expand(segs.shape).unsqueeze(1).float() if segs is not None else None
+    seg_moving = segs[config.tm:config.tm+1].expand(segs.shape).unsqueeze(1).float() if segs is not None else None
     seg_fixed = segs
     forward_method = nn.Identity()
     gt_im = imgs.unsqueeze(1)
@@ -208,7 +208,7 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
     fixed = (fixed + 1e-8).sqrt()
 
     recon = recon.detach()
-    moving = nn.Parameter(recon[0].clone())
+    moving = nn.Parameter(recon[config.tm].clone())
 
     
     moving_inr = None

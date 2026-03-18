@@ -19,8 +19,16 @@ def get_model_outputs(config: Namespace, func: nn.Module, coord_tensor: torch.Te
     moving = inputs[0]
     time_points = inputs[-1]
     rel_vel = get_relative_vel(config, func, coord_tensor, time_points, keep_batch_dim=True)
-    abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-    ST = get_spatial_transformer(abs_phi, moving.shape, config)
+    if config.tm == 0:
+        abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
+        ST = get_spatial_transformer(abs_phi, moving.shape, config)
+    else:
+        forw_points = time_points[config.tm:]
+        back_points = time_points[:config.tm + 1].flip(0)
+        forw_abs_phi = odeint(func, coord_tensor, forw_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
+        back_abs_phi = odeint(func, coord_tensor, back_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
+        abs_phi = torch.concat([back_abs_phi.flip(0), forw_abs_phi[1:]], dim=0)
+        ST = get_spatial_transformer(abs_phi, moving.shape, config)
     return rel_vel, abs_phi, ST
 
 def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs: list, eval_inputs: list, func: nn.Module):
@@ -31,7 +39,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
-    moving.requires_grad_(False)
+    moving.requires_grad_(True)
     if logger is not None:
         logger.info(f'Set require_grad for recon to {moving.requires_grad}')
     else:
