@@ -41,7 +41,7 @@ def prep_vis_summary_pdf(config: Namespace,
     # Create pdf with images visualised
     with PdfPages(img_pdf_path) as pdf:
         for t in range(T):
-            create_figure_for_time_point(pdf, gt[t], init[t], final[t], t)
+            create_figure_for_time_point(pdf, gt[t], init[t], final[t], t, losses)
         plt.close('all')
 
     # Create pdf with deformation visualised
@@ -76,8 +76,8 @@ def prep_tensor(config: Namespace, tensor: torch.Tensor) -> np.ndarray:
     return out
 
 def norm_arrays(gt: np.ndarray, init: np.ndarray, final: np.ndarray):
-    mx = max(gt.max(), init.max(), final.max())
-    mn = min(gt.min(), init.min(), final.min())
+    mx = gt.max()
+    mn = gt.min()
 
     gt = gt / (mx - mn)
     init = init / (mx - mn)
@@ -86,10 +86,10 @@ def norm_arrays(gt: np.ndarray, init: np.ndarray, final: np.ndarray):
     return gt, init, final
 
 
-def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray, final: np.ndarray, t: int):
+def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray, final: np.ndarray, t: int, losses: dict):
     fontsize = 12
-    f, a = plt.subplots(3, 2)
-    # f.set_size_inches(6, 9)
+    f, a = plt.subplots(3, 3)
+    f.set_size_inches(9, 6)
     ticks = [min(gt.min(), init.min(), final.min(), np.abs(init - gt).min(), np.abs(final - gt).min()),
              max(gt.max(), init.max(), final.max(), np.abs(init - gt).max(), np.abs(final - gt).max())]
 
@@ -97,11 +97,25 @@ def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray
     use_imshow_on_axes(a[1,0], init, True, f"Initial recon time {t}", fontsize, True, ticks=ticks)
     use_imshow_on_axes(a[2,0], final, True, f"Final recon time {t}", fontsize, True, ticks=ticks)
     
-    a[0,1].axis("off")    
+    a[0,1].plot(losses['GT error sum'][:,t], 'r', label='learned')
+    a[0,1].plot(losses['GT error sum init'][:,t], 'b', label='init')
+    # a[0,1].axhline(y=np.abs(init -gt).sum(), color='b', linestyle='-', label='init')
+    a[0,1].set_title('Error sum', fontsize=fontsize)
+    a[0,1].legend()
+
     use_imshow_on_axes(a[1,1], np.abs(init - gt), True, "Error", fontsize, True, ticks=[np.abs(init - gt).min(), np.abs(init - gt).max()])
     use_imshow_on_axes(a[2,1], np.abs(final - gt), True, "Error", fontsize, True, ticks=[np.abs(final - gt).min(), np.abs(final - gt).max()])
 
-    # f.tight_layout()
+    a[0,2].plot(losses['GT error max'][:,t], 'r', label='learned')
+    a[0,2].plot(losses['GT error max init'][:,t], 'b', label='init')
+    # a[0,2].axhline(y=np.abs(init -gt).max(), color='b', linestyle='-', label='init')
+    a[0,2].set_title('Error max', fontsize=fontsize)
+    a[0,2].legend()
+
+    a[1,2].axis("off")
+    a[2,2].axis("off")
+
+    f.tight_layout()
     pdf.savefig(f)
     plt.close(f)
 
@@ -111,7 +125,7 @@ def prep_phi(phi: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     phi = phi.reshape(shape)
     return phi
 
-def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: list):
+def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: dict):
     fontsize = 12
     f, a = plt.subplots(abs_phi.shape[0], 8, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1]})
     f.set_size_inches(24, abs_phi.shape[0]*2)
@@ -196,8 +210,41 @@ def prep_metrics(all_metrics):
     name = 'Reconstruction reg'
     losses[name] = np.zeros((len(all_metrics), ))
     for i, m in enumerate(all_metrics):
-            for l in m['losses'].values():
-                if l['name'] == name:
-                    losses[name][i] = l['lambda'] * l['loss'].mean().cpu().numpy()
+        for l in m['losses'].values():
+            if l['name'] == name:
+                losses[name][i] = l['lambda'] * l['loss'].mean().cpu().numpy()
+
+    name = 'GT error sum'
+    losses[name] = np.zeros((len(all_metrics), T))
+    for i, m in enumerate(all_metrics):
+        for k, v in m['metrics'].items():
+            if name in k and 'moved' in k:
+                t = int(k[-1])
+                losses[name][i][t] = v.cpu().numpy()
+
+    name = 'GT error max'
+    losses[name] = np.zeros((len(all_metrics), T))
+    for i, m in enumerate(all_metrics):
+        for k, v in m['metrics'].items():
+            if name in k and 'moved' in k:
+                t = int(k[-1])
+                losses[name][i][t] = v.cpu().numpy()
+    
+
+    name = 'GT error sum init'
+    losses[name] = np.zeros((len(all_metrics), T))
+    for i, m in enumerate(all_metrics):
+        for k, v in m['metrics'].items():
+            if 'GT error sum' in k and 'init' in k:
+                t = int(k[-1])
+                losses[name][i][t] = v.cpu().numpy()
+
+    name = 'GT error max init'
+    losses[name] = np.zeros((len(all_metrics), T))
+    for i, m in enumerate(all_metrics):
+        for k, v in m['metrics'].items():
+            if 'GT error max' in k and 'init' in k:
+                t = int(k[-1])
+                losses[name][i][t] = v.cpu().numpy()
     
     return losses

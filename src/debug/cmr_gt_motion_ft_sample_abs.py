@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 import random
 
 import numpy as np
@@ -26,10 +26,10 @@ random.seed(1)
 np.random.seed(2)
 
 def train(config):
-    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:,0].permute(0, 3, 1, 2)
+    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:config.time_points,0].permute(0, 3, 1, 2)
     ift = FastmriIFT()
     gt_im = ift(gt_kspace_data)
-    kspace_mask = get_kspace_mask(config, gt_kspace_data, factor=4)
+    kspace_mask = get_kspace_mask(config, gt_kspace_data, factor=config.factor)
 
     forw = FTAndSubsample(kspace_mask)
 
@@ -111,7 +111,7 @@ def main(**kwargs):
     config.func_kwargs = {
         'layers': [2, 64, 64, 64, 2],
         'weight_init': True,
-        'last_init_zero': False,
+        'last_init_zero': True,
         'omega': 30,
         # 'img_sz': (128, 128),
         # 'smoothing_kernel': 'AK',
@@ -130,27 +130,29 @@ if __name__ == '__main__':
     mask = 'st'
 
     epochs = 1000
-    lr=1e-3
+    lr=1e-5
     solver = 'euler'
     step_size = 0.01
     func_name = 'sirenensemble'
     lambda_st = 1
-    # lambda_grd = 0
+    lambda_grd = 1e-4
     lambda_negJ = 1e-10
     lambda_hel = 0.
     lambda_pgr = 0.
     lambda_lap = 0.
     lambda_recon = 0.
+    lambda_rl2 = 0.
     weight_decay = 0.
     start_frame = 0
-    time_points = 12
+    time_points = 2
     schedule = [1]
+    # factor = 4
 
     dataset = 'heart_gt_ft_abs'
     device='cuda'
-    for lambda_grd in [1e-4]:
+    for factor in [1, 2, 3, 4]:
         # for lambda_negJ in [1e-2, 1e-3, 1e-4, 1e-5]:
-            comment = f'vis2-lr{lr}-grd{lambda_grd}-e{epochs}'
+            comment = f'factor/-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
             main(
                 log_cadence=50,
                 epochs=epochs,
@@ -177,8 +179,10 @@ if __name__ == '__main__':
                 lambda_hel=lambda_hel,
                 lambda_pgr=lambda_pgr,
                 lambda_lap=lambda_lap,
+                lambda_rl2=lambda_rl2,
                 lambda_recon=lambda_recon,
                 weight_decay=weight_decay,
 
                 mask=mask,
+                factor=factor,
             )

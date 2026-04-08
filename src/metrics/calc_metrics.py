@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp, prep_init_recon
-from src.metrics.metric_utils import add_grad_stats, add_vel_stats, add_losses, add_dices, reshape_phi_and_vel, reduce_dim, add_cmr_eval_metrics
+from src.metrics.metric_utils import add_grad_stats, add_vel_stats, add_losses, add_dices, reshape_phi_and_vel, reduce_dim, add_cmr_eval_metrics, add_gt_error
 
 def calc_init_metrics(eval_inputs: list[torch.Tensor]) -> list[dict]:
     init_recon = eval_inputs[0]
@@ -18,13 +18,14 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inp
     rel_vel, abs_phi, ST = model_outputs
     losses, moved, moved_im = loss_outputs
     moving, _, fixed, _, _ = inputs
-    _, gt_im, seg_moving, seg_fixed = eval_inputs
+    init_recon, gt_im, seg_moving, seg_fixed = eval_inputs
     abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving)
 
     metrics = {}
     metrics = add_losses(losses, metrics)
-    if 'cmr' in config.dataset:
+    if 'cmr' in config.dataset or 'heart' in config.dataset:
         metrics = add_cmr_eval_metrics(moved_im, gt_im, metrics)
+        metrics = add_gt_error(moved_im, gt_im, init_recon, metrics)
     if extended_log:
         metrics = add_grad_stats(func, metrics)
         metrics = add_vel_stats(rel_vel, metrics)
@@ -98,6 +99,10 @@ def get_relevant_loss_names(config):
     if (config.lambda_recon > 0 or include_all) and 'cmr' in config.dataset:
         losses['recon_reg'] = {'name':'Reconstruction reg',
                        'lambda':config.lambda_recon,
+                       'time':0.}
+    if config.lambda_rl2 > 0 or include_all:
+        losses['imdiff'] = {'name':'Image space diff',
+                       'lambda':config.lambda_rl2,
                        'time':0.}
 
     return losses

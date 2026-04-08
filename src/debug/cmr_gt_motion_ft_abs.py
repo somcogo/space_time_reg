@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import random
 
 import numpy as np
@@ -25,7 +25,7 @@ random.seed(1)
 np.random.seed(2)
 
 def train(config):
-    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:,0].permute(0, 3, 1, 2)
+    gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:config.time_points,0].permute(0, 3, 1, 2)
     ift = FastmriIFT()
     gt_im = ift(gt_kspace_data)
     # gt_im = fastmri.complex_abs(gt_im.movedim(1, -1)).unsqueeze(1)
@@ -104,9 +104,9 @@ def train(config):
 def main(**kwargs):
     config = Namespace(**kwargs)
     config.func_kwargs = {
-        'layers': [2, 64, 64, 64, 2],
+        'layers': [2] + kwargs['depth']*[kwargs['dim']] + [2],
         'weight_init': True,
-        'last_init_zero': False,
+        'last_init_zero': True,
         'omega': 30,
         # 'img_sz': (128, 128),
         # 'smoothing_kernel': 'AK',
@@ -116,59 +116,71 @@ def main(**kwargs):
         # 'bs': 16,
         # 'use_t': False,
     }
-    config.log_path = os.path.join('log/motion_test_cmr/heart_gt_ft_abs', config.comment)
+    config.log_path = os.path.join('log/motion_test_cmr/heart_gt_ft_abs_sirensearch', config.comment)
     train(config)
 
 if __name__ == '__main__':
     debug = False
 
-    epochs = 1000
-    lr=1e-4
+    dim = 64
+    depth = 2
+
+    epochs = 200
+    # lr=1e-4
     solver = 'euler'
     step_size = 0.01
     func_name = 'sirenensemble'
     lambda_st = 1
     # lambda_grd = 0.
-    lambda_negJ = 1e-10
+    # lambda_negJ = 1e-10
     lambda_hel = 0.
     lambda_pgr = 0.
     lambda_lap = 0.
     lambda_recon = 0.
     weight_decay = 0.
+    # lambda_rl2 = 0.
     start_frame = 0
-    time_points = 12
+    tm = 0
+    time_points = 2
     schedule = [1]
 
     dataset = 'heart_gt_ft_abs'
     device='cuda'
-    for lambda_grd in [1e-4]:
-        # for lambda_negJ in [1e-2, 1e-3, 1e-4, 1e-5]:
-            comment = f'vis-lr{lr}-grd{lambda_grd}-e{epochs}'
-            main(
-                log_cadence=50,
-                epochs=epochs,
-                lr=lr,
-                schedule=schedule,
-                solver=solver,
-                use_nreps=False,
-                loss='mse',
-                debug=debug,
-                atol=1e-8,
-                rtol=1e-6,
-                step_size=step_size,
-                func_name=func_name,
-                comment=comment,
-                dataset=dataset,
-                device=device,
-                start_frame=start_frame,
-                time_points=time_points,
+    for lambda_rl2 in [0., 1e-2, 1e-1, 1e0]:
+        for lambda_grd in [1e-5, 1e-4, 1e-3, 1e-2]:
+            for lambda_negJ in [1e-8]:
+                for lr in [1e-3]:
+                    comment = f'hsearch2x64_new/lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-negJ{lambda_negJ}-e{epochs}-tp{time_points}-lastinitzeroTrue-dim{dim}-depth{depth}'
+                    main(
+                        log_cadence=50,
+                        epochs=epochs,
+                        lr=lr,
+                        schedule=schedule,
+                        solver=solver,
+                        use_nreps=False,
+                        loss='mse',
+                        debug=debug,
+                        atol=1e-8,
+                        rtol=1e-6,
+                        step_size=step_size,
+                        func_name=func_name,
+                        comment=comment,
+                        dataset=dataset,
+                        device=device,
+                        start_frame=start_frame,
+                        tm=tm,
+                        time_points=time_points,
 
-                lambda_st=lambda_st,
-                lambda_grd=lambda_grd,
-                lambda_negJ=lambda_negJ,
-                lambda_hel=lambda_hel,
-                lambda_pgr=lambda_pgr,
-                lambda_lap=lambda_lap,
-                lambda_recon=lambda_recon,
-                weight_decay=weight_decay,
-            )
+                        lambda_st=lambda_st,
+                        lambda_grd=lambda_grd,
+                        lambda_negJ=lambda_negJ,
+                        lambda_hel=lambda_hel,
+                        lambda_pgr=lambda_pgr,
+                        lambda_lap=lambda_lap,
+                        lambda_rl2=lambda_rl2,
+                        lambda_recon=lambda_recon,
+                        weight_decay=weight_decay,
+
+                        dim=dim,
+                        depth=depth,
+                    )

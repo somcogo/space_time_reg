@@ -98,6 +98,9 @@ def main():
     parser.add_argument("--lambda_init_recon", type=float,
                         dest="lambda_init_recon", default=1,
                         help="loss weight for the reconstruction regularizer during initial recon")
+    parser.add_argument("--lambda_rl2", type=float,
+                        dest="lambda_rl2", default=1,
+                        help="loss weight for the l2 norm of recons from different times")
     parser.add_argument("--recon_scale", type=float,
                         dest="recon_scale", default=0.1,
                         help="scale for the reconstruction regularizer")

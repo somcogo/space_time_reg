@@ -8,6 +8,7 @@ from fastmri import complex_abs
 
 from src.utils.spatial_utils import generate_coord_tensor
 from src.utils.spatial_transformer import GridSampleTransformer
+from src.data.data_utils import complex_abs as my_complex_abs
 
 def calc_oasis_dice(segs, ST):
     input_seg = segs[:1].expand(segs.shape).unsqueeze(1).float()
@@ -77,6 +78,26 @@ def add_dices(config: Namespace, seg_fix: torch.Tensor, seg_mov: torch.Tensor, S
     else:
         pred_segs = None
     return metrics, pred_segs
+
+def add_gt_error(moved_im: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Tensor, metrics: dict) -> dict:
+    # print(moved_im.min(), moved_im.max(), gt_im.min(), gt_im.max(), init_recon.min(), init_recon.max())
+    moved_abs = my_complex_abs(moved_im)
+    gt_abs = my_complex_abs(gt_im).cpu()
+    in_abs = my_complex_abs(init_recon).cpu()
+    mx, mn = gt_abs.max(), gt_abs.min()
+    moved_abs = moved_abs / (mx -mn)
+    gt_abs = gt_abs / (mx - mn)
+    in_abs = in_abs / (mx - mn)
+    # print(moved_abs.min(), moved_abs.max(), gt_abs.min(), gt_abs.max(), in_abs.min(), in_abs.max())
+    gt_im_error = (moved_abs - gt_abs).abs()
+    in_im_error = (in_abs - gt_abs).abs()
+    for t in range(gt_im_error.shape[0]):
+        metrics[f'GT error sum/frame moved {t}'] = gt_im_error[t].sum()
+        metrics[f'GT error max/frame moved {t}'] = gt_im_error[t].max()
+
+        metrics[f'GT error sum/frame init {t}'] = in_im_error[t].sum()
+        metrics[f'GT error max/frame init {t}'] = in_im_error[t].max()
+    return metrics
 
 def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:
     phi_shape = [-1] + list(moving.shape)[1:] + [len(moving.shape) - 1]

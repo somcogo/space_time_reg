@@ -34,6 +34,8 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
 def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape):
     if loss_name == 'sim':
         return similarity_loss(config, inputs, model_outputs)
+    elif loss_name == 'imdiff':
+        return im_space_l2_loss(config, inputs, model_outputs)
     elif loss_name == 'negJ':
         return negJ_loss(model_outputs, coord_tensor, shape)
     elif loss_name == 'grd':
@@ -66,6 +68,27 @@ def similarity_loss(config, inputs, model_outputs):
     loss = loss_fn(fixed, moved)
     
     return loss, moved.detach().cpu(), moved_im.detach().cpu()
+
+def im_space_l2_loss(config, inputs, model_outputs):
+    moving, moving_inr, fixed, _, _ = inputs
+    ST = model_outputs[2]
+    loss_fn = torch.nn.MSELoss(reduction='none')
+    
+    expanded_shape = [fixed.shape[0]] + list(moving.shape)
+    moving = moving.unsqueeze(0).expand(expanded_shape)
+    if config.use_nreps:
+        moved_im = ST.apply(moving_inr)
+    else:
+        moved_im = ST.apply(moving)
+    if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
+        moving = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
+        moving = (moving + 1e-8).sqrt()
+        # fixed = fastmri.complex_abs(fixed.movedim(1,-1))
+        moved_im = fastmri.complex_abs_sq(moved_im.movedim(1,-1)).unsqueeze(1)
+        moved_im = (moved_im + 1e-8).sqrt()
+    loss = loss_fn(moving, moved_im)
+    
+    return loss, None, None
 
 def negJ_loss(model_outputs, coord_tensor, shape):
     abs_phi = model_outputs[1]
