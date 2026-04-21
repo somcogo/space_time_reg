@@ -9,6 +9,7 @@ from fastmri import complex_abs
 from src.utils.spatial_utils import generate_coord_tensor
 from src.utils.spatial_transformer import GridSampleTransformer
 from src.data.data_utils import complex_abs as my_complex_abs
+from src.losses.grad_calc import get_Jacobian
 
 def calc_oasis_dice(segs, ST):
     input_seg = segs[:1].expand(segs.shape).unsqueeze(1).float()
@@ -79,7 +80,7 @@ def add_dices(config: Namespace, seg_fix: torch.Tensor, seg_mov: torch.Tensor, S
         pred_segs = None
     return metrics, pred_segs
 
-def add_gt_error(moved_im: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Tensor, metrics: dict) -> dict:
+def add_gt_error(moved_im: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Tensor, rel_vel: torch.Tensor, metrics: dict) -> dict:
     # print(moved_im.min(), moved_im.max(), gt_im.min(), gt_im.max(), init_recon.min(), init_recon.max())
     moved_abs = my_complex_abs(moved_im)
     gt_abs = my_complex_abs(gt_im).cpu()
@@ -97,6 +98,17 @@ def add_gt_error(moved_im: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.
 
         metrics[f'GT error sum/frame init {t}'] = in_im_error[t].sum()
         metrics[f'GT error max/frame init {t}'] = in_im_error[t].max()
+
+    vel_J = get_Jacobian(rel_vel, rel_vel.shape)
+    vel_norm = torch.linalg.vector_norm(rel_vel, dim=(-1))
+    grad_norm = torch.linalg.vector_norm(vel_J, dim=(-2, -1))
+    h1_norm = vel_norm[:gt_im_error.shape[0]] + grad_norm[:gt_im_error.shape[0]]
+
+    metrics['Main metrics/GT error'] = gt_im_error.sum()
+    metrics['Main metrics/vel H1 error'] = h1_norm.sum()
+    metrics['Main metrics/vel L2 error'] = vel_norm[:gt_im_error.shape[0]].sum()
+    metrics['Main metrics/vel grad L2 error'] = grad_norm[:gt_im_error.shape[0]].sum()
+    metrics['Main metrics/Combined'] = gt_im_error.sum() + h1_norm.sum()
     return metrics
 
 def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:

@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import random
 
 import numpy as np
@@ -39,7 +39,7 @@ def train(config):
     recon = gt_im
     moving = torch.nn.Parameter(gt_im[0].clone())
 
-    
+
     moving_inr = None
     seg_moving = None
     seg_fixed = None
@@ -58,7 +58,7 @@ def train(config):
     func = func.to(config.device)
     writer = SummaryWriter(log_dir=os.path.join(config.log_path, 'tensorboard'))
     logger = None
-    
+
 
     # with torch.autograd.set_detect_anomaly(True):
     out = registration(config=config,
@@ -72,7 +72,7 @@ def train(config):
     init_recon, gt_im, _, _ = eval_inputs
     rel_vel, abs_phi, _ = model_outputs
     loss_dict, _, moved_im = loss_outputs
-    
+
     with torch.no_grad():
         # inputs[0] = fastmri.complex_abs(inputs[0].movedim(0,-1))
         # inputs[2] = inputs[2].transpose(0,1).reshape(24, 1, 204, 512)
@@ -122,8 +122,8 @@ def main(**kwargs):
 if __name__ == '__main__':
     debug = False
 
-    dim = 64
-    depth = 2
+    # dim = 64
+    # depth = 2
 
     epochs = 200
     # lr=1e-4
@@ -131,14 +131,14 @@ if __name__ == '__main__':
     step_size = 0.01
     func_name = 'sirenensemble'
     lambda_st = 1
-    # lambda_grd = 0.
+    lambda_grd = 1e-4
     # lambda_negJ = 1e-10
     lambda_hel = 0.
     lambda_pgr = 0.
     lambda_lap = 0.
     lambda_recon = 0.
     weight_decay = 0.
-    # lambda_rl2 = 0.
+    lambda_rl2 = 1e-2
     start_frame = 0
     tm = 0
     time_points = 2
@@ -146,11 +146,12 @@ if __name__ == '__main__':
 
     dataset = 'heart_gt_ft_abs'
     device='cuda'
-    for lambda_rl2 in [0., 1e-2, 1e-1, 1e0]:
-        for lambda_grd in [1e-5, 1e-4, 1e-3, 1e-2]:
-            for lambda_negJ in [1e-8]:
+    for dim in [4, 2, 1]:
+        for depth in [3, 2, 1]:
+            for lambda_negJ in [1e-2]:
                 for lr in [1e-3]:
-                    comment = f'hsearch2x64_new/lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-negJ{lambda_negJ}-e{epochs}-tp{time_points}-lastinitzeroTrue-dim{dim}-depth{depth}'
+                    comment = f'size_search/lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-negJ{lambda_negJ}-e{epochs}-tp{time_points}-lastinitzeroTrue-dim{dim}-depth{depth}'
+                    # comment = f'hsearch2x64_new/lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-negJ{lambda_negJ}-e{epochs}-tp{time_points}-lastinitzeroTrue-dim{dim}-depth{depth}'
                     main(
                         log_cadence=50,
                         epochs=epochs,
