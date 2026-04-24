@@ -182,6 +182,10 @@ def main():
     parser.add_argument("--tm", type=int,
                         dest="tm", default=0,
                         help="Time frame to use as moving image")
+    parser.add_argument("--learn_recon", action=argparse.BooleanOptionalAction,
+                        dest="learn_recon", default=True,
+                        help="Learn recon (True) or only optimize motion (False)")
+
     
     config = parser.parse_args()
 

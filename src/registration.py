@@ -39,7 +39,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
-    moving.requires_grad_(True)
+    moving.requires_grad_(config.learn_recon)
     if logger is not None:
         logger.info(f'Set require_grad for recon to {moving.requires_grad}')
     else:
@@ -53,12 +53,14 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
 
 
     for epoch in range(1, config.epochs + 1):
-        # if epoch == 500:
-        #     moving.requires_grad_(True)
-        #     if logger is not None:
-        #         logger.info(f'Set require_grad for recon to {moving.requires_grad} at epoch {epoch}')
-        #     else:
-        #         print(f'Set require_grad for recon to {moving.requires_grad} at epoch {epoch}')
+        if epoch == 500:
+            moving.requires_grad_(True)
+            for param in func.parameters():
+                param.requires_grad = False
+            if logger is not None:
+                logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+            else:
+                print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
 
 
         # TODO: reimplement downsampling
