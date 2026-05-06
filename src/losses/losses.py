@@ -66,6 +66,7 @@ def similarity_loss(config, inputs, model_outputs):
         moved = fastmri.complex_abs_sq(moved.movedim(1,-1)).unsqueeze(1)
         moved = (moved + 1e-8).sqrt()
     loss = loss_fn(fixed, moved)
+    loss = config.sim_lambda.view(-1, 1, 1, 1) * loss
     
     return loss, moved.detach().cpu(), moved_im.detach().cpu()
 

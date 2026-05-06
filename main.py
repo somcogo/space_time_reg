@@ -101,6 +101,9 @@ def main():
     parser.add_argument("--lambda_rl2", type=float,
                         dest="lambda_rl2", default=1,
                         help="loss weight for the l2 norm of recons from different times")
+    parser.add_argument("--lambda_later", type=float,
+                        dest="lambda_later", default=1,
+                        help="loss weight for the non-first terms in the similarity loss")
     parser.add_argument("--recon_scale", type=float,
                         dest="recon_scale", default=0.1,
                         help="scale for the reconstruction regularizer")
@@ -185,6 +188,9 @@ def main():
     parser.add_argument("--learn_recon", action=argparse.BooleanOptionalAction,
                         dest="learn_recon", default=True,
                         help="Learn recon (True) or only optimize motion (False)")
+    parser.add_argument("--interval", type=int,
+                        dest="interval", default=0,
+                        help="Interval length of motion training then recon training")
 
     
     config = parser.parse_args()
@@ -215,6 +221,10 @@ def main():
     config.step_size = None if config.step_size == 0 else config.step_size
     config.schedule = [1] if config.schedule == None else config.schedule
     config.downsamples = [1]
+    config.interval = config.epochs if config.interval == 0 else config.interval
+    config.sim_lambda = torch.ones((config.time_points), device=config.device, dtype=float)
+    config.sim_lambda = config.sim_lambda * config.lambda_later
+    config.sim_lambda[config.tm] = 1.
 
     logger = get_logger(config.log_level)
     logger.info(f'Starting experiment with name {config.exp_name}')
