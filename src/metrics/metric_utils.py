@@ -171,12 +171,6 @@ def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: d
     moved_im_img = complex_abs(moved_im.movedim(1, -1)).unsqueeze(1)
     gt_im_img = complex_abs(gt_im.movedim(1, -1)).unsqueeze(1)
     full_psnr, full_ssim, full_nmse = calc_cmr_eval_metrics(moved_im_img, gt_im_img)
-    
-    T, N, H, W = moved_im_img.shape
-    h_from, h_to, w_from, w_to = round(H / 3), round(2 * H / 3), round(W / 4), round(3 * W / 4)
-    crop_moved_img = moved_im_img[:, :, h_from:h_to, w_from:w_to]
-    crop_gt_img = gt_im_img[:, :, h_from:h_to, w_from:w_to]
-    crop_psnr, crop_ssim, crop_nmse = calc_cmr_eval_metrics(crop_moved_img, crop_gt_img)
 
     metrics['cmr evals all/full psnr'] = full_psnr.mean()
     metrics['cmr evals all/full ssim'] = full_ssim.mean()
@@ -185,6 +179,13 @@ def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: d
     metrics['cmr evals first/full psnr'] = full_psnr[0].mean()
     metrics['cmr evals first/full ssim'] = full_ssim[0].mean()
     metrics['cmr evals first/full nsme'] = full_nmse[0].mean()
+    
+    
+    T, N, H, W = moved_im_img.shape
+    h_from, h_to, w_from, w_to = round(H / 3), round(2 * H / 3), round(W / 4), round(3 * W / 4)
+    crop_moved_img = moved_im_img[:, :, h_from:h_to, w_from:w_to]
+    crop_gt_img = gt_im_img[:, :, h_from:h_to, w_from:w_to]
+    crop_psnr, crop_ssim, crop_nmse = calc_cmr_eval_metrics(crop_moved_img, crop_gt_img)
     
     metrics['cmr evals all/cropped psnr'] = crop_psnr.mean()
     metrics['cmr evals all/cropped ssim'] = crop_ssim.mean()

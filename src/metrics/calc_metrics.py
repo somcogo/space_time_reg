@@ -50,7 +50,7 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inp
             'grid_deform/grid_def_last_step':def_grid
         }
 
-        if 'cmr' in config.dataset:
+        if 'cmr' in config.dataset or config.dataset == 'toy_square':
             image_space_comp = prep_image_space_comp(moved_im, gt_im)
             imgs_to_save['imgs/comp_imspace'] = image_space_comp
 

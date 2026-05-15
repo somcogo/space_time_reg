@@ -1,10 +1,11 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import random
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import fastmri
 
@@ -35,13 +36,15 @@ def train(config):
     full_adj = FastmriIFT()
     forw_subs = FTAndSubsample(kspace_mask)
     forw_subs_adj = ZeroFillAndIFT(kspace_mask)
+    # full_adj = nn.Identity()
+    # forw_subs = nn.Identity()
 
-    gt_kspace_data = full_adj(gt_im)
+    gt_kspace_data = full_forw(gt_im)
     forw = forw_subs
 
     fixed = forw(gt_im)
-    fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
-    fixed = (fixed + 1e-8).sqrt()
+    # fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
+    # fixed = (fixed + 1e-8).sqrt()
     gt_im = gt_im.to(config.device)
     recon = gt_im
     moving = torch.nn.Parameter(gt_im[0].clone())
@@ -79,18 +82,21 @@ def train(config):
     rel_vel, abs_phi, _ = model_outputs
     loss_dict, _, moved_im = loss_outputs
     
-    with torch.no_grad():
-        # inputs[0] = fastmri.complex_abs(inputs[0].movedim(0,-1))
-        # inputs[2] = inputs[2].transpose(0,1).reshape(24, 1, 204, 512)
-        # loss_outputs[1] = loss_outputs[1].transpose(0,1).reshape(24, 1, 204, 512)
-        # loss_outputs[2] = loss_outputs[2].transpose(0,1).reshape(24, 1, 204, 512)
-        metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
-        log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
-        prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
+    # with torch.no_grad():
+    #     # inputs[0] = fastmri.complex_abs(inputs[0].movedim(0,-1))
+    #     # inputs[2] = inputs[2].transpose(0,1).reshape(24, 1, 204, 512)
+    #     # loss_outputs[1] = loss_outputs[1].transpose(0,1).reshape(24, 1, 204, 512)
+    #     # loss_outputs[2] = loss_outputs[2].transpose(0,1).reshape(24, 1, 204, 512)
+    #     metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
+    #     log_metrics(config, metrics, writer, epoch + 10, imgs_to_save, last_val=True)
+    #     prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
 
     os.makedirs(os.path.join(config.log_path, 'res'), exist_ok=True)
     torch.save(model_outputs[1].detach().cpu(), os.path.join(config.log_path, 'res', 'abs_phi.pt'))
     torch.save(model_outputs[0].detach().cpu(), os.path.join(config.log_path, 'res', 'rel_vel.pt'))
+    torch.save(eval_inputs[1].detach().cpu(), os.path.join(config.log_path, 'res', 'gt_im.pt'))
+    torch.save(inputs[2].detach().cpu(), os.path.join(config.log_path, 'res', 'fixed.pt'))
+    torch.save(loss_outputs[2].detach().cpu(), os.path.join(config.log_path, 'res', 'moved_im.pt'))
 
     print('-------------------------------------------------')
     print(f'Time spent (sec) over {config.epochs} iterations')
@@ -126,21 +132,21 @@ def main(**kwargs):
         # 'bs': 16,
         # 'use_t': False,
     }
-    config.log_path = os.path.join('log/motion_test_cmr/toy_square_ft_sample_abs', config.comment)
+    config.log_path = os.path.join('log/motion_test_squares/toy_square_ft_sample_abs', config.comment)
     train(config)
 
 if __name__ == '__main__':
-    debug = False
+    debug = True
 
     mask = 'st'
 
     epochs = 200
-    lr=1e-5
+    lr=1e-4
     solver = 'euler'
     step_size = 0.01
     func_name = 'sirenensemble'
     lambda_st = 1
-    lambda_grd = 1e-4
+    lambda_grd = 1e-2
     lambda_negJ = 1e-10
     lambda_hel = 0.
     lambda_pgr = 0.
@@ -151,47 +157,57 @@ if __name__ == '__main__':
     start_frame = 0
     time_points = 2
     schedule = [1]
-    factor = 4
+    factor = 1
 
-    dataset = 'cmr_toy_square'
+    dataset = 'toy_square'
     device='cuda'
 
     circles_nr = 1
-    direction = 'same'
-    comment = f'first/cirs{circles_nr}-dir{direction}-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
-    main(
-        log_cadence=50,
-        epochs=epochs,
-        lr=lr,
-        schedule=schedule,
-        solver=solver,
-        use_nreps=False,
-        loss='mse',
-        debug=debug,
-        atol=1e-8,
-        rtol=1e-6,
-        tm=0,
-        step_size=step_size,
-        func_name=func_name,
-        comment=comment,
-        dataset=dataset,
-        device=device,
-        start_frame=start_frame,
-        time_points=time_points,
+    direction = 'nsame'
+    dist = 20
+    seed = 42
+    for circles_nr in [7, 10]:
+        for dist in [5, 10, 20, 50]:
+            for seed in range(5):
+                comment = f'ft/no_abs-cirs{circles_nr}-dir{direction}-dist{dist}-seed{seed}-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
+                main(
+                    log_cadence=50,
+                    epochs=epochs,
+                    lr=lr,
+                    schedule=schedule,
+                    solver=solver,
+                    use_nreps=False,
+                    loss='mse',
+                    debug=debug,
+                    atol=1e-8,
+                    rtol=1e-6,
+                    tm=0,
+                    step_size=step_size,
+                    func_name=func_name,
+                    comment=comment,
+                    dataset=dataset,
+                    device=device,
+                    start_frame=start_frame,
+                    time_points=time_points,
+                    learn_recon=False,
+                    interval=epochs,
 
-        lambda_st=lambda_st,
-        lambda_grd=lambda_grd,
-        lambda_negJ=lambda_negJ,
-        lambda_hel=lambda_hel,
-        lambda_pgr=lambda_pgr,
-        lambda_lap=lambda_lap,
-        lambda_rl2=lambda_rl2,
-        lambda_recon=lambda_recon,
-        weight_decay=weight_decay,
+                    lambda_st=lambda_st,
+                    lambda_grd=lambda_grd,
+                    lambda_negJ=lambda_negJ,
+                    lambda_hel=lambda_hel,
+                    lambda_pgr=lambda_pgr,
+                    lambda_lap=lambda_lap,
+                    lambda_rl2=lambda_rl2,
+                    sim_lambda=torch.ones((2), device=device),
+                    lambda_recon=lambda_recon,
+                    weight_decay=weight_decay,
 
-        mask=mask,
-        factor=factor,
+                    mask=mask,
+                    factor=factor,
 
-        circles_nr=circles_nr,
-        direction=direction,
-    )
+                    circles_nr=circles_nr,
+                    direction=direction,
+                    distance=dist,
+                    gen_seed=seed,
+                )
