@@ -184,3 +184,86 @@ class SirenEnsemble(nn.Module):
         model_index = self.get_model_index(t)
         sub_model = self.sirens[model_index]
         return sub_model(t, x)
+
+
+class GroupedLinear(nn.Module):
+    def __init__(self, groups, in_dim, out_dim):
+        super().__init__()
+        self.groups = groups
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+
+        self.weight = nn.Parameter(
+            torch.empty(groups, out_dim, in_dim)
+        )
+        self.bias = nn.Parameter(
+            torch.zeros(groups, out_dim)
+        )
+
+    def forward(self, x):
+        # x: (T, N, in_dim)
+        # weight: (T, out_dim, in_dim)
+        out = torch.bmm(x, self.weight.transpose(1, 2))
+        out = out + self.bias.unsqueeze(1)
+        return out
+
+
+class GroupedSiren(nn.Module):
+    """
+    T independent SIRENs evaluated in parallel.
+
+    Arguments:
+        groups -- number of independent SIRENs (T)
+        layers -- list of layer sizes, e.g. [2, 16, 16, 1]
+        weight_init -- use SIREN initialization
+        last_init_zero -- apply small init to last layer
+        omega -- frequency scaling
+    """
+
+    def __init__(self, groups, layers,
+                 weight_init=True,
+                 last_init_zero=False,
+                 omega=30):
+
+        super().__init__()
+        self.groups = groups
+        self.n_layers = len(layers) - 1
+        self.omega = omega
+
+        self.layers = nn.ModuleList()
+
+        for i in range(self.n_layers):
+            in_dim = layers[i]
+            out_dim = layers[i + 1]
+
+            layer = GroupedLinear(groups, in_dim, out_dim)
+            self.layers.append(layer)
+
+            if weight_init:
+                with torch.no_grad():
+
+                    if i == 0:
+                        # First layer
+                        layer.weight.uniform_(
+                            -1 / in_dim,
+                            1 / in_dim
+                        )
+
+                    elif i == self.n_layers - 1 and last_init_zero:
+                        val = 1 / 600
+                        layer.weight.uniform_(-val, val)
+                        layer.bias.zero_()
+
+                    else:
+                        bound = np.sqrt(6 / in_dim) / self.omega
+                        layer.weight.uniform_(-bound, bound)
+
+    def forward(self, t, x):
+        """
+        x: (T, N, input_dim)
+        """
+
+        for layer in self.layers[:-1]:
+            x = torch.sin(self.omega * layer(x))
+
+        return self.layers[-1](x)

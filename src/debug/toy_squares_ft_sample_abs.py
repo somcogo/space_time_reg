@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import random
 
 import numpy as np
@@ -157,7 +157,7 @@ if __name__ == '__main__':
     start_frame = 0
     time_points = 2
     schedule = [1]
-    factor = 1
+    factor = 4
 
     dataset = 'toy_square'
     device='cuda'
@@ -166,10 +166,10 @@ if __name__ == '__main__':
     direction = 'nsame'
     dist = 20
     seed = 42
-    for circles_nr in [7, 10]:
+    for circles_nr in [1, 5]:
         for dist in [5, 10, 20, 50]:
             for seed in range(5):
-                comment = f'ft/no_abs-cirs{circles_nr}-dir{direction}-dist{dist}-seed{seed}-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
+                comment = f'ft-factor{factor}/no_abs-cirs{circles_nr}-dir{direction}-dist{dist}-seed{seed}-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
                 main(
                     log_cadence=50,
                     epochs=epochs,

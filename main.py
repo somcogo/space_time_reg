@@ -207,6 +207,8 @@ def main():
                        'omega':config.siren_omega,
                     #    'last_init_zero':True}
                        'last_init_zero':'cmr' in config.dataset}
+        if 'group' in config.func_name:
+            func_kwargs['groups'] = config.time_points - 1
     elif 'wire' in config.func_name:
         layers = [3] + config.siren_depth * [config.siren_dim] + [3]
         func_kwargs = {'layers':layers,
