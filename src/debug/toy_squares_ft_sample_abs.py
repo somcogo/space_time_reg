@@ -28,7 +28,7 @@ random.seed(1)
 np.random.seed(2)
 
 def train(config):
-    cirs = generate_sample(circles_nr=config.circles_nr, direction=config.direction, max_dist=20, img_size=256)
+    cirs = generate_sample(circles_nr=config.circles_nr, direction=config.distance, img_size=256, seed=config.gen_seed)
     gt_im = torch.stack([cirs, torch.zeros_like(cirs)], dim=1)
     kspace_mask = get_kspace_mask(config, gt_im, factor=config.factor)
     
