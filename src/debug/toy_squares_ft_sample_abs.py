@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import random
 
 import numpy as np
@@ -166,7 +166,7 @@ if __name__ == '__main__':
     direction = 'nsame'
     dist = 20
     seed = 42
-    for circles_nr in [1, 5]:
+    for circles_nr in [7, 10]:
         for dist in [5, 10, 20, 50]:
             for seed in range(5):
                 comment = f'ft-factor{factor}/no_abs-cirs{circles_nr}-dir{direction}-dist{dist}-seed{seed}-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
