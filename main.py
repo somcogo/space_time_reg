@@ -101,9 +101,6 @@ def main():
     parser.add_argument("--lambda_rl2", type=float,
                         dest="lambda_rl2", default=1,
                         help="loss weight for the l2 norm of recons from different times")
-    parser.add_argument("--lambda_later", type=float,
-                        dest="lambda_later", default=1,
-                        help="loss weight for the non-first terms in the similarity loss")
     parser.add_argument("--recon_scale", type=float,
                         dest="recon_scale", default=0.1,
                         help="scale for the reconstruction regularizer")
@@ -182,9 +179,6 @@ def main():
     parser.add_argument("--init_reg_abs", action=argparse.BooleanOptionalAction,
                         dest="init_reg_abs", default=False,
                         help="Use the abs value of the image for the regularizer during initial recon")
-    parser.add_argument("--tm", type=int,
-                        dest="tm", default=0,
-                        help="Time frame to use as moving image")
     parser.add_argument("--learn_recon", action=argparse.BooleanOptionalAction,
                         dest="learn_recon", default=True,
                         help="Learn recon (True) or only optimize motion (False)")
@@ -224,9 +218,6 @@ def main():
     config.schedule = [1] if config.schedule == None else config.schedule
     config.downsamples = [1]
     config.interval = config.epochs if config.interval == 0 else config.interval
-    config.sim_lambda = torch.ones((config.time_points), device=config.device, dtype=float)
-    config.sim_lambda = config.sim_lambda * config.lambda_later
-    config.sim_lambda[config.tm] = 1.
 
     logger = get_logger(config.log_level)
     logger.info(f'Starting experiment with name {config.exp_name}')
@@ -245,8 +236,6 @@ def main():
         
     func = get_func(config.func_name, config.func_kwargs)
     func = func.to(config.device)
-
-
 
     output = registration(config, writer, logger, inputs, eval_inputs, func)
     imgs_to_save = evaluate(config, writer, logger, output, inputs, eval_inputs)

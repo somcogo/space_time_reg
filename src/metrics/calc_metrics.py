@@ -3,7 +3,7 @@ from argparse import Namespace
 import torch
 from torch import nn
 
-from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp, prep_init_recon
+from src.metrics.prep_visuals import prep_moved_img_vis, prep_sim_meas_vis, prep_flow_vis, prep_vel_vis, add_loss_specific_imgs, prep_seg_vis, prep_grid_def_vis, prep_image_space_comp, prep_init_recon, prep_imdiff_energy_vis
 from src.metrics.metric_utils import add_grad_stats, add_vel_stats, add_losses, add_dices, reshape_phi_and_vel, reduce_dim, add_cmr_eval_metrics, add_gt_error
 
 def calc_init_metrics(eval_inputs: list[torch.Tensor]) -> list[dict]:
@@ -16,25 +16,26 @@ def calc_init_metrics(eval_inputs: list[torch.Tensor]) -> list[dict]:
 
 def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inputs: list, model_outputs: list, loss_outputs: list, extended_log=False):
     rel_vel, abs_phi, ST = model_outputs
-    losses, moved, moved_im = loss_outputs
-    moving, _, fixed, _, _ = inputs
+    losses, moved_im = loss_outputs
+    moving, _, fixed, _ = inputs
+    moving = moving.detach().cpu()
     init_recon, gt_im, seg_moving, seg_fixed = eval_inputs
     abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving)
 
     metrics = {}
     metrics = add_losses(losses, metrics)
     if 'cmr' in config.dataset or 'heart' in config.dataset:
-        metrics = add_cmr_eval_metrics(moved_im, gt_im, metrics)
-        metrics = add_gt_error(moved_im, gt_im, init_recon, rel_vel, metrics)
+        metrics = add_cmr_eval_metrics(moving, gt_im, metrics)
+        metrics = add_gt_error(moving, gt_im, init_recon, rel_vel, metrics)
     if extended_log:
         metrics = add_grad_stats(func, metrics)
         metrics = add_vel_stats(rel_vel, metrics)
         metrics, pred_segs = add_dices(config, seg_fixed, seg_moving, ST, metrics)
 
         reduce = len(fixed.shape) == 5
-        fixed, moved, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss = reduce_dim(fixed, moved, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce)
+        fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce)
 
-        reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(fixed, moved, moved_im, moving, config)
+        reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(moved_im, moving, config)
         flow_col = prep_flow_vis(rel_phi)
         sim_grid, log_sim_grid = prep_sim_meas_vis(sim_loss)
         def_grid = prep_grid_def_vis(abs_phi[-1])
@@ -49,9 +50,13 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inp
             'energies/log_sim_loss':log_sim_grid,
             'grid_deform/grid_def_last_step':def_grid
         }
+        
+        if imdiff_loss is not None:
+            imdiff_grid = prep_imdiff_energy_vis(imdiff_loss)
+            imgs_to_save['energies/im_diff_loss'] = imdiff_grid
 
         if 'cmr' in config.dataset or config.dataset == 'toy_square':
-            image_space_comp = prep_image_space_comp(moved_im, gt_im)
+            image_space_comp = prep_image_space_comp(moving, gt_im)
             imgs_to_save['imgs/comp_imspace'] = image_space_comp
 
         if rel_vel is not None:

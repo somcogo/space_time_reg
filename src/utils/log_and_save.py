@@ -18,13 +18,13 @@ def log_metrics(config: Namespace, metrics: dict, writer: SummaryWriter, epoch: 
 def save_results(config: Namespace, output: list, eval_inputs: list, images: dict[torch.Tensor]) -> None:
     model_outputs, loss_outputs, moving, st_dict, epoch, _, time_stamps, coords = output
     abs_phi, rel_vel, _ = model_outputs
-    _, moved, moved_im = loss_outputs
+    _, moved_im = loss_outputs
     recon_init = eval_inputs[0]
     save_path = os.path.join(config.log_path, 'res.pt')
     save_dict = {'phi':abs_phi.detach().cpu(),
                  'vel':rel_vel.detach().cpu() if rel_vel is not None else None,
                  'coord_tensor':coords.detach().cpu(),
-                 'moved_imgs':moved.detach().cpu(),
+                #  'moved_imgs':moved.detach().cpu(),
                  'st_dict':st_dict,
                 #  'losses':output[6],
                  'time_stamps':time_stamps,

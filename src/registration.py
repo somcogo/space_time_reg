@@ -17,18 +17,13 @@ from src.utils.log_and_save import log_metrics
 
 def get_model_outputs(config: Namespace, func: nn.Module, coord_tensor: torch.Tensor, inputs: list):
     moving = inputs[0]
-    time_points = inputs[-1]
-    rel_vel = get_relative_vel(config, func, coord_tensor, time_points, keep_batch_dim=True)
-    if config.tm == 0:
-        abs_phi = odeint(func, coord_tensor, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-        ST = get_spatial_transformer(abs_phi, moving.shape, config)
-    else:
-        forw_points = time_points[config.tm:]
-        back_points = time_points[:config.tm + 1].flip(0)
-        forw_abs_phi = odeint(func, coord_tensor, forw_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-        back_abs_phi = odeint(func, coord_tensor, back_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
-        abs_phi = torch.concat([back_abs_phi.flip(0), forw_abs_phi[1:]], dim=0)
-        ST = get_spatial_transformer(abs_phi, moving.shape, config)
+    time_points = torch.tensor([0., 1.], device=config.device)
+    init_value = coord_tensor.expand((config.time_points - 1, -1, -1))
+
+    rel_vel = get_relative_vel(config, func, init_value, time_points, keep_batch_dim=True)
+    abs_phi = odeint(func, init_value, time_points, method=config.solver, atol=config.atol, rtol=config.rtol, options={'step_size':config.step_size})
+    abs_phi = abs_phi[1] # ignore abs_phi[0], which is just init_value anyway
+    ST = get_spatial_transformer(abs_phi, moving.shape[1:], config)
     return rel_vel, abs_phi, ST
 
 def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs: list, eval_inputs: list, func: nn.Module):
@@ -74,7 +69,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         # TODO: reimplement downsampling
         # if len(config.schedule) > 1  and epoch in config.schedule:
         #     imgs, segs, downsample = upsample_img_seg(og_img, og_seg, config, epoch)
-        coord_tensor = generate_coord_tensor(moving.shape[1:], config.device)
+        coord_tensor = generate_coord_tensor(moving.shape[2:], config.device)
         coord_tensor.requires_grad = True
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
@@ -112,7 +107,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         if loss_sum <= best_loss and epoch > config.schedule[-1]:
             best_loss = loss_sum
             best_model_out = [model_outputs[0].clone(), model_outputs[1].clone(), None]
-            best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone(), loss_outputs[2].clone()]
+            best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone()]
             best_moving = inputs[0]
             best_st_dict = func.state_dict()
             best_epoch = epoch

@@ -34,52 +34,39 @@ def add_loss_specific_imgs(imgs_to_save: dict, losses: dict, reduce_dim: bool) -
 
     return imgs_to_save
 
-def prep_moved_img_vis(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch.Tensor, moving: torch.Tensor, config: Namespace) -> list[torch.Tensor]:
-    fixed = fixed.detach().cpu()
-    moving = moving.detach().cpu()
-
-    # if 'cmr' in config.dataset:
-    #     fixed = complex_abs(fixed.movedim(1, -1))
-    #     moved = complex_abs(moved.movedim(1, -1))
-    #     moved_im = complex_abs(moved_im.movedim(1, -1))
-    #     moving = complex_abs(moving.movedim(0, -1))
+def prep_moved_img_vis(moved_im: torch.Tensor, moving: torch.Tensor, config: Namespace) -> list[torch.Tensor]:
+    moving = moving.detach().cpu()[1:]
     if config.dataset == 'heart_gt_no_ft_no_abs':
-        fixed = fixed.squeeze(1)
-        moved = moved.squeeze(1)
         moved_im = moved_im.squeeze(1)
-        moving = complex_abs(moving.movedim(0, -1))
+        moving = complex_abs(moving.movedim(1, -1))
     elif config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
-        fixed = fixed.squeeze(1)
-        moved = moved.squeeze(1)
-        moved_im = complex_abs(moved_im.movedim(1,-1))
-        moving = complex_abs(moving.movedim(0, -1))
+        # moved_im = complex_abs(moved_im.movedim(1,-1))
+        moving = complex_abs(moving.movedim(1, -1))
     elif config.dataset == 'toy_square':
-        fixed = complex_abs(fixed.movedim(1, -1))
-        moved = complex_abs(moved.movedim(1, -1))
-        moved_im = complex_abs(moved_im.movedim(1,-1))
-        moving = complex_abs(moving.movedim(0, -1))
+        # moved_im = complex_abs(moved_im.movedim(1,-1))
+        moving = complex_abs(moving.movedim(1, -1))
     else:
-        fixed = fixed.squeeze(1)
-        moved = moved.squeeze(1)
-        moved_im = moved_im.squeeze(1)
         moving = moving.squeeze(0)
+    moved_im = moved_im.squeeze(1)
 
-    reg_last = make_grid([torch.stack([fixed[-1], moved[-1], moved[-1]])], nrow=2, normalize=True)
-    reg_all = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed, moved)], nrow=6, normalize=True)
+    reg_last = make_grid([torch.stack([moving[-1], moved_im[-1], moved_im[-1]])], nrow=2, normalize=True)
+    reg_all = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(moving, moved_im)], nrow=6, normalize=True)
     reg_imspace = make_grid(moved_im.unsqueeze(1), nrow=6, normalize=True)
-    moving = (moving - moving.min()) / (moving.max() - moving.min())
+    moving_im = make_grid(moving.unsqueeze(1), nrow=6, normalize=True)
+    # moving = (moving - moving.min()) / (moving.max() - moving.min())
 
     reg_last = (reg_last*255).to(torch.uint8).permute(1, 2, 0)
     reg_all = (reg_all*255).to(torch.uint8).permute(1, 2, 0)
     reg_imspace = (reg_imspace*255).to(torch.uint8).permute(1, 2, 0)
-    moving_im = (torch.stack([moving]*3, dim=2)*255).to(torch.uint8)
+    moving_im = (moving_im*255).to(torch.uint8).permute(1, 2, 0)
+    # moving_im = (torch.stack([moving]*3, dim=1)*255).to(torch.uint8)
 
     return reg_last, reg_all, reg_imspace, moving_im
 
-def prep_image_space_comp(moved_im: torch.Tensor, gt_im: torch.Tensor) -> torch.Tensor:
+def prep_image_space_comp(moving: torch.Tensor, gt_im: torch.Tensor) -> torch.Tensor:
     fixed_im = complex_abs(gt_im.movedim(1, -1)).detach().cpu()
-    moved_im = complex_abs(moved_im.movedim(1, -1)).detach().cpu()
-    im_space_comp = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed_im, moved_im)], nrow=5, normalize=True)
+    moving = complex_abs(moving.movedim(1, -1)).detach().cpu()
+    im_space_comp = make_grid([torch.stack([im, m_im, m_im]) for im, m_im in zip(fixed_im, moving)], nrow=5, normalize=True)
     im_space_comp = (im_space_comp*255).to(torch.uint8).permute(1, 2, 0)
     return im_space_comp
 
@@ -119,6 +106,12 @@ def prep_sim_meas_vis(sim_meas: torch.Tensor) -> list[torch.Tensor]:
     log_sim_grid = make_grid([im for im in log_sim_meas], nrow=5, normalize=True)
     log_sim_grid = (log_sim_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
     return sim_grid, log_sim_grid
+
+def prep_imdiff_energy_vis(im_diff_loss: torch.Tensor) -> torch.Tensor:
+    im_diff_loss = im_diff_loss.sum(dim=1, keepdim=True)
+    diff_grid = make_grid([im for im in im_diff_loss], nrow=5, normalize=True)
+    diff_grid = (diff_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
+    return diff_grid
 
 def prep_seg_vis(segs: torch.Tensor, pred_segs: torch.Tensor) -> list[torch.Tensor]:
     gt_mask = (segs > 0).float()

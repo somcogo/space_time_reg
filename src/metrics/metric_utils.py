@@ -80,17 +80,17 @@ def add_dices(config: Namespace, seg_fix: torch.Tensor, seg_mov: torch.Tensor, S
         pred_segs = None
     return metrics, pred_segs
 
-def add_gt_error(moved_im: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Tensor, rel_vel: torch.Tensor, metrics: dict) -> dict:
+def add_gt_error(moving: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Tensor, rel_vel: torch.Tensor, metrics: dict) -> dict:
     # print(moved_im.min(), moved_im.max(), gt_im.min(), gt_im.max(), init_recon.min(), init_recon.max())
-    moved_abs = my_complex_abs(moved_im)
+    moving_abs = my_complex_abs(moving)
     gt_abs = my_complex_abs(gt_im).cpu()
     in_abs = my_complex_abs(init_recon).cpu()
     mx, mn = gt_abs.max(), gt_abs.min()
-    moved_abs = moved_abs / (mx -mn)
+    moving_abs = moving_abs / (mx -mn)
     gt_abs = gt_abs / (mx - mn)
     in_abs = in_abs / (mx - mn)
     # print(moved_abs.min(), moved_abs.max(), gt_abs.min(), gt_abs.max(), in_abs.min(), in_abs.max())
-    gt_im_error = (moved_abs - gt_abs).abs()
+    gt_im_error = (moving_abs - gt_abs).abs()
     in_im_error = (in_abs - gt_abs).abs()
     for t in range(gt_im_error.shape[0]):
         metrics[f'GT error sum/frame moved {t}'] = gt_im_error[t].sum()
@@ -112,7 +112,7 @@ def add_gt_error(moved_im: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.
     return metrics
 
 def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:
-    phi_shape = [-1] + list(moving.shape)[1:] + [len(moving.shape) - 1]
+    phi_shape = [-1] + list(moving.shape)[2:] + [len(moving.shape) - 2]
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape)
@@ -122,11 +122,10 @@ def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn
         rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
     return abs_phi, rel_phi, rel_vel
 
-def reduce_dim(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch.Tensor, rel_phi: torch.Tensor, rel_vel: torch.Tensor, seg_fix: torch.Tensor, pred_segs: torch.Tensor, abs_phi: torch.Tensor, losses: dict, reduce: bool) -> list[torch.Tensor]:
+def reduce_dim(fixed: torch.Tensor, moved_im: torch.Tensor, rel_phi: torch.Tensor, rel_vel: torch.Tensor, seg_fix: torch.Tensor, pred_segs: torch.Tensor, abs_phi: torch.Tensor, losses: dict, reduce: bool) -> list[torch.Tensor]:
     slice_ndx = fixed.shape[-1] // 2
     if reduce:
         fixed = fixed[..., slice_ndx]
-        moved = moved[..., slice_ndx]
         moved_im = moved_im[..., slice_ndx]
         rel_phi = rel_phi[..., slice_ndx, :-1]
         abs_phi = abs_phi[..., slice_ndx, :-1]
@@ -136,7 +135,11 @@ def reduce_dim(fixed: torch.Tensor, moved: torch.Tensor, moved_im: torch.Tensor,
             seg_fix = seg_fix[..., slice_ndx]
             pred_segs = pred_segs[..., slice_ndx]
     sim_loss = losses['sim']['loss'][..., slice_ndx] if reduce else losses['sim']['loss']
-    return fixed, moved, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss
+    if 'imdiff' in losses.keys():
+        imdiff_loss = losses['imdiff']['loss'][..., slice_ndx] if reduce else losses['imdiff']['loss']
+    else:
+        imdiff_loss = None
+    return fixed, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss, imdiff_loss
 
 # add_cmr_eval_metrics, psnr, ssim and nmse function implementations are based on the official CMRxRecon evaluation code https://github.com/CmrxRecon/CMRxRecon/blob/main/Evaluation/Evaluation.py
 def psnr(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
@@ -167,10 +170,10 @@ def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> l
             nmse_array[t, c] = nmse(gt / gt.max(), pred / pred.max())
     return psnr_array, ssim_array, nmse_array
 
-def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: dict) -> dict:
-    moved_im_img = complex_abs(moved_im.movedim(1, -1)).unsqueeze(1)
+def add_cmr_eval_metrics(moving: torch.Tensor, gt_im: torch.Tensor, metrics: dict) -> dict:
+    moving_im_img = complex_abs(moving.movedim(1, -1)).unsqueeze(1)
     gt_im_img = complex_abs(gt_im.movedim(1, -1)).unsqueeze(1)
-    full_psnr, full_ssim, full_nmse = calc_cmr_eval_metrics(moved_im_img, gt_im_img)
+    full_psnr, full_ssim, full_nmse = calc_cmr_eval_metrics(moving_im_img, gt_im_img)
 
     metrics['cmr evals all/full psnr'] = full_psnr.mean()
     metrics['cmr evals all/full ssim'] = full_ssim.mean()
@@ -181,9 +184,9 @@ def add_cmr_eval_metrics(moved_im: torch.Tensor, gt_im: torch.Tensor, metrics: d
     metrics['cmr evals first/full nsme'] = full_nmse[0].mean()
     
     
-    T, N, H, W = moved_im_img.shape
+    T, N, H, W = moving_im_img.shape
     h_from, h_to, w_from, w_to = round(H / 3), round(2 * H / 3), round(W / 4), round(3 * W / 4)
-    crop_moved_img = moved_im_img[:, :, h_from:h_to, w_from:w_to]
+    crop_moved_img = moving_im_img[:, :, h_from:h_to, w_from:w_to]
     crop_gt_img = gt_im_img[:, :, h_from:h_to, w_from:w_to]
     crop_psnr, crop_ssim, crop_nmse = calc_cmr_eval_metrics(crop_moved_img, crop_gt_img)
     

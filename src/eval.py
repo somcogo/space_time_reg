@@ -10,15 +10,15 @@ from src.utils.log_and_save import log_metrics
 from src.metrics.visualisation import prep_vis_summary_pdf
 
 def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger, output: list, inputs: list, eval_inputs: list) -> dict[torch.Tensor]:
-    model_outputs, loss_outputs, _, _, epoch, all_metrics, time_stamps, _ = output
+    model_outputs, loss_outputs, moving, _, epoch, all_metrics, time_stamps, _ = output
     init_recon, gt_im, _, _ = eval_inputs
     rel_vel, abs_phi, _ = model_outputs
-    loss_dict, _, moved_im = loss_outputs
+    loss_dict, _ = loss_outputs
     
     with torch.no_grad():
         metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
-        prep_vis_summary_pdf(config, gt_im, init_recon, moved_im, abs_phi, rel_vel, all_metrics)
+        prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics)
 
     logger.info('-------------------------------------------------')
     logger.info(f'Time spent (sec) over {config.epochs} iterations')

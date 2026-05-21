@@ -121,14 +121,14 @@ def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray
 
 def prep_phi(phi: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     phi = phi.detach().cpu().numpy()
-    shape = list(gt.shape) + [len(gt.shape) - 1]
+    shape = list(gt[1:].shape) + [len(gt.shape) - 1]
     phi = phi.reshape(shape)
     return phi
 
 def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: dict):
     fontsize = 12
-    f, a = plt.subplots(abs_phi.shape[0], 8, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1]})
-    f.set_size_inches(24, abs_phi.shape[0]*2)
+    f, a = plt.subplots(abs_phi.shape[0] + 1, 8, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1]})
+    f.set_size_inches(24, (abs_phi.shape[0] + 1)*2)
 
     use_imshow_on_axes(a[0,0], gt[0], True, "GT at time 0", fontsize, False)
     use_imshow_on_axes(a[0,1], final[0], True, "Final recon at time 0", fontsize, False)
@@ -141,23 +141,23 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
     a[0,6].axis("off")
     a[0,7].axis("off")
 
-    for t in range(1, abs_phi.shape[0]):
+    for t in range(1, abs_phi.shape[0] + 1):
         use_imshow_on_axes(a[t,0], gt[t], True, f"GT at time {t}", fontsize, False)
         use_imshow_on_axes(a[t,1], final[t], True, f"Final recon at time {t}", fontsize, False)
 
-        deform_dir = flow_to_color(rel_phi[t])        
+        deform_dir = flow_to_color(rel_phi[t - 1])        
         use_imshow_on_axes(a[t,2], deform_dir, True, f"Deformation at time {t}", fontsize, False, cmap=None)
-        draw_deformed_grid(torch.from_numpy(abs_phi[t]), a[t, 3])
+        draw_deformed_grid(torch.from_numpy(abs_phi[t - 1]), a[t, 3])
         a[t,3].set_title(f"Deformed grid at time {t}", fontsize=fontsize)
         a[t,3].set_box_aspect(abs_phi.shape[1]/abs_phi.shape[2])
 
-        phi_norm = np.linalg.norm(rel_phi[t], axis=-1)
+        phi_norm = np.linalg.norm(rel_phi[t - 1], axis=-1)
         use_imshow_on_axes(a[t,4], phi_norm, True, f"Deformation norm at time {t}", fontsize, True, ticks=[phi_norm.min(), phi_norm.max()])
 
         a[t,5].plot(losses['Similarity loss'][:,t])
         a[t,5].set_title('Sim loss', fontsize=fontsize)
         
-        a[t,6].plot(losses['Phi negative det J'][:,t])
+        a[t,6].plot(losses['Phi negative det J'][:,t-1])
         a[t,6].set_title('Phi Jacobian loss', fontsize=fontsize)
         
         a[t,7].plot(losses['Vel gradient'][:,t-1])
@@ -175,8 +175,8 @@ def prep_vel(vel: torch.Tensor, gt: np.ndarray) -> np.ndarray:
 
 def create_figure_for_velocity(pdf: PdfPages, final: np.ndarray, rel_vel: np.ndarray):
     fontsize = 10
-    f, a = plt.subplots(rel_vel.shape[0], 3)
-    f.set_size_inches(9, rel_vel.shape[0]*2)
+    f, a = plt.subplots(rel_vel.shape[0] + 1, 3)
+    f.set_size_inches(9, (rel_vel.shape[0] + 1)*2)
     ticks = [final.min(), final.max()]
     # ticks_vel = [np.linalg.norm(rel_vel, axis=-1).min(), np.linalg.norm(rel_vel, axis=-1).max()]
 
@@ -184,7 +184,7 @@ def create_figure_for_velocity(pdf: PdfPages, final: np.ndarray, rel_vel: np.nda
     a[0,1].axis("off")
     a[0,2].axis("off")
 
-    for t in range(1, rel_vel.shape[0]):
+    for t in range(1, rel_vel.shape[0] + 1):
         use_imshow_on_axes(a[t,0], final[t], True, f"Final recon at time {t}", fontsize, False)
         vel_dir = flow_to_color(rel_vel[t-1])
         use_imshow_on_axes(a[t,1], vel_dir, True, f"Velocity direction at time {t}", fontsize, False, cmap=None)
@@ -201,7 +201,7 @@ def prep_metrics(all_metrics):
     losses = {}
     
     for name in loss_names:
-        losses[name] = np.zeros((len(all_metrics), T))
+        losses[name] = np.zeros((len(all_metrics), T)) if name == 'Similarity loss' else np.zeros((len(all_metrics), T-1))
         for i, m in enumerate(all_metrics):
             for l in m['losses'].values():
                 if l['name'] == name:

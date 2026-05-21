@@ -12,16 +12,14 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
     moving = inputs[0]
-    shape = [-1] + list(moving.shape[1:]) + [len(moving.shape) - 1]
+    shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
     loss_sum = 0.
-    moved_imgs = None
     moved_imgs_imspace = None
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
-        l, m, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape)
+        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape)
         t2 = time.time()
 
-        moved_imgs = m if m is not None else moved_imgs
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
         mean = l.mean()
         loss_dict['mean'] = mean.detach().cpu()
@@ -29,7 +27,7 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
         loss_dict['time'] += t2 - t1
         loss_sum  = loss_sum + loss_dict['lambda'] * mean
 
-    return loss_sum, [losses, moved_imgs, moved_imgs_imspace]
+    return loss_sum, [losses, moved_imgs_imspace]
 
 def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape):
     if loss_name == 'sim':
@@ -50,77 +48,68 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
         return compute_recon_reg_loss(inputs, config)
 
 def similarity_loss(config, inputs, model_outputs):
-    moving, moving_inr, fixed, forw, _ = inputs
+    moving, moving_inr, fixed, forw = inputs
     ST = model_outputs[2]
     loss_fn = get_sim_loss_fn(config, moving)
-    
-    expanded_shape = [fixed.shape[0]] + list(moving.shape)
-    moving = moving.unsqueeze(0).expand(expanded_shape)
-    if config.use_nreps:
-        moved_im = ST.apply(moving_inr)
-    else:
-        moved_im = ST.apply(moving)
-    moved = forw(moved_im)
+
+    recon_kspace = forw(moving)
     if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
-        # fixed = fastmri.complex_abs(fixed.movedim(1,-1))
-        moved = fastmri.complex_abs_sq(moved.movedim(1,-1)).unsqueeze(1)
-        moved = (moved + 1e-8).sqrt()
-    loss = loss_fn(fixed, moved)
-    loss = config.sim_lambda.view(-1, 1, 1, 1) * loss
+        recon_kspace = fastmri.complex_abs_sq(recon_kspace.movedim(1,-1)).unsqueeze(1)
+        recon_kspace = (recon_kspace + 1e-8).sqrt()
+    loss = loss_fn(fixed, recon_kspace)
     
-    return loss, moved.detach().cpu(), moved_im.detach().cpu()
+    return loss, None
 
 def im_space_l2_loss(config, inputs, model_outputs):
-    moving, moving_inr, fixed, _, _ = inputs
+    moving, moving_inr, fixed, _ = inputs
     ST = model_outputs[2]
     loss_fn = torch.nn.MSELoss(reduction='none')
     
-    expanded_shape = [fixed.shape[0]] + list(moving.shape)
-    moving = moving.unsqueeze(0).expand(expanded_shape)
     if config.use_nreps:
         moved_im = ST.apply(moving_inr)
     else:
-        moved_im = ST.apply(moving)
+        moved_im = ST.apply(moving[:-1])
     if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
         moving = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
         moving = (moving + 1e-8).sqrt()
-        # fixed = fastmri.complex_abs(fixed.movedim(1,-1))
         moved_im = fastmri.complex_abs_sq(moved_im.movedim(1,-1)).unsqueeze(1)
         moved_im = (moved_im + 1e-8).sqrt()
-    loss = loss_fn(moving, moved_im)
+    loss = loss_fn(moving[1:], moved_im)
     
-    return loss, None, None
+    return loss, moved_im.detach().cpu()
 
 def negJ_loss(model_outputs, coord_tensor, shape):
     abs_phi = model_outputs[1]
     rel_phi = abs_phi - coord_tensor
     phi_J = get_Jacobian(rel_phi, shape)
     loss = neg_Jdet_loss(phi_J)
-    return loss, None, None
+    return loss, None
 
 def vel_grad_loss(model_outputs, shape):
     rel_vel = model_outputs[0]
     J = get_Jacobian(rel_vel, shape)
     loss = torch.linalg.vector_norm(J, dim=-1)
-    return loss, None, None
+    return loss, None
 
 def vel_lap_loss(model_outputs, shape):
     rel_vel = model_outputs[0]
     lap = get_Laplacian(rel_vel, shape)
     loss = torch.linalg.vector_norm(lap, dim=-1)
-    return loss, None, None
+    return loss, None
 
 def phi_grad_loss(model_outputs, coord_tensor, shape):
     abs_phi = model_outputs[1]
     phi_J = get_phi_Jacobian(abs_phi, coord_tensor, shape)
     loss = torch.linalg.vector_norm(phi_J, dim=-1)
-    return loss, None, None
+    return loss, None
 
 def compute_recon_reg_loss(inputs, config):
     moving = inputs[0]
     reg = get_recon_regularizer(config)
-    loss = reg.g(moving.unsqueeze(1))
-    return loss, None, None
+    moving_abs = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
+    moving_abs = (moving_abs + 1e-8).sqrt()
+    loss = reg.g(moving_abs)
+    return loss, None
 
 def neg_Jdet_loss(J):
     Jdet = torch.det(J)

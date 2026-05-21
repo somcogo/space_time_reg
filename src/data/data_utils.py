@@ -32,9 +32,7 @@ def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
         raw_kspace_data = torch.zeros_like(gt_kspace_data)
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
     elif 'cmr' in config.dataset:
-        patient = config.dataset.split('_')[1][1:]        
-        # raw_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_acc_04_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
-        # raw_kspace_data = raw_kspace_data[config.start_frame:config.start_frame + config.time_points]
+        patient = config.dataset.split('_')[1][1:]
         gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)

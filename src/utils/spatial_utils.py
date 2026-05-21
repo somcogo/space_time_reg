@@ -23,19 +23,5 @@ def upsample_img_seg(img, seg, config, epoch):
     return new_img, new_seg, downsample
 
 def get_relative_vel(config: Namespace, func: nn.Module, coord_tensor: torch.Tensor, time_points: torch.Tensor, keep_batch_dim) -> torch.Tensor|None:
-    if (config.func_name == 'siren' or config.func_name == 'wire'):
-        rel_vel = func(time_points[-1], coord_tensor).unsqueeze(0)
-    elif ('siren' in config.func_name or 'wire' in config.func_name) and ('t' in config.func_name or 'ensemble' in config.func_name):
-        if keep_batch_dim:
-            rel_vel = []
-            for t in time_points:
-                rel_vel.append(func(t, coord_tensor))
-            rel_vel = torch.stack(rel_vel)
-        else:
-            rel_vel = func(time_points[0], coord_tensor)
-            for t in time_points[1:]:
-                rel_vel = rel_vel + func(t, coord_tensor)
-            rel_vel = rel_vel.unsqueeze(0)
-    else:
-        rel_vel = None
+    rel_vel = func(time_points[-1], coord_tensor)
     return rel_vel
