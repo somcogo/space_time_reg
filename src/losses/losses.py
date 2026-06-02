@@ -75,14 +75,15 @@ def im_space_l2_loss(config, inputs, model_outputs):
         moved_im = fastmri.complex_abs_sq(moved_im.movedim(1,-1)).unsqueeze(1)
         moved_im = (moved_im + 1e-8).sqrt()
     loss = loss_fn(moving[1:], moved_im)
-    
+
     return loss, moved_im.detach().cpu()
 
-def negJ_loss(model_outputs, coord_tensor, shape):
+def negJ_loss(model_outputs: list, coord_tensor: torch.Tensor, shape: list) -> list[torch.Tensor, None]:
     abs_phi = model_outputs[1]
-    rel_phi = abs_phi - coord_tensor
-    phi_J = get_Jacobian(rel_phi, shape)
-    loss = neg_Jdet_loss(phi_J)
+    # rel_phi = abs_phi - coord_tensor
+    phi_J = get_Jacobian(abs_phi, shape)
+    I = get_Jacobian(coord_tensor, shape)
+    loss = neg_Jdet_loss(phi_J, I)
     return loss, None
 
 def vel_grad_loss(model_outputs, shape):
@@ -111,11 +112,16 @@ def compute_recon_reg_loss(inputs, config):
     loss = reg.g(moving_abs)
     return loss, None
 
-def neg_Jdet_loss(J):
-    Jdet = torch.det(J)
-    neg_Jdet = -1.0 * Jdet
-    neg_Jdet = F.relu(neg_Jdet) + 1
-    out = torch.log(neg_Jdet)
+def neg_Jdet_loss(J, I):
+    # I = torch.eye(J.shape[-1], device=J.device)
+    # Jdet = torch.det(J)
+    # print(Jdet.mean(), J.mean(dim=(0,1,2)))
+    # out = (Jdet - 1) ** 2
+    out = torch.linalg.matrix_norm(J - I, dim=(-2, -1), ord='fro')
+    # Jdet = torch.det(J)
+    # neg_Jdet = -1.0 * Jdet
+    # neg_Jdet = F.relu(neg_Jdet) + 1
+    # out = torch.log(neg_Jdet)
     return out
 
 def get_phi_Jacobian(abs_phi, coord_tensor, shape):

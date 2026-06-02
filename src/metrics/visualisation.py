@@ -36,7 +36,7 @@ def prep_vis_summary_pdf(config: Namespace,
     coord_tensor = generate_coord_tensor(abs_phi.shape[1:-1], 'cpu').numpy().reshape(abs_phi.shape[1:])
     rel_phi = abs_phi - coord_tensor
 
-    losses = prep_metrics(all_metrics)
+    losses, debug_losses = prep_metrics(all_metrics)
 
     # Create pdf with images visualised
     with PdfPages(img_pdf_path) as pdf:
@@ -46,7 +46,7 @@ def prep_vis_summary_pdf(config: Namespace,
 
     # Create pdf with deformation visualised
     with PdfPages(phi_pdf_path) as pdf:
-        create_figure_for_deformation(pdf, gt, final, abs_phi, rel_phi, losses)
+        create_figure_for_deformation(pdf, gt, final, abs_phi, rel_phi, losses, debug_losses)
         plt.close('all')
 
     # Create pdf with velocity visualised
@@ -125,21 +125,25 @@ def prep_phi(phi: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     phi = phi.reshape(shape)
     return phi
 
-def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: dict):
+def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: dict, debug_losses: dict):
     fontsize = 12
-    f, a = plt.subplots(abs_phi.shape[0] + 1, 8, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1]})
-    f.set_size_inches(24, (abs_phi.shape[0] + 1)*2)
+    f, a = plt.subplots(abs_phi.shape[0] + 1, 12, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1, 1, 1, 1, 1]})
+    f.set_size_inches(36, (abs_phi.shape[0] + 1)*2)
 
     use_imshow_on_axes(a[0,0], gt[0], True, "GT at time 0", fontsize, False)
     use_imshow_on_axes(a[0,1], final[0], True, "Final recon at time 0", fontsize, False)
-    a[0,2].plot(losses['Reconstruction reg'])
-    a[0,2].set_title('Recon loss', fontsize=fontsize)
+    a[0,2].axis("off")
     a[0,3].axis("off")
     a[0,4].axis("off")
     a[0,5].plot(losses['Similarity loss'][:,0])
     a[0,5].set_title('Sim loss', fontsize=fontsize)
-    a[0,6].axis("off")
+    a[0,6].plot(losses['Reconstruction reg'][:,0])
+    a[0,6].set_title('Recon loss', fontsize=fontsize)
     a[0,7].axis("off")
+    a[0,8].axis("off")
+    a[0,9].axis("off")
+    a[0,10].axis("off")
+    a[0,11].axis("off")
 
     for t in range(1, abs_phi.shape[0] + 1):
         use_imshow_on_axes(a[t,0], gt[t], True, f"GT at time {t}", fontsize, False)
@@ -156,12 +160,24 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
 
         a[t,5].plot(losses['Similarity loss'][:,t])
         a[t,5].set_title('Sim loss', fontsize=fontsize)
+
+        a[t,6].plot(losses['Reconstruction reg'][:,t])
+        a[t,6].set_title('Recon loss weighted', fontsize=fontsize)
         
-        a[t,6].plot(losses['Phi negative det J'][:,t-1])
-        a[t,6].set_title('Phi Jacobian loss', fontsize=fontsize)
+        a[t,7].plot(losses['Phi negative det J'][:,t-1])
+        a[t,7].set_title('Phi Jacobian loss weighted', fontsize=fontsize)
         
-        a[t,7].plot(losses['Vel gradient'][:,t-1])
-        a[t,7].set_title('Vel grad loss', fontsize=fontsize)
+        a[t,8].plot(losses['Vel gradient'][:,t-1])
+        a[t,8].set_title('Vel grad loss weighted', fontsize=fontsize)
+        
+        a[t,9].plot(debug_losses['Reconstruction reg'][:,t])
+        a[t,9].set_title('Recon reg', fontsize=fontsize)
+        
+        a[t,10].plot(debug_losses['Phi negative det J'][:,t-1])
+        a[t,10].set_title('Phi Jacobian loss', fontsize=fontsize)
+        
+        a[t,11].plot(debug_losses['Vel gradient'][:,t-1])
+        a[t,11].set_title('Vel grad loss', fontsize=fontsize)
         
     f.tight_layout()
     pdf.savefig(f)
@@ -199,20 +215,25 @@ def prep_metrics(all_metrics):
     loss_names = [l['name'] for l in all_metrics[0]['losses'].values() if l['name'] != 'Reconstruction reg']
     T = all_metrics[0]['losses']['sim']['loss'].shape[0]
     losses = {}
+    debug_losses = {}
     
     for name in loss_names:
         losses[name] = np.zeros((len(all_metrics), T)) if name == 'Similarity loss' else np.zeros((len(all_metrics), T-1))
+        debug_losses[name] = np.zeros((len(all_metrics), T)) if name == 'Similarity loss' else np.zeros((len(all_metrics), T-1))
         for i, m in enumerate(all_metrics):
             for l in m['losses'].values():
                 if l['name'] == name:
                     losses[name][i] = l['lambda'] * l['loss'].mean(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
+                    debug_losses[name][i] = l['loss'].mean(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
     
     name = 'Reconstruction reg'
-    losses[name] = np.zeros((len(all_metrics), ))
+    losses[name] = np.zeros((len(all_metrics), T))
+    debug_losses[name] = np.zeros((len(all_metrics), T))
     for i, m in enumerate(all_metrics):
         for l in m['losses'].values():
             if l['name'] == name:
-                losses[name][i] = l['lambda'] * l['loss'].mean().cpu().numpy()
+                losses[name][i] = l['lambda'] * l['loss'].cpu().numpy()
+                debug_losses[name][i] = l['loss'].cpu().numpy()
 
     name = 'GT error sum'
     losses[name] = np.zeros((len(all_metrics), T))
@@ -247,4 +268,4 @@ def prep_metrics(all_metrics):
                 t = int(k[-1])
                 losses[name][i][t] = v.cpu().numpy()
     
-    return losses
+    return losses, debug_losses

@@ -1,6 +1,6 @@
 from argparse import Namespace
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import random
 
 import numpy as np
@@ -47,7 +47,7 @@ def train(config):
     # fixed = (fixed + 1e-8).sqrt()
     gt_im = gt_im.to(config.device)
     recon = gt_im
-    moving = torch.nn.Parameter(gt_im[0].clone())
+    moving = torch.nn.Parameter(gt_im.clone())
     
     moving_inr = None
     seg_moving = None
@@ -58,9 +58,9 @@ def train(config):
     forw = forw.to(config.device)
 
     inputs, eval_inputs = [moving, moving_inr, fixed, forw], [recon, gt_im, seg_moving, seg_fixed]
-    time_points = torch.linspace(0, 1, config.time_points, device=config.device)
-    config.func_kwargs['time_points'] = time_points
-    inputs.append(time_points)
+    # time_points = torch.linspace(0, 1, config.time_points, device=config.device)
+    # config.func_kwargs['time_points'] = time_points
+    # inputs.append(time_points)
 
 
     func = get_func(config.func_name, config.func_kwargs)
@@ -80,7 +80,7 @@ def train(config):
     model_outputs, loss_outputs, _, _, epoch, all_metrics, time_stamps, _ = out
     init_recon, gt_im, _, _ = eval_inputs
     rel_vel, abs_phi, _ = model_outputs
-    loss_dict, _, moved_im = loss_outputs
+    loss_dict, moved_im = loss_outputs
     
     # with torch.no_grad():
     #     # inputs[0] = fastmri.complex_abs(inputs[0].movedim(0,-1))
@@ -96,7 +96,7 @@ def train(config):
     torch.save(model_outputs[0].detach().cpu(), os.path.join(config.log_path, 'res', 'rel_vel.pt'))
     torch.save(eval_inputs[1].detach().cpu(), os.path.join(config.log_path, 'res', 'gt_im.pt'))
     torch.save(inputs[2].detach().cpu(), os.path.join(config.log_path, 'res', 'fixed.pt'))
-    torch.save(loss_outputs[2].detach().cpu(), os.path.join(config.log_path, 'res', 'moved_im.pt'))
+    torch.save(loss_outputs[1].detach().cpu(), os.path.join(config.log_path, 'res', 'moved_im.pt'))
 
     print('-------------------------------------------------')
     print(f'Time spent (sec) over {config.epochs} iterations')
@@ -124,6 +124,7 @@ def main(**kwargs):
         'weight_init': True,
         'last_init_zero': True,
         'omega': 30,
+        'groups': config.time_points - 1
         # 'img_sz': (128, 128),
         # 'smoothing_kernel': 'AK',
         # 'smoothing_win': 15,
@@ -144,7 +145,7 @@ if __name__ == '__main__':
     lr=1e-4
     solver = 'euler'
     step_size = 0.01
-    func_name = 'sirenensemble'
+    func_name = 'groupsiren'
     lambda_st = 1
     lambda_grd = 1e-2
     lambda_negJ = 1e-10
@@ -152,7 +153,7 @@ if __name__ == '__main__':
     lambda_pgr = 0.
     lambda_lap = 0.
     lambda_recon = 0.
-    lambda_rl2 = 0.
+    lambda_rl2 = 1e0
     weight_decay = 0.
     start_frame = 0
     time_points = 2
@@ -166,9 +167,8 @@ if __name__ == '__main__':
     direction = 'nsame'
     dist = 20
     seed = 42
-    for circles_nr in [7, 10]:
-        for dist in [5, 10, 20, 50]:
-            for seed in range(5):
+    for circles_nr in [5]:
+        for dist in [50]:
                 comment = f'ft-factor{factor}/no_abs-cirs{circles_nr}-dir{direction}-dist{dist}-seed{seed}-lr{lr}-grd{lambda_grd}-rl2{lambda_rl2}-e{epochs}-factor{factor}-tp{time_points}-lastinitzeroTrue'
                 main(
                     log_cadence=50,

@@ -43,7 +43,7 @@ def prep_moved_img_vis(moved_im: torch.Tensor, moving: torch.Tensor, config: Nam
         # moved_im = complex_abs(moved_im.movedim(1,-1))
         moving = complex_abs(moving.movedim(1, -1))
     elif config.dataset == 'toy_square':
-        # moved_im = complex_abs(moved_im.movedim(1,-1))
+        moved_im = complex_abs(moved_im.movedim(1,-1))
         moving = complex_abs(moving.movedim(1, -1))
     else:
         moving = moving.squeeze(0)

@@ -185,6 +185,9 @@ def main():
     parser.add_argument("--interval", type=int,
                         dest="interval", default=0,
                         help="Interval length of motion training then recon training")
+    parser.add_argument("--last_init_zero", action=argparse.BooleanOptionalAction,
+                        dest="last_init_zero", default=True,
+                        help="The last layer of the initial velocity is initialized to output close to zero vel")
 
     
     config = parser.parse_args()
@@ -200,7 +203,7 @@ def main():
         func_kwargs = {'layers':layers,
                        'omega':config.siren_omega,
                     #    'last_init_zero':True}
-                       'last_init_zero':'cmr' in config.dataset}
+                       'last_init_zero':config.last_init_zero}
         if 'group' in config.func_name:
             func_kwargs['groups'] = config.time_points - 1
     elif 'wire' in config.func_name:
