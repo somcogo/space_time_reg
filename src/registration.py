@@ -48,7 +48,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
 
 
     for epoch in range(1, config.epochs + 1):
-        if epoch % (2*config.interval) == config.interval:
+        if epoch % (2*config.interval) == config.interval or epoch == 1:
             moving.requires_grad_(True)
             for param in func.parameters():
                 param.requires_grad = False
@@ -56,14 +56,14 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
                 logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
             else:
                 print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
-        elif epoch % (2*config.interval) == 0:
-            moving.requires_grad_(False)
-            for param in func.parameters():
-                param.requires_grad = True
-            if logger is not None:
-                logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
-            else:
-                print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+        # elif epoch % (2*config.interval) == 0 or (epoch == 1 and config.interval < config.epochs):
+        #     moving.requires_grad_(False)
+        #     for param in func.parameters():
+        #         param.requires_grad = True
+        #     if logger is not None:
+        #         logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+        #     else:
+        #         print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
 
 
         # TODO: reimplement downsampling

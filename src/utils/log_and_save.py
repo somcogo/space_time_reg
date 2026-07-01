@@ -15,11 +15,12 @@ def log_metrics(config: Namespace, metrics: dict, writer: SummaryWriter, epoch: 
             writer.add_image(k, v, epoch, dataformats='HWC', )
     writer.flush()
     
-def save_results(config: Namespace, output: list, eval_inputs: list, images: dict[torch.Tensor]) -> None:
-    model_outputs, loss_outputs, moving, st_dict, epoch, _, time_stamps, coords = output
+def save_results(config: Namespace, output: list, inputs: list, eval_inputs: list, images: dict[torch.Tensor]) -> None:
+    model_outputs, loss_outputs, moving, st_dict, epoch, all_metrics, time_stamps, coords = output
     abs_phi, rel_vel, _ = model_outputs
     _, moved_im = loss_outputs
-    recon_init = eval_inputs[0]
+    recon_init, gt_im, _, _ = eval_inputs
+    _, _, fixed, _ = inputs
     save_path = os.path.join(config.log_path, 'res.pt')
     save_dict = {'phi':abs_phi.detach().cpu(),
                  'vel':rel_vel.detach().cpu() if rel_vel is not None else None,
@@ -32,10 +33,14 @@ def save_results(config: Namespace, output: list, eval_inputs: list, images: dic
                  'moving':moving.detach().cpu(),
                  'moved_img_space':moved_im.detach().cpu(),
                  'recon_init':recon_init.detach().cpu(),
-                 'config':vars(config)}
+                 'config':vars(config),
+                 'fixed':fixed.detach().cpu(),
+                 'gt_im':gt_im.detach().cpu()}
     np_save_path = os.path.join(config.log_path, 'np_imgs.npy')
     np_save_dict = {'images':images}
     torch.save(save_dict, save_path)
+    if config.debug:
+        torch.save(all_metrics, os.path.join(config.log_path, 'metrics.pt'))
     np.save(np_save_path, np_save_dict, allow_pickle=True)
     img_dict = os.path.join(config.log_path, 'imgs')
     os.makedirs(img_dict, exist_ok=True)

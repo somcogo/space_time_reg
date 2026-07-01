@@ -78,10 +78,11 @@ def prep_tensor(config: Namespace, tensor: torch.Tensor) -> np.ndarray:
 def norm_arrays(gt: np.ndarray, init: np.ndarray, final: np.ndarray):
     mx = gt.max()
     mn = gt.min()
+    scale = 1 if mx == mn else mx -mn
 
-    gt = gt / (mx - mn)
-    init = init / (mx - mn)
-    final = final / (mx - mn)
+    gt = gt / scale
+    init = init / scale
+    final = final / scale
 
     return gt, init, final
 
@@ -138,10 +139,11 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
     a[0,5].plot(losses['Similarity loss'][:,0])
     a[0,5].set_title('Sim loss', fontsize=fontsize)
     a[0,6].plot(losses['Reconstruction reg'][:,0])
-    a[0,6].set_title('Recon loss', fontsize=fontsize)
+    a[0,6].set_title('CRR weighted', fontsize=fontsize)
     a[0,7].axis("off")
     a[0,8].axis("off")
-    a[0,9].axis("off")
+    a[0,9].plot(debug_losses['Reconstruction reg'][:,0])
+    a[0,9].set_title('CRR original value', fontsize=fontsize)
     a[0,10].axis("off")
     a[0,11].axis("off")
 
@@ -162,22 +164,22 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
         a[t,5].set_title('Sim loss', fontsize=fontsize)
 
         a[t,6].plot(losses['Reconstruction reg'][:,t])
-        a[t,6].set_title('Recon loss weighted', fontsize=fontsize)
+        a[t,6].set_title('CRR weighted', fontsize=fontsize)
         
         a[t,7].plot(losses['Phi negative det J'][:,t-1])
-        a[t,7].set_title('Phi Jacobian loss weighted', fontsize=fontsize)
+        a[t,7].set_title('Deform grad loss weighted', fontsize=fontsize)
         
-        a[t,8].plot(losses['Vel gradient'][:,t-1])
-        a[t,8].set_title('Vel grad loss weighted', fontsize=fontsize)
+        a[t,8].plot(losses['Image space diff'][:,t-1])
+        a[t,8].set_title('Temp cons loss weighted', fontsize=fontsize)
         
         a[t,9].plot(debug_losses['Reconstruction reg'][:,t])
-        a[t,9].set_title('Recon reg', fontsize=fontsize)
+        a[t,9].set_title('CRR OG value', fontsize=fontsize)
         
         a[t,10].plot(debug_losses['Phi negative det J'][:,t-1])
-        a[t,10].set_title('Phi Jacobian loss', fontsize=fontsize)
+        a[t,10].set_title('Deform grad loss OG value', fontsize=fontsize)
         
-        a[t,11].plot(debug_losses['Vel gradient'][:,t-1])
-        a[t,11].set_title('Vel grad loss', fontsize=fontsize)
+        a[t,11].plot(debug_losses['Image space diff'][:,t-1])
+        a[t,11].set_title('Temp cons loss OG value', fontsize=fontsize)
         
     f.tight_layout()
     pdf.savefig(f)

@@ -242,7 +242,7 @@ def main():
 
     output = registration(config, writer, logger, inputs, eval_inputs, func)
     imgs_to_save = evaluate(config, writer, logger, output, inputs, eval_inputs)
-    save_results(config, output, eval_inputs, imgs_to_save)
+    save_results(config, output, inputs, eval_inputs, imgs_to_save)
 
 if __name__ == '__main__':
     main()

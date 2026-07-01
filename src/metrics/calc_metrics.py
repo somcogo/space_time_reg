@@ -105,9 +105,9 @@ def get_relevant_loss_names(config):
         losses['recon_reg'] = {'name':'Reconstruction reg',
                        'lambda':config.lambda_recon,
                        'time':0.}
-    if config.lambda_rl2 > 0 or include_all:
-        losses['imdiff'] = {'name':'Image space diff',
-                       'lambda':config.lambda_rl2,
-                       'time':0.}
+    # if config.lambda_rl2 > 0 or include_all:
+    losses['imdiff'] = {'name':'Image space diff',
+                    'lambda':config.lambda_rl2,
+                    'time':0.}
 
     return losses

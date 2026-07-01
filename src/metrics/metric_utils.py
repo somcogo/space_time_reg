@@ -86,18 +86,34 @@ def add_gt_error(moving: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Te
     gt_abs = my_complex_abs(gt_im).cpu()
     in_abs = my_complex_abs(init_recon).cpu()
     mx, mn = gt_abs.max(), gt_abs.min()
-    moving_abs = moving_abs / (mx -mn)
-    gt_abs = gt_abs / (mx - mn)
-    in_abs = in_abs / (mx - mn)
+    scale = 1 if (mx - mn) < 1e-10 else mx - mn
+
+    moving_abs_rescaled = moving_abs / scale
+    gt_abs_rescaled = gt_abs / scale
+    in_abs_rescaled = in_abs / scale
     # print(moved_abs.min(), moved_abs.max(), gt_abs.min(), gt_abs.max(), in_abs.min(), in_abs.max())
+    gt_im_error_rescaled = (moving_abs_rescaled - gt_abs_rescaled).abs()
+    in_im_error_rescaled = (in_abs_rescaled - gt_abs_rescaled).abs()
     gt_im_error = (moving_abs - gt_abs).abs()
     in_im_error = (in_abs - gt_abs).abs()
-    for t in range(gt_im_error.shape[0]):
-        metrics[f'GT error sum/frame moved {t}'] = gt_im_error[t].sum()
-        metrics[f'GT error max/frame moved {t}'] = gt_im_error[t].max()
+    gt_err_nosq = (moving - gt_im.cpu()).square()
+    in_err_nosq = (init_recon.cpu() - gt_im.cpu()).square()
+    for t in range(gt_im_error_rescaled.shape[0]):
+        metrics[f'GT error sum/frame moved {t}'] = gt_im_error_rescaled[t].sum()
+        metrics[f'GT error max/frame moved {t}'] = gt_im_error_rescaled[t].max()
 
-        metrics[f'GT error sum/frame init {t}'] = in_im_error[t].sum()
-        metrics[f'GT error max/frame init {t}'] = in_im_error[t].max()
+        metrics[f'GT error sum/frame init {t}'] = in_im_error_rescaled[t].sum()
+        metrics[f'GT error max/frame init {t}'] = in_im_error_rescaled[t].max()
+
+
+        # metrics[f'GT error sum/frame moved {t} no cx abs'] = gt_err_nosq[t].sum()
+        # metrics[f'GT error max/frame moved {t} no cx abs'] = gt_err_nosq[t].max()
+
+        # metrics[f'GT error sum/frame moved {t}'] = gt_im_error[t].sum()
+        # metrics[f'GT error max/frame moved {t}'] = gt_im_error[t].max()
+
+        # metrics[f'GT error sum/frame init {t}'] = in_im_error[t].sum()
+        # metrics[f'GT error max/frame init {t}'] = in_im_error[t].max()
 
     vel_J = get_Jacobian(rel_vel, rel_vel.shape)
     vel_norm = torch.linalg.vector_norm(rel_vel, dim=(-1))
@@ -109,6 +125,19 @@ def add_gt_error(moving: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Te
     metrics['Main metrics/vel L2 error'] = vel_norm[:gt_im_error.shape[0]].sum()
     metrics['Main metrics/vel grad L2 error'] = grad_norm[:gt_im_error.shape[0]].sum()
     metrics['Main metrics/Combined'] = gt_im_error.sum() + h1_norm.sum()
+
+
+    # moving_abs = my_complex_abs(moving)
+    # gt_abs = my_complex_abs(gt_im).cpu()
+    # in_abs = my_complex_abs(init_recon).cpu()
+    # sqabs_err = (moving_abs - gt_abs).square().sum()
+    # abs_err = (moving - gt_im.cpu()).square().sum()
+
+    # loss_fn = nn.MSELoss(reduction='none')
+    # sim_loss = loss_fn(moving, gt_im.cpu()).sum()
+
+    # print(f'MSELoss sum is {sim_loss}, abs error {abs_err}, squared abs error {sqabs_err}')
+
     return metrics
 
 def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:

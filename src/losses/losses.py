@@ -49,13 +49,12 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
 
 def similarity_loss(config, inputs, model_outputs):
     moving, moving_inr, fixed, forw = inputs
-    ST = model_outputs[2]
     loss_fn = get_sim_loss_fn(config, moving)
 
     recon_kspace = forw(moving)
-    if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
-        recon_kspace = fastmri.complex_abs_sq(recon_kspace.movedim(1,-1)).unsqueeze(1)
-        recon_kspace = (recon_kspace + 1e-8).sqrt()
+    # if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
+    #     recon_kspace = fastmri.complex_abs_sq(recon_kspace.movedim(1,-1)).unsqueeze(1)
+    #     recon_kspace = (recon_kspace + 1e-8).sqrt()
     loss = loss_fn(fixed, recon_kspace)
     
     return loss, None

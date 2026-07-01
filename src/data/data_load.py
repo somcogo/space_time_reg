@@ -19,19 +19,28 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
         config.dataset = 'cmr_P001'
         raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
         full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
-        smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
-        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
-        fixed = fixed.to(config.device)
+        # smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
+        # fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
+        # fixed = fixed.to(config.device)
 
         gt_im = full_adj(gt_kspace_data)
         gt_im = gt_im.to(config.device)
-        init = get_init(config, raw_kspace_data, gt_im, forw_subs_adj(fixed))
+        full_forw, full_adj, forw_subs, forw_subs_adj = nn.Identity(), nn.Identity(), nn.Identity(), nn.Identity()
+        fixed = gt_im
 
-        recon, init_metrics = init, None
+        recon, init_metrics = gt_im, None
             
-        fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
-        fixed = (fixed + 1e-8).sqrt()
+        # fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
+        # fixed = (fixed + 1e-8).sqrt()
 
+        recon = recon.detach()
+        moving = nn.Parameter(recon.clone())
+    elif config.dataset == 'cmr_zerotest':
+        fixed = torch.ones((2, 2, 204, 512), device=config.device, dtype=torch.float) * 0.09
+        gt_im = torch.ones((2, 2, 204, 512), device=config.device, dtype=torch.float) * 0.09
+        init = 2 * torch.ones((2, 2, 204, 512), device=config.device, dtype=torch.float) * 0.09
+        full_forw, full_adj, forw_subs, forw_subs_adj = nn.Identity(), nn.Identity(), nn.Identity(), nn.Identity()
+        recon, init_metrics = init, None
         recon = recon.detach()
         moving = nn.Parameter(recon.clone())
     elif config.dataset == 'cmr_init_factor1':
@@ -49,8 +58,27 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
 
         recon, init_metrics = init, None
             
-        fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
-        fixed = (fixed + 1e-8).sqrt()
+        # fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
+        # fixed = (fixed + 1e-8).sqrt()
+
+        recon = recon.detach()
+        moving = nn.Parameter(recon.clone())
+    elif config.dataset == 'cmr_init_noft':
+        config.dataset = 'cmr_P001'
+        raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
+        full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
+
+        gt_im = full_adj(gt_kspace_data)
+        gt_im = gt_im.to(config.device)
+        init = torch.load('data/cmr_p001_init.pt')
+        init = nn.Parameter(init).to(config.device)
+        fixed = gt_im
+
+        recon, init_metrics = init, None
+        full_forw, full_adj, forw_subs, forw_subs_adj = nn.Identity(), nn.Identity(), nn.Identity(), nn.Identity()
+            
+        # fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
+        # fixed = (fixed + 1e-8).sqrt()
 
         recon = recon.detach()
         moving = nn.Parameter(recon.clone())
@@ -79,8 +107,8 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
         else:
             recon, init_metrics = init_with_grad_desc(config, init, fixed, forw_subs)
             
-        fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
-        fixed = (fixed + 1e-8).sqrt()
+        # fixed = fastmri.complex_abs_sq(fixed.movedim(1,-1)).unsqueeze(1)
+        # fixed = (fixed + 1e-8).sqrt()
 
         recon = recon.detach()
         moving = nn.Parameter(recon.clone())
