@@ -32,9 +32,9 @@ def train(config):
 
     forw = torch.nn.Identity()
 
-    fixed = gt_im
-    fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
-    fixed = (fixed + 1e-8).sqrt()
+    fixed = gt_im.to(config.device)
+    # fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
+    # fixed = (fixed + 1e-8).sqrt()
     gt_im = gt_im.to(config.device)
     recon = gt_im
     moving = torch.nn.Parameter(gt_im[0].clone())

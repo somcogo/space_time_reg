@@ -177,7 +177,7 @@ def main():
                         dest="init_loss", default='l2',
                         help="Loss used for initial recon")
     parser.add_argument("--init_reg_abs", action=argparse.BooleanOptionalAction,
-                        dest="init_reg_abs", default=False,
+                        dest="init_reg_abs", default=True,
                         help="Use the abs value of the image for the regularizer during initial recon")
     parser.add_argument("--learn_recon", action=argparse.BooleanOptionalAction,
                         dest="learn_recon", default=True,

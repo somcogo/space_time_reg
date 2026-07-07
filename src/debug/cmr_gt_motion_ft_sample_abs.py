@@ -33,9 +33,9 @@ def train(config):
 
     forw = FTAndSubsample(kspace_mask)
 
-    fixed = forw(gt_im)
-    fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
-    fixed = (fixed + 1e-8).sqrt()
+    fixed = forw(gt_im).to(config.device)
+    # fixed = fastmri.complex_abs_sq(fixed.to(config.device).movedim(1,-1)).unsqueeze(1)
+    # fixed = (fixed + 1e-8).sqrt()
     gt_im = gt_im.to(config.device)
     recon = gt_im
     moving = torch.nn.Parameter(gt_im[0].clone())

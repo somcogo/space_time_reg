@@ -48,7 +48,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
 
 
     for epoch in range(1, config.epochs + 1):
-        if epoch % (2*config.interval) == config.interval or epoch == 1:
+        if epoch % (2*config.interval) == config.interval:
             moving.requires_grad_(True)
             for param in func.parameters():
                 param.requires_grad = False
@@ -56,14 +56,14 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
                 logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
             else:
                 print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
-        # elif epoch % (2*config.interval) == 0 or (epoch == 1 and config.interval < config.epochs):
-        #     moving.requires_grad_(False)
-        #     for param in func.parameters():
-        #         param.requires_grad = True
-        #     if logger is not None:
-        #         logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
-        #     else:
-        #         print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+        elif epoch % (2*config.interval) == 0 or (epoch == 1 and config.interval < config.epochs):
+            moving.requires_grad_(False)
+            for param in func.parameters():
+                param.requires_grad = True
+            if logger is not None:
+                logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+            else:
+                print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
 
 
         # TODO: reimplement downsampling
@@ -99,7 +99,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         if epoch == 1 or log_epoch:
             log_msg = f'Epoch {epoch:4d}/{config.epochs}, Losses '
             for loss_type, loss_dict in loss_outputs[0].items():
-                log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['mean']:.5f}     '
+                log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['sum']:.5f}     '
             if logger is not None:
                 logger.info(log_msg)
             else:
@@ -108,8 +108,8 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
             best_loss = loss_sum
             best_model_out = [model_outputs[0].clone(), model_outputs[1].clone(), None]
             best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone()]
-            best_moving = inputs[0]
-            best_st_dict = func.state_dict()
+            best_moving = inputs[0].detach().clone()
+            best_st_dict = copy.deepcopy(func.state_dict())
             best_epoch = epoch
             coords = coord_tensor
 

@@ -33,9 +33,9 @@ def calc_dice(array1, array2, labels):
 def add_losses(losses: dict, metrics: dict) -> dict:
     total = 0.
     for loss_type, loss_dict in losses.items():
-        metrics[f'losses/{loss_dict['name']}'] = loss_dict['lambda'] * loss_dict['mean']
-        metrics[f'debug_losses/{loss_dict['name']}'] = loss_dict['mean']
-        total += loss_dict['lambda'] * loss_dict['mean']
+        metrics[f'losses/{loss_dict['name']}'] = loss_dict['lambda'] * loss_dict['sum']
+        metrics[f'debug_losses/{loss_dict['name']}'] = loss_dict['sum']
+        total += loss_dict['lambda'] * loss_dict['sum']
     metrics['losses/total_loss'] = total
     return metrics
 

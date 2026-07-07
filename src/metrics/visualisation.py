@@ -163,23 +163,41 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
         a[t,5].plot(losses['Similarity loss'][:,t])
         a[t,5].set_title('Sim loss', fontsize=fontsize)
 
-        a[t,6].plot(losses['Reconstruction reg'][:,t])
-        a[t,6].set_title('CRR weighted', fontsize=fontsize)
+        if 'Reconstruction reg' in losses.keys():
+            a[t,6].plot(losses['Reconstruction reg'][:,t])
+            a[t,6].set_title('CRR weighted', fontsize=fontsize)
+        else:
+            a[t,6].axis("off")
         
-        a[t,7].plot(losses['Phi negative det J'][:,t-1])
-        a[t,7].set_title('Deform grad loss weighted', fontsize=fontsize)
+        if 'Phi negative det J' in losses.keys():
+            a[t,7].plot(losses['Phi negative det J'][:,t-1])
+            a[t,7].set_title('Deform grad loss weighted', fontsize=fontsize)
+        else:
+            a[t,7].axis("off")
         
-        a[t,8].plot(losses['Image space diff'][:,t-1])
-        a[t,8].set_title('Temp cons loss weighted', fontsize=fontsize)
+        if 'Image space diff' in losses.keys():
+            a[t,8].plot(losses['Image space diff'][:,t-1])
+            a[t,8].set_title('Temp cons loss weighted', fontsize=fontsize)
+        else:
+            a[t,7].axis("off")
         
-        a[t,9].plot(debug_losses['Reconstruction reg'][:,t])
-        a[t,9].set_title('CRR OG value', fontsize=fontsize)
+        if 'Reconstruction reg' in losses.keys():
+            a[t,9].plot(debug_losses['Reconstruction reg'][:,t])
+            a[t,9].set_title('CRR OG value', fontsize=fontsize)
+        else:
+            a[t,8].axis("off")
         
-        a[t,10].plot(debug_losses['Phi negative det J'][:,t-1])
-        a[t,10].set_title('Deform grad loss OG value', fontsize=fontsize)
+        if 'Phi negative det J' in losses.keys():
+            a[t,10].plot(debug_losses['Phi negative det J'][:,t-1])
+            a[t,10].set_title('Deform grad loss OG value', fontsize=fontsize)
+        else:
+            a[t,10].axis("off")
         
-        a[t,11].plot(debug_losses['Image space diff'][:,t-1])
-        a[t,11].set_title('Temp cons loss OG value', fontsize=fontsize)
+        if 'Image space diff' in losses.keys():
+            a[t,11].plot(debug_losses['Image space diff'][:,t-1])
+            a[t,11].set_title('Temp cons loss OG value', fontsize=fontsize)
+        else:
+            a[t,11].axis("off")
         
     f.tight_layout()
     pdf.savefig(f)
@@ -225,8 +243,8 @@ def prep_metrics(all_metrics):
         for i, m in enumerate(all_metrics):
             for l in m['losses'].values():
                 if l['name'] == name:
-                    losses[name][i] = l['lambda'] * l['loss'].mean(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
-                    debug_losses[name][i] = l['loss'].mean(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
+                    losses[name][i] = l['lambda'] * l['loss'].sum(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
+                    debug_losses[name][i] = l['loss'].sum(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
     
     name = 'Reconstruction reg'
     losses[name] = np.zeros((len(all_metrics), T))
