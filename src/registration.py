@@ -30,7 +30,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     moving = inputs[0]
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if 'cmr' in config.dataset:
-        optimizer.add_param_group({'params': moving, 'lr':config.recon_lr, 'weight_decay':0.})
+        optimizer.add_param_group({'params': moving, 'lr':config.recon_lr, 'weight_decay':0., 'eps':config.recon_eps})
     scheduler = None
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [180, 500, 1000])
 
@@ -99,7 +99,7 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         if epoch == 1 or log_epoch:
             log_msg = f'Epoch {epoch:4d}/{config.epochs}, Losses '
             for loss_type, loss_dict in loss_outputs[0].items():
-                log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['sum']:.5f}     '
+                log_msg += f'{loss_type}  {loss_dict['lambda'] * loss_dict['mean']:.5f}     '
             if logger is not None:
                 logger.info(log_msg)
             else:

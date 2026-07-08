@@ -17,7 +17,7 @@ def log_metrics(config: Namespace, metrics: dict, writer: SummaryWriter, epoch: 
     
 def save_results(config: Namespace, output: list, inputs: list, eval_inputs: list, images: dict[torch.Tensor]) -> None:
     model_outputs, loss_outputs, moving, st_dict, epoch, all_metrics, time_stamps, coords = output
-    abs_phi, rel_vel, _ = model_outputs
+    rel_vel, abs_phi, _ = model_outputs
     _, moved_im = loss_outputs
     recon_init, gt_im, _, _ = eval_inputs
     _, _, fixed, _ = inputs

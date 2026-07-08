@@ -55,6 +55,12 @@ def main():
     parser.add_argument("--recon_lr", type=float,
                         dest="recon_lr", default=0.1,
                         help="reconstruction learning rate")
+    parser.add_argument("--recon_eps", type=float,
+                        dest="recon_eps", default=1e-4,
+                        help="Adam eps for the reconstruction param group. Needs to be well above the "
+                             "data-fit gradient's noise floor once it's converged, otherwise Adam's "
+                             "per-parameter normalization keeps taking ~recon_lr-sized noise steps "
+                             "instead of shrinking towards zero.")
     parser.add_argument("--weight_decay", type=float,
                         dest="weight_decay", default=0.1,
                         help="weight decay for velocity network")

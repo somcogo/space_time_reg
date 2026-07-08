@@ -21,8 +21,8 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
-        mean = l.sum()
-        loss_dict['sum'] = mean.detach().cpu()
+        mean = l.mean()
+        loss_dict['mean'] = mean.detach().cpu()
         loss_dict['loss'] = l.detach()
         loss_dict['time'] += t2 - t1
         loss_sum  = loss_sum + loss_dict['lambda'] * mean

@@ -24,6 +24,9 @@ def init_using_nmAPG(config: argparse.Namespace,
     data_fit, reg_eval, energy, energy_grad = get_functions(config, reg, forw_subs, forw_subs_adj)
     energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
     
+    weighted_data_fit = lambda val, y_in: config.lambda_st * data_fit(val, y_in)
+    L_init = config.lambda_st
+
     t0 = time.time()
     x, L, i, converged, metrics = nmAPG(x0=recon_init,
                                y=fixed,
@@ -31,9 +34,10 @@ def init_using_nmAPG(config: argparse.Namespace,
                                nabla=energy_grad,
                                f_and_nabla=energy_and_grad,
                                max_iter=config.recon_epochs,
+                               L_init=L_init,
                                verbose=config.debug,
                                tol=config.tol,
-                               data_fit=data_fit,
+                               data_fit=weighted_data_fit,
                                reg=reg_eval,
                                debug=config.debug,
                                logger=logger)
@@ -99,16 +103,16 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
         return reg
     
     def energy(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
-        df = data_fit(val, y_in)
+        df = config.lambda_st * data_fit(val, y_in)
         reg = reg_eval(val)
         fun = df + reg
         if config.detach_grads:
             fun = fun.detach()
         return fun.reshape(-1)
-    
+
     def energy_grad(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
         val_req = val.detach().clone().requires_grad_(True)
-        df = data_fit(val_req, y_in)
+        df = config.lambda_st * data_fit(val_req, y_in)
         reg = reg_eval(val_req)
 
         energy = df + reg
