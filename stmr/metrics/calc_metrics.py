@@ -1,6 +1,5 @@
 from argparse import Namespace
 
-import torch
 from torch import nn
 
 from stmr.metrics.metric_utils import (
@@ -27,20 +26,21 @@ from stmr.metrics.prep_visuals import (
 )
 
 
-def calc_init_metrics(eval_inputs: list[torch.Tensor]) -> list[dict]:
-    init_recon = eval_inputs[0]
-    gt_im = eval_inputs[1]
+def calc_init_metrics(eval_inputs) -> list[dict]:
+    init_recon = eval_inputs.init_recon
+    gt_im = eval_inputs.gt_im
     metrics = {}
     metrics = add_cmr_eval_metrics(init_recon, gt_im, metrics)
     imgs_to_save = {'imgs/init_recon':prep_init_recon(init_recon)}
     return metrics, imgs_to_save
 
-def calculate_metrics(config: Namespace, func: nn.Module, inputs: list, eval_inputs: list, model_outputs: list, loss_outputs: list, extended_log=False):
-    rel_vel, abs_phi, ST = model_outputs
-    losses, moved_im = loss_outputs
-    moving, _, fixed, _ = inputs
-    moving = moving.detach().cpu()
-    init_recon, gt_im, seg_moving, seg_fixed = eval_inputs
+def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=False):
+    rel_vel, abs_phi, ST = model_outputs.rel_vel, model_outputs.abs_phi, model_outputs.transformer
+    losses, moved_im = loss_outputs.losses, loss_outputs.moved_imspace
+    fixed = inputs.fixed
+    moving = inputs.moving.detach().cpu()
+    init_recon, gt_im, seg_moving, seg_fixed = (eval_inputs.init_recon, eval_inputs.gt_im,
+                                                eval_inputs.seg_moving, eval_inputs.seg_fixed)
     abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving)
 
     metrics = {}

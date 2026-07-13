@@ -4,18 +4,14 @@ import torch
 from torch import nn
 
 from stmr.config import Config
+from stmr.state import EvalInputs, Inputs
 
 from .data_utils import get_data, get_init, get_operators
 from .recon_init import init_using_nmAPG, init_with_grad_desc
 
 
-def prepare_inputs(config: Config, logger: Logger) -> tuple[list, list]:
-    """Load k-space, build the forward operator, and produce the initial reconstruction.
-
-    Returns ``(inputs, eval_inputs)`` where
-        inputs      = [moving, moving_inr, fixed, forward_operator]
-        eval_inputs = [init_recon, gt_im, seg_moving, seg_fixed]
-    """
+def prepare_inputs(config: Config, logger: Logger) -> tuple[Inputs, EvalInputs]:
+    """Load k-space, build the forward operator, and produce the initial reconstruction."""
     raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
 
     full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
@@ -47,6 +43,6 @@ def prepare_inputs(config: Config, logger: Logger) -> tuple[list, list]:
     recon = recon.detach()
     moving = nn.Parameter(recon.clone()).to(config.device)
 
-    inputs = [moving, None, fixed, forw_subs]
-    eval_inputs = [recon, gt_im, None, None]
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw_subs)
+    eval_inputs = EvalInputs(init_recon=recon, gt_im=gt_im, seg_moving=None, seg_fixed=None)
     return inputs, eval_inputs

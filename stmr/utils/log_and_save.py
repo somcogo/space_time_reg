@@ -4,14 +4,18 @@ import numpy as np
 import torch
 from PIL import Image
 
+from stmr.state import EvalInputs, Inputs, RegistrationResult
 
-def save_results(config, output: list, inputs: list, eval_inputs: list,
-                 images: dict) -> None:
-    model_outputs, loss_outputs, moving, st_dict, epoch, all_metrics, time_stamps, coords = output
-    rel_vel, abs_phi, _ = model_outputs
-    _, moved_im = loss_outputs
-    recon_init, gt_im, _, _ = eval_inputs
-    _, _, fixed, _ = inputs
+
+def save_results(config, output: RegistrationResult, inputs: Inputs,
+                 eval_inputs: EvalInputs, images: dict) -> None:
+    model_outputs, loss_outputs = output.model_outputs, output.loss_outputs
+    moving, st_dict, epoch = output.best_moving, output.st_dict, output.epoch
+    all_metrics, time_stamps, coords = output.all_metrics, output.time_stamps, output.coords
+    rel_vel, abs_phi = model_outputs.rel_vel, model_outputs.abs_phi
+    moved_im = loss_outputs.moved_imspace
+    recon_init, gt_im = eval_inputs.init_recon, eval_inputs.gt_im
+    fixed = inputs.fixed
     save_path = os.path.join(config.log_path, 'res.pt')
     save_dict = {
         'phi': abs_phi.detach().cpu(),

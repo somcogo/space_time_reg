@@ -6,12 +6,14 @@ import torch
 from stmr.data.fft_utils import fft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
 from stmr.losses.sim_loss import get_sim_loss_fn
+from stmr.state import Inputs, LossOutputs, ModelOutputs
 
 
-def calculate_losses(config, inputs, model_outputs, coord_tensor, losses, recon_regularizer=None):
+def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_tensor,
+                     losses, recon_regularizer=None):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
-    moving = inputs[0]
+    moving = inputs.moving
     shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
     loss_sum = 0.
     moved_imgs_imspace = None
@@ -27,7 +29,7 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses, recon_
         loss_dict['time'] += t2 - t1
         loss_sum  = loss_sum + loss_dict['lambda'] * mean
 
-    return loss_sum, [losses, moved_imgs_imspace]
+    return loss_sum, LossOutputs(losses=losses, moved_imspace=moved_imgs_imspace)
 
 def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer=None):
     # Each entry adapts a single-loss function to the uniform call context. Replaces the
@@ -48,20 +50,17 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
     return dispatch[loss_name]()
 
 def similarity_loss(config, inputs, model_outputs):
-    moving, moving_inr, fixed, forw = inputs
+    moving, forw = inputs.moving, inputs.forward
     loss_fn = get_sim_loss_fn(config, moving)
 
     recon_kspace = forw(moving)
-    # if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
-    #     recon_kspace = fastmri.complex_abs_sq(recon_kspace.movedim(1,-1)).unsqueeze(1)
-    #     recon_kspace = (recon_kspace + 1e-8).sqrt()
-    loss = loss_fn(fixed, recon_kspace)
+    loss = loss_fn(inputs.fixed, recon_kspace)
     
     return loss, None
 
 def im_space_l2_loss(config, inputs, model_outputs):
-    moving, moving_inr, fixed, _ = inputs
-    ST = model_outputs[2]
+    moving, moving_inr = inputs.moving, inputs.moving_inr
+    ST = model_outputs.transformer
     loss_fn = torch.nn.MSELoss(reduction='none')
     is_complex_img = config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset
 
@@ -92,8 +91,8 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
     return loss, moved_im.detach().cpu()
 
-def negJ_loss(model_outputs: list, coord_tensor: torch.Tensor, shape: list) -> list[torch.Tensor, None]:
-    abs_phi = model_outputs[1]
+def negJ_loss(model_outputs, coord_tensor: torch.Tensor, shape: list):
+    abs_phi = model_outputs.abs_phi
     # rel_phi = abs_phi - coord_tensor
     phi_J = get_Jacobian(abs_phi, shape)
     I = get_Jacobian(coord_tensor, shape)
@@ -101,19 +100,19 @@ def negJ_loss(model_outputs: list, coord_tensor: torch.Tensor, shape: list) -> l
     return loss, None
 
 def vel_grad_loss(model_outputs, shape):
-    rel_vel = model_outputs[0]
+    rel_vel = model_outputs.rel_vel
     J = get_Jacobian(rel_vel, shape)
     loss = torch.linalg.vector_norm(J, dim=-1)
     return loss, None
 
 def vel_lap_loss(model_outputs, shape):
-    rel_vel = model_outputs[0]
+    rel_vel = model_outputs.rel_vel
     lap = get_Laplacian(rel_vel, shape)
     loss = torch.linalg.vector_norm(lap, dim=-1)
     return loss, None
 
 def phi_grad_loss(model_outputs, coord_tensor, shape):
-    abs_phi = model_outputs[1]
+    abs_phi = model_outputs.abs_phi
     phi_J = get_phi_Jacobian(abs_phi, coord_tensor, shape)
     loss = torch.linalg.vector_norm(phi_J, dim=-1)
     return loss, None
@@ -129,8 +128,8 @@ def motion_comp_dc_loss(config, inputs, model_outputs):
     # through the motion model; the phase is taken from the target frame's own current
     # estimate: pred = |warp(I_t)| * I_{t+1} / |I_{t+1}|. Warping the magnitude (not the
     # complex channels) also avoids destructive interpolation of rotating phasors.
-    moving, _, fixed, forw = inputs
-    ST = model_outputs[2]
+    moving, fixed, forw = inputs.moving, inputs.fixed, inputs.forward
+    ST = model_outputs.transformer
     moving_mag = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
     moving_mag = (moving_mag + 1e-12).sqrt()
     moved_mag = ST.apply(moving_mag[:-1])
@@ -141,7 +140,7 @@ def motion_comp_dc_loss(config, inputs, model_outputs):
     return loss, None
 
 def compute_recon_reg_loss(inputs, recon_regularizer):
-    moving = inputs[0]
+    moving = inputs.moving
     moving_abs = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
     moving_abs = (moving_abs + 1e-8).sqrt()
     loss = recon_regularizer.g(moving_abs)
@@ -169,7 +168,7 @@ def compute_hyper_elastic_loss(
     model_outputs, coord_tensor, shape, alpha_l=1, alpha_a=1, alpha_v=1
 ):
     """Compute the hyper-elastic regularization loss."""
-    rel_vel, abs_phi, _ = model_outputs
+    rel_vel, abs_phi = model_outputs.rel_vel, model_outputs.abs_phi
 
     grad_u = get_Jacobian(rel_vel, shape)
     grad_y = get_phi_Jacobian(abs_phi, coord_tensor, shape)

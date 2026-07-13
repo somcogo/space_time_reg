@@ -4,6 +4,7 @@ import torch
 from stmr.config import Config
 from stmr.data.fft_utils import FastmriFT
 from stmr.losses.losses import im_space_l2_loss, negJ_loss, similarity_loss
+from stmr.state import Inputs, ModelOutputs
 from stmr.utils.spatial_transformer import get_spatial_transformer
 from stmr.utils.spatial_utils import generate_coord_tensor
 
@@ -19,7 +20,7 @@ def _identity_model_outputs(config, h=8, w=8, moving=None):
     if moving is None:
         moving = torch.zeros(config.time_points, 2, h, w)
     st = get_spatial_transformer(abs_phi, moving.shape[1:], config)
-    return coord, [None, abs_phi, st]
+    return coord, ModelOutputs(rel_vel=None, abs_phi=abs_phi, transformer=st)
 
 
 def test_negJ_is_zero_for_identity_deformation():
@@ -37,7 +38,8 @@ def test_imdiff_is_zero_when_frames_match_and_transform_identity():
     frame = torch.randn(1, 2, h, w)
     moving = frame.repeat(config.time_points, 1, 1, 1)  # identical frames
     _, model_outputs = _identity_model_outputs(config, h, w, moving)
-    loss, _ = im_space_l2_loss(config, [moving, None, None, None], model_outputs)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=None, forward=None)
+    loss, _ = im_space_l2_loss(config, inputs, model_outputs)
     assert loss.abs().max() < 1e-4
 
 
@@ -47,7 +49,8 @@ def test_data_fidelity_zero_when_recon_matches_measurements():
     moving = torch.randn(config.time_points, 2, h, w)
     forw = FastmriFT()
     fixed = forw(moving)  # measurements consistent with the recon
-    loss, _ = similarity_loss(config, [moving, None, fixed, forw], None)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
+    loss, _ = similarity_loss(config, inputs, None)
     assert loss.abs().max() < 1e-5
 
 
@@ -55,5 +58,6 @@ def test_use_nreps_without_inr_raises_clear_error():
     config = Config(device="cpu", dataset="cmr_P001", use_nreps=True, time_points=3).finalize()
     h = w = 8
     _, model_outputs = _identity_model_outputs(config, h, w)
+    inputs = Inputs(moving=torch.zeros(3, 2, h, w), moving_inr=None, fixed=None, forward=None)
     with pytest.raises(ValueError, match="use_nreps"):
-        im_space_l2_loss(config, [torch.zeros(3, 2, h, w), None, None, None], model_outputs)
+        im_space_l2_loss(config, inputs, model_outputs)

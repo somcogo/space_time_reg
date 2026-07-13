@@ -7,6 +7,7 @@ from stmr.losses.losses import calculate_losses
 from stmr.metrics.calc_metrics import get_relevant_loss_names
 from stmr.models.factory import get_func
 from stmr.registration import get_model_outputs
+from stmr.state import Inputs
 from stmr.utils.spatial_utils import generate_coord_tensor
 
 
@@ -31,7 +32,7 @@ def test_end_to_end_motion_and_loss_backward_on_cpu():
     moving = nn.Parameter(torch.randn(config.time_points, 2, h, w))
     forw = FastmriFT()
     fixed = forw(moving.detach())
-    inputs = [moving, None, fixed, forw]
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
 
     coord = generate_coord_tensor((h, w), "cpu")
     coord.requires_grad = True
@@ -45,4 +46,4 @@ def test_end_to_end_motion_and_loss_backward_on_cpu():
     assert moving.grad is not None and torch.isfinite(moving.grad).all()
     assert any(p.grad is not None for p in func.parameters())
     # the expected active terms are present
-    assert set(loss_outputs[0]) >= {"sim", "negJ", "imdiff"}
+    assert set(loss_outputs.losses) >= {"sim", "negJ", "imdiff"}

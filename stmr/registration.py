@@ -13,13 +13,14 @@ from stmr.data.fft_utils import apply_hard_data_consistency
 from stmr.losses.losses import calculate_losses
 from stmr.losses.recon_reg import get_recon_regularizer
 from stmr.metrics.calc_metrics import calculate_metrics, get_relevant_loss_names
+from stmr.state import EvalInputs, Inputs, LossOutputs, ModelOutputs, RegistrationResult
 from stmr.utils.logging import log_metrics
 from stmr.utils.spatial_transformer import get_spatial_transformer
 from stmr.utils.spatial_utils import generate_coord_tensor, get_relative_vel
 
 
-def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tensor, inputs: list):
-    moving = inputs[0]
+def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tensor,
+                      inputs: Inputs) -> ModelOutputs:
     time_points = torch.tensor([0., 1.], device=config.device)
     init_value = coord_tensor.expand((config.time_points - 1, -1, -1))
 
@@ -27,13 +28,13 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
     abs_phi = odeint(func, init_value, time_points, method=config.solver, atol=config.atol,
                      rtol=config.rtol, options={'step_size': config.step_size})
     abs_phi = abs_phi[1]  # ignore abs_phi[0], which is just init_value anyway
-    ST = get_spatial_transformer(abs_phi, moving.shape[1:], config)
-    return rel_vel, abs_phi, ST
+    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[1:], config)
+    return ModelOutputs(rel_vel=rel_vel, abs_phi=abs_phi, transformer=ST)
 
 
-def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: list,
-                 eval_inputs: list, func: nn.Module):
-    moving = inputs[0]
+def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: Inputs,
+                 eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
+    moving = inputs.moving
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if 'cmr' in config.dataset:
         optimizer.add_param_group({'params': moving, 'lr': config.recon_lr,
@@ -42,11 +43,11 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     moving.requires_grad_(config.learn_recon)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
 
-    if config.hard_dc and hasattr(inputs[3], 'mask'):
+    if config.hard_dc and hasattr(inputs.forward, 'mask'):
         # Start from a measurement-consistent recon so every epoch (including the motion
         # warm-up, which never updates the recon) sees the projected images.
         with torch.no_grad():
-            moving.copy_(apply_hard_data_consistency(moving, inputs[2], inputs[3].mask))
+            moving.copy_(apply_hard_data_consistency(moving, inputs.fixed, inputs.forward.mask))
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
@@ -100,9 +101,11 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         # state is exactly the one loss_sum was computed on.
         if loss_sum <= best_loss and epoch > config.schedule[-1]:
             best_loss = loss_sum.detach()
-            best_model_out = [model_outputs[0].clone(), model_outputs[1].clone(), None]
-            best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone()]
-            best_moving = inputs[0].detach().clone()
+            best_model_out = ModelOutputs(model_outputs.rel_vel.clone(),
+                                          model_outputs.abs_phi.clone(), None)
+            best_loss_out = LossOutputs(copy.deepcopy(loss_outputs.losses),
+                                        loss_outputs.moved_imspace.clone())
+            best_moving = inputs.moving.detach().clone()
             best_st_dict = copy.deepcopy(func.state_dict())
             best_epoch = epoch
             coords = coord_tensor
@@ -111,12 +114,11 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         optimizer.step()
 
         time_stamps[4, epoch - 1] = time.time()
-        if config.hard_dc and hasattr(inputs[3], 'mask'):
+        if config.hard_dc and hasattr(inputs.forward, 'mask'):
             # Project the recon back onto the measurements: the regularizer terms may
             # only fill in the unmeasured k-space entries, never corrupt measured ones.
             with torch.no_grad():
-                fixed = inputs[2]
-                moving.copy_(apply_hard_data_consistency(moving, fixed, inputs[3].mask))
+                moving.copy_(apply_hard_data_consistency(moving, inputs.fixed, inputs.forward.mask))
         with torch.no_grad():
             extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
             metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs,
@@ -128,16 +130,25 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
             slim_losses = {name: {**{k: v for k, v in d.items() if k != 'loss'},
                                   'loss': (d['loss'].sum(dim=tuple(range(1, d['loss'].dim())))
                                            if d['loss'].dim() > 1 else d['loss']).cpu()}
-                           for name, d in loss_outputs[0].items()}
+                           for name, d in loss_outputs.losses.items()}
             all_metrics.append({'metrics': copy.deepcopy(metrics), 'losses': slim_losses})
 
         time_stamps[5, epoch - 1] = time.time()
         if epoch == 1 or log_epoch:
             log_msg = f'Epoch {epoch:4d}/{config.epochs}, Losses '
-            for loss_type, loss_dict in loss_outputs[0].items():
+            for loss_type, loss_dict in loss_outputs.losses.items():
                 log_msg += f"{loss_type}  {loss_dict['lambda'] * loss_dict['mean']:.5f}     "
             logger.info(log_msg)
         if epoch < config.epochs:
             time_stamps[6, epoch] = time.time()
 
-    return best_model_out, best_loss_out, best_moving, best_st_dict, best_epoch, all_metrics, time_stamps, coords
+    return RegistrationResult(
+        model_outputs=best_model_out,
+        loss_outputs=best_loss_out,
+        best_moving=best_moving,
+        st_dict=best_st_dict,
+        epoch=best_epoch,
+        all_metrics=all_metrics,
+        time_stamps=time_stamps,
+        coords=coords,
+    )
