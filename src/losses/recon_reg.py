@@ -1,6 +1,6 @@
 import torch
 
-from learned_regularizers.priors import WCRR, ParameterLearningWrapper
+from src.regularizers import WCRR, ParameterLearningWrapper
 
 # weak_convexity=0.0 is the plain CRR; 1.0 is WCRR. Empirically (see notes on the soft_con
 # branch) WCRR reconstructs cardiac cine MRI noticeably better than CRR at a comparable
@@ -8,11 +8,11 @@ from learned_regularizers.priors import WCRR, ParameterLearningWrapper
 REGULARIZER_VARIANTS = {
     'crr': {
         'weak_convexity': 0.0,
-        'weight_path': 'learned_regularizers/weights/bilevel_CT/CRR_bilevel_JFB_for_CT.pt',
+        'weight_path': 'weights/bilevel_CT/CRR_bilevel_JFB_for_CT.pt',
     },
     'wcrr': {
         'weak_convexity': 1.0,
-        'weight_path': 'learned_regularizers/weights/bilevel_CT/WCRR_bilevel_JFB_for_CT.pt',
+        'weight_path': 'weights/bilevel_CT/WCRR_bilevel_JFB_for_CT.pt',
     },
 }
 

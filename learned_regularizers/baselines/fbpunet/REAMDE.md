@@ -1,1 +1,0 @@
-The weights for the FBP+UNet can be downloaded from [here](https://drive.google.com/file/d/1ikHhiDqU3sd-aXGfhJ3Wx06EIdfeEBZi/view?usp=sharing).
