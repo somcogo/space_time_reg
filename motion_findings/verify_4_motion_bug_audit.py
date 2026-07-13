@@ -10,15 +10,19 @@ the small PSNR gain is a property of the data (consecutive frames are nearly ide
 k-space sharing), not a code defect.
 Run:  python motion_findings/verify_4_motion_bug_audit.py
 """
-import os, sys, glob
+import glob
+import os
+import sys
+
 import torch
 import torch.nn.functional as F
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.utils.spatial_transformer import GridSampleTransformer
+from fastmri import complex_abs
 from src.models.siren import GroupedSiren
+from src.utils.spatial_transformer import GridSampleTransformer
 from src.utils.spatial_utils import generate_coord_tensor
 from torchdiffeq import odeint_adjoint as odeint
-from fastmri import complex_abs
 
 torch.manual_seed(0)
 dev = 'cuda' if torch.cuda.is_available() else 'cpu'

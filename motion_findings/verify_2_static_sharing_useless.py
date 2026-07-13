@@ -8,13 +8,16 @@ motion-compensated reconstruction (Claim 2).
 
 Run:  python motion_findings/verify_2_static_sharing_useless.py [patient=001] [slice=0] [factor=4] [T=6]
 """
-import os, sys
+import os
+import sys
+
 import torch
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from fastmri import complex_abs
 from src.data.data_utils import generate_standard_mask
 from src.data.fft_utils import FastmriIFT
 from src.metrics.metric_utils import calc_cmr_eval_metrics
-from fastmri import complex_abs
 
 patient = sys.argv[1] if len(sys.argv) > 1 else '001'
 sl      = int(sys.argv[2]) if len(sys.argv) > 2 else 0

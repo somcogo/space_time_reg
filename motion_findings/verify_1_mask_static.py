@@ -4,8 +4,11 @@ If the provided (subsampled) mask is identical for every frame, then k-t (time-i
 sampling cannot be reconstructed from challenge data alone, and temporal sharing adds no new
 k-space information. Run:  python motion_findings/verify_1_mask_static.py [patient=001]
 """
-import os, sys
+import os
+import sys
+
 import torch
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 patient = sys.argv[1] if len(sys.argv) > 1 else '001'

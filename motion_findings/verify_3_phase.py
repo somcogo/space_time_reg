@@ -5,8 +5,11 @@ temporal losses fight the data. This justifies (a) magnitude-based temporal term
 Reports the relative L2 residual of predicting frame t+1 from frame t under several models.
 Run:  python motion_findings/verify_3_phase.py [patient=001] [slice=0] [T=6]
 """
-import os, sys
+import os
+import sys
+
 import torch
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.data.fft_utils import FastmriIFT
 

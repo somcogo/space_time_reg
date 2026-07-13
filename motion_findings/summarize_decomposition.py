@@ -2,7 +2,9 @@
 Points by default at the runs produced by run_decomposition.sh (log/cmr/soft_con/decomp_static).
 Run:  python motion_findings/summarize_decomposition.py [logdir]
 """
-import os, sys
+import os
+import sys
+
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 base = sys.argv[1] if len(sys.argv) > 1 else 'log/cmr/soft_con/decomp_static'
