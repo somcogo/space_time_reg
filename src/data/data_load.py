@@ -47,9 +47,7 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
         config.dataset = 'cmr_P001'
         raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
         full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
-        smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
-        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
-        fixed = fixed.to(config.device)
+        fixed = raw_kspace_data.to(config.device)
 
         gt_im = full_adj(gt_kspace_data)
         gt_im = gt_im.to(config.device)
@@ -84,26 +82,29 @@ def prepare_inverse_case(config: Namespace, logger: Logger) -> list[list]:
         moving = nn.Parameter(recon.clone())
     else:
         raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
-        
-        # TODO: if init debug is done, redo with generated masks to be able to switch
-        # kspace_mask = get_kspace_mask(config, raw_kspace_data, factor=4)
-        # kspace_mask = (raw_kspace_data[:1] != 0)
-        full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
 
-        smaller_shape = list(raw_kspace_data.shape[:2]) + [-1] + list(raw_kspace_data.shape[3:])
-        fixed = raw_kspace_data[kspace_mask.expand(raw_kspace_data.shape)].reshape(smaller_shape)
-        fixed = fixed.to(config.device)
+        full_forw, full_adj, forw_subs, forw_subs_adj = get_operators(config, kspace_mask)
+        forw_subs = forw_subs.to(config.device)
+        forw_subs_adj = forw_subs_adj.to(config.device)
+
+        # fixed keeps the full k-space shape, zero-filled at unmeasured entries. This
+        # supports time-varying (k-t) masks where the number of measured rows differs
+        # between frames, which the old row-subsampled representation could not express.
+        fixed = raw_kspace_data.to(config.device)
 
         gt_im = full_adj(gt_kspace_data)
         gt_im = gt_im.to(config.device)
-        init = get_init(config, raw_kspace_data, gt_im, forw_subs_adj(fixed))
+        init = get_init(config, raw_kspace_data, gt_im, forw_subs_adj(fixed).to(config.device), kspace_mask)
 
-        if config.use_nmapg:
-            recon, init_metrics = init_using_nmAPG(config, init, fixed, forw_subs, forw_subs_adj, logger)
-            # recon = torch.zeros_like(init)
-            # for t in range(init.shape[0]):
-            #     r, init_metrics = init_using_nmAPG(config, init[t:t+1], fixed[t:t+1], forw_subs, forw_subs_adj, logger)
-            #     recon[t] = r.detach()
+        if config.init_skip:
+            recon, init_metrics = init.detach(), None
+        elif config.use_nmapg:
+            # nmAPG optimizes frames as batch items and drops converged ones, indexing
+            # x[idx] and y[idx] but not the forward operator. Packing the mask into y as
+            # extra channels keeps each frame's mask aligned with its measurements under
+            # that subsetting; the data-fit functions unpack it again.
+            packed_measurements = torch.cat([fixed, kspace_mask.to(fixed)], dim=1)
+            recon, init_metrics = init_using_nmAPG(config, init, packed_measurements, full_forw, forw_subs_adj, logger)
         else:
             recon, init_metrics = init_with_grad_desc(config, init, fixed, forw_subs)
             

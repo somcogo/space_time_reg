@@ -16,7 +16,11 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger, output: l
     loss_dict, _ = loss_outputs
     
     with torch.no_grad():
-        metrics, imgs_to_save = calculate_metrics(config, None, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
+        # inputs[0] is the live recon parameter, mutated by the final optimizer step (and
+        # hard DC) after the best snapshot was taken. Evaluate the best-epoch recon instead,
+        # so the reported metrics describe the same state as model_outputs and res.pt.
+        best_inputs = [moving] + inputs[1:]
+        metrics, imgs_to_save = calculate_metrics(config, None, best_inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
         prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics)
 

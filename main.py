@@ -32,8 +32,10 @@ def main():
                         dest="device", default='cuda',
                         help="device to use")
     parser.add_argument("--func_name", type=str,
-                        dest="func_name", default='siren',
-                        help="function to predict the velocity field")
+                        dest="func_name", default='groupsiren',
+                        help="function to predict the velocity field: groupsiren (default, "
+                             "one independent Siren per frame interval) or siren (a single "
+                             "Siren, i.e. one static velocity field shared by all intervals)")
     parser.add_argument("--time_points", type=int,
                         dest="time_points", default=20,
                         help="number of time points")
@@ -167,9 +169,15 @@ def main():
     parser.add_argument("--reg", type=str,
                         dest="reg", default='learned',
                         help="Type of regularizer to use")
+    parser.add_argument("--reg_variant", type=str,
+                        dest="reg_variant", default='crr', choices=['crr', 'wcrr'],
+                        help="Which pretrained learned-regularizer variant to use when --reg=learned "
+                             "(crr: weak_convexity=0, the original default; wcrr: weak_convexity=1, "
+                             "found empirically to reconstruct cardiac cine MRI noticeably better)")
     parser.add_argument("--reg_alpha", type=float,
-                        dest="reg_alpha", default=0.,
-                        help="Alpha to use for the regularizer")
+                        dest="reg_alpha", default=None,
+                        help="Raw alpha parameter for the regularizer wrapper (effective "
+                             "weight is exp(alpha)). Omit to keep the pretrained alpha")
     parser.add_argument("--tol", type=float,
                         dest="tol", default=1e-4,
                         help="Tolerance to use in nmAPG")
@@ -194,6 +202,26 @@ def main():
     parser.add_argument("--last_init_zero", action=argparse.BooleanOptionalAction,
                         dest="last_init_zero", default=True,
                         help="The last layer of the initial velocity is initialized to output close to zero vel")
+    parser.add_argument("--hard_dc", action=argparse.BooleanOptionalAction,
+                        dest="hard_dc", default=False,
+                        help="Hard data consistency: after every optimizer step, overwrite the "
+                             "measured k-space entries of the recon with the measurements")
+    parser.add_argument("--motion_warmup", type=int,
+                        dest="motion_warmup", default=0,
+                        help="Number of initial epochs during which the recon is frozen and only "
+                             "the motion network is trained. Do not combine with --interval")
+    parser.add_argument("--lambda_mcdc", type=float,
+                        dest="lambda_mcdc", default=0,
+                        help="loss weight for motion-compensated data consistency (frame t+1's "
+                             "measured k-space rows must be explained by warped frame t)")
+    parser.add_argument("--imdiff_warp_mag", action=argparse.BooleanOptionalAction,
+                        dest="imdiff_warp_mag", default=False,
+                        help="In the temporal image-space loss, warp the magnitude image "
+                             "instead of the complex channels (avoids destructive "
+                             "interpolation of temporally incoherent phase)")
+    parser.add_argument("--init_skip", action=argparse.BooleanOptionalAction,
+                        dest="init_skip", default=False,
+                        help="Skip the initial reconstruction optimization and use --init directly")
 
     
     config = parser.parse_args()

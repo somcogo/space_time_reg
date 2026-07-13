@@ -55,21 +55,30 @@ def get_reg(config: argparse.Namespace) -> nn.Module:
         reg = get_tv(config)
     return reg
 
+def unpack_measurements(y_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    # y_in packs the zero-filled measured k-space (channels 0:2) together with the
+    # per-frame k-space mask (channels 2:4), so that nmAPG's batch subsetting y[idx]
+    # keeps each frame's mask aligned with its measurements (see prepare_inverse_case).
+    return y_in[:, :2], y_in[:, 2:]
+
 def complex_l2(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
-    diff = forw(val) - y_in
+    kdata, mask = unpack_measurements(y_in)
+    diff = mask * forw(val) - kdata
     df = 0.5 * (diff ** 2).sum((1,2,3))
     return df.reshape(-1)
 
 def magnitude_l1(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
-    val_abs = complex_abs(forw(val))
-    y_abs = complex_abs(y_in)
+    kdata, mask = unpack_measurements(y_in)
+    val_abs = complex_abs(mask * forw(val))
+    y_abs = complex_abs(kdata)
     df = real_abs(val_abs - y_abs).sum((1,2,3))
     return df.reshape(-1)
 
 def log_magnitude(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
-    val_abs = complex_abs(forw(val))
-    y_abs = complex_abs(y_in)
-    diff = torch.log(val_abs + 1e-8) - torch.log(y_abs - 1e-8)
+    kdata, mask = unpack_measurements(y_in)
+    val_abs = complex_abs(mask * forw(val))
+    y_abs = complex_abs(kdata)
+    diff = torch.log(val_abs + 1e-8) - torch.log(y_abs + 1e-8)
     df = 0.5 * (diff ** 2).sum((1,2,3))
     return df.reshape(-1)
 

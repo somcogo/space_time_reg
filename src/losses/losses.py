@@ -4,11 +4,11 @@ import torch
 import torch.nn.functional as F
 import fastmri
 
+from src.data.fft_utils import fft2c_new
 from src.losses.sim_loss import get_sim_loss_fn
 from src.losses.grad_calc import get_Laplacian, get_Jacobian
-from src.losses.recon_reg import get_recon_regularizer
 
-def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
+def calculate_losses(config, inputs, model_outputs, coord_tensor, losses, recon_regularizer=None):
     # abs_phi: [T, H*W, D]
     # rel_vel: [T or 1, H*W, D]
     moving = inputs[0]
@@ -17,7 +17,7 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
     moved_imgs_imspace = None
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
-        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape)
+        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer)
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
@@ -29,7 +29,7 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses):
 
     return loss_sum, [losses, moved_imgs_imspace]
 
-def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape):
+def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer=None):
     if loss_name == 'sim':
         return similarity_loss(config, inputs, model_outputs)
     elif loss_name == 'imdiff':
@@ -45,7 +45,9 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
     elif loss_name == 'hyper_el':
         return compute_hyper_elastic_loss(model_outputs, coord_tensor, shape)
     elif loss_name == 'recon_reg':
-        return compute_recon_reg_loss(inputs, config)
+        return compute_recon_reg_loss(inputs, recon_regularizer)
+    elif loss_name == 'mcdc':
+        return motion_comp_dc_loss(config, inputs, model_outputs)
 
 def similarity_loss(config, inputs, model_outputs):
     moving, moving_inr, fixed, forw = inputs
@@ -63,12 +65,22 @@ def im_space_l2_loss(config, inputs, model_outputs):
     moving, moving_inr, fixed, _ = inputs
     ST = model_outputs[2]
     loss_fn = torch.nn.MSELoss(reduction='none')
-    
+    is_complex_img = config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset
+
     if config.use_nreps:
         moved_im = ST.apply(moving_inr)
+    elif is_complex_img and getattr(config, 'imdiff_warp_mag', False):
+        # Warp the magnitude image, not the complex channels: the phase is temporally
+        # incoherent in this data (see motion_comp_dc_loss), so bilinearly interpolating
+        # rotating phasors destructively interferes and leaves a residual floor that no
+        # motion field can explain.
+        moving = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
+        moving = (moving + 1e-8).sqrt()
+        moved_im = ST.apply(moving[:-1])
+        return loss_fn(moving[1:], moved_im), moved_im.detach().cpu()
     else:
         moved_im = ST.apply(moving[:-1])
-    if config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset:
+    if is_complex_img:
         moving = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
         moving = (moving + 1e-8).sqrt()
         moved_im = fastmri.complex_abs_sq(moved_im.movedim(1,-1)).unsqueeze(1)
@@ -103,12 +115,33 @@ def phi_grad_loss(model_outputs, coord_tensor, shape):
     loss = torch.linalg.vector_norm(phi_J, dim=-1)
     return loss, None
 
-def compute_recon_reg_loss(inputs, config):
+def motion_comp_dc_loss(config, inputs, model_outputs):
+    # Motion-compensated data consistency: frame t+1's *measured* k-space rows must be
+    # explained by the warped frame t. This turns the neighbors' measurements into
+    # (soft) data constraints instead of an image-space prior, which is how the k-space
+    # information actually transfers between frames.
+    #
+    # The phase is temporally incoherent in this data (frame-to-frame complex copy has
+    # ~6% relative residual vs ~0.8% for magnitude), so only the magnitude is routed
+    # through the motion model; the phase is taken from the target frame's own current
+    # estimate: pred = |warp(I_t)| * I_{t+1} / |I_{t+1}|. Warping the magnitude (not the
+    # complex channels) also avoids destructive interpolation of rotating phasors.
+    moving, _, fixed, forw = inputs
+    ST = model_outputs[2]
+    moving_mag = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
+    moving_mag = (moving_mag + 1e-12).sqrt()
+    moved_mag = ST.apply(moving_mag[:-1])
+    pred = moved_mag * moving[1:] / moving_mag[1:]
+    pred_kspace = fft2c_new(pred.movedim(1,-1)).movedim(-1,1) * forw.mask[1:]
+    loss_fn = torch.nn.MSELoss(reduction='none')
+    loss = loss_fn(pred_kspace, fixed[1:])
+    return loss, None
+
+def compute_recon_reg_loss(inputs, recon_regularizer):
     moving = inputs[0]
-    reg = get_recon_regularizer(config)
     moving_abs = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
     moving_abs = (moving_abs + 1e-8).sqrt()
-    loss = reg.g(moving_abs)
+    loss = recon_regularizer.g(moving_abs)
     return loss, None
 
 def neg_Jdet_loss(J, I):

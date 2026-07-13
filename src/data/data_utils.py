@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from .fft_utils import FastmriFT, FastmriIFT, FTAndSubsample, ZeroFillAndIFT
+from .fft_utils import FastmriFT, FastmriIFT, MaskedFT, MaskedIFT
 
 
 def complex_abs(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
@@ -49,11 +49,11 @@ def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Mod
     else:
         full_forw = FastmriFT()
         full_adj = FastmriIFT()
-        forw_subs = FTAndSubsample(mask)
-        forw_subs_adj = ZeroFillAndIFT(mask)
+        forw_subs = MaskedFT(mask)
+        forw_subs_adj = MaskedIFT(mask)
     return full_forw, full_adj, forw_subs, forw_subs_adj
 
-def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor, fixed_adj: torch.Tensor) -> nn.Parameter:
+def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor, fixed_adj: torch.Tensor, kspace_mask: torch.Tensor = None) -> nn.Parameter:
     if config.init == 'zero':
         recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
     elif config.init == 'gt':
@@ -62,6 +62,14 @@ def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: t
         recon_init = torch.nn.Parameter(torch.randn_like(raw_kspace_data, device=config.device)*1e-3, requires_grad=True)
     elif config.init == 'adj':
         recon_init = torch.nn.Parameter(fixed_adj.clone(), requires_grad=True)
+    elif config.init == 'ktavg':
+        # k-t shared init: fill each unmeasured k-space entry with the average of the
+        # frames that measured it (motion-free temporal sharing). Requires a time-varying
+        # (kt) mask to be useful; with a static mask this reduces to the zero-filled adj.
+        counts = kspace_mask.sum(0, keepdim=True).clamp(min=1)
+        avg = raw_kspace_data.sum(0, keepdim=True) / counts
+        filled = torch.where(kspace_mask, raw_kspace_data, avg.expand_as(raw_kspace_data))
+        recon_init = nn.Parameter(FastmriIFT()(filled).to(config.device), requires_grad=True)
     return recon_init
 
     
@@ -109,11 +117,44 @@ def generate_random_mask2(shape: torch.Size, factor: int):
 
     return mask
 
+def generate_kt_mask(shape: torch.Size, factor: int):
+    # Time-interleaved (k-t) sampling: every frame keeps the ACS center rows, but the
+    # equispaced rows are shifted by one per frame. Consecutive frames then measure
+    # complementary k-space rows, so temporal consistency + motion can actually fill in
+    # the rows a frame is missing, and the aliasing ghosts are no longer static in time.
+    t_dim, h = shape[0], shape[-2]
+    start = h//2 - 12
+    end = h//2 + 12
+
+    mask = torch.zeros(shape, dtype=bool)
+    for t in range(t_dim):
+        indices = list(set(range(start, end)).union(set(range(t % factor, h, factor))))
+        mask[t, ..., indices, :] = 1
+
+    return mask
+
+def generate_kt_random_mask(shape: torch.Size, factor: int):
+    # Like generate_kt_mask but with an independent random row selection per frame.
+    t_dim, h = shape[0], shape[-2]
+    start = h//2 - 12
+    end = h//2 + 12
+
+    mask = torch.zeros(shape, dtype=bool)
+    for t in range(t_dim):
+        indices = list(set(range(start, end)).union(set(random.sample(range(h), h//factor))))
+        mask[t, ..., indices, :] = 1
+
+    return mask
+
 def get_kspace_mask(config, kspace_data, factor):
     if config.mask == 'random':
         mask = generate_random_mask(kspace_data.shape, factor)
     elif config.mask == 'random2':
         mask = generate_random_mask2(kspace_data.shape, factor)
+    elif config.mask == 'kt':
+        mask = generate_kt_mask(kspace_data.shape, factor)
+    elif config.mask == 'kt_random':
+        mask = generate_kt_random_mask(kspace_data.shape, factor)
     else:
         mask = generate_standard_mask(kspace_data.shape, factor)
     return mask

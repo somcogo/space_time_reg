@@ -9,7 +9,9 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from torchdiffeq import odeint_adjoint as odeint
 
+from src.data.fft_utils import apply_hard_data_consistency
 from src.losses.losses import calculate_losses
+from src.losses.recon_reg import get_recon_regularizer
 from src.metrics.calc_metrics import get_relevant_loss_names, calculate_metrics
 from src.utils.spatial_utils import generate_coord_tensor, get_relative_vel
 from src.utils.spatial_transformer import get_spatial_transformer
@@ -40,30 +42,51 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
     else:
         print(f'Set require_grad for recon to {moving.requires_grad}')
 
+    if config.hard_dc and hasattr(inputs[3], 'mask'):
+        # Start from a measurement-consistent recon so every epoch (including the motion
+        # warm-up, which never updates the recon) sees the projected images.
+        with torch.no_grad():
+            moving.copy_(apply_hard_data_consistency(moving, inputs[2], inputs[3].mask))
+
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
+    # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
+    # epoch inside calculate_losses.
+    recon_regularizer = get_recon_regularizer(config) if 'recon_reg' in losses_to_calc else None
     all_metrics = []
 
 
     for epoch in range(1, config.epochs + 1):
-        if epoch % (2*config.interval) == config.interval:
-            moving.requires_grad_(True)
-            for param in func.parameters():
-                param.requires_grad = False
+        if config.motion_warmup > 0 and epoch in (1, config.motion_warmup + 1):
+            in_warmup = epoch == 1
+            moving.requires_grad_(False if in_warmup else config.learn_recon)
+            msg = (f'Motion warm-up: recon frozen until epoch {config.motion_warmup}' if in_warmup
+                   else f'Motion warm-up over: set require_grad for recon to {moving.requires_grad} at epoch {epoch}')
             if logger is not None:
-                logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+                logger.info(msg)
             else:
-                print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
-        elif epoch % (2*config.interval) == 0 or (epoch == 1 and config.interval < config.epochs):
-            moving.requires_grad_(False)
-            for param in func.parameters():
-                param.requires_grad = True
-            if logger is not None:
-                logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
-            else:
-                print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+                print(msg)
+        # interval == epochs means alternation is disabled; the guard also keeps the
+        # final epoch from accidentally freezing func (epochs % (2*epochs) == epochs).
+        if config.interval < config.epochs:
+            if epoch % (2*config.interval) == config.interval:
+                moving.requires_grad_(True)
+                for param in func.parameters():
+                    param.requires_grad = False
+                if logger is not None:
+                    logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+                else:
+                    print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+            elif epoch % (2*config.interval) == 0 or epoch == 1:
+                moving.requires_grad_(False)
+                for param in func.parameters():
+                    param.requires_grad = True
+                if logger is not None:
+                    logger.info(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
+                else:
+                    print(f'Set require_grad for recon to {moving.requires_grad} and for func to {param.requires_grad} at epoch {epoch}')
 
 
         # TODO: reimplement downsampling
@@ -78,22 +101,47 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
         model_outputs = get_model_outputs(config, func, coord_tensor, inputs)
 
         time_stamps[1, epoch-1] = time.time()
-        loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord_tensor, losses_to_calc)
+        loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord_tensor, losses_to_calc, recon_regularizer)
 
         time_stamps[2, epoch-1] = time.time()
         loss_sum.backward()
         if scheduler is not None:
             scheduler.step()
 
+        # Snapshot before optimizer.step() and hard DC mutate moving/func, so the saved
+        # state is exactly the one loss_sum was computed on.
+        if loss_sum <= best_loss and epoch > config.schedule[-1]:
+            best_loss = loss_sum.detach()
+            best_model_out = [model_outputs[0].clone(), model_outputs[1].clone(), None]
+            best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone()]
+            best_moving = inputs[0].detach().clone()
+            best_st_dict = copy.deepcopy(func.state_dict())
+            best_epoch = epoch
+            coords = coord_tensor
+
         time_stamps[3, epoch-1] = time.time()
         optimizer.step()
 
         time_stamps[4, epoch-1] = time.time()
+        if config.hard_dc and hasattr(inputs[3], 'mask'):
+            # Project the recon back onto the measurements: the regularizer terms may
+            # only fill in the unmeasured k-space entries, never corrupt measured ones.
+            with torch.no_grad():
+                fixed = inputs[2]
+                moving.copy_(apply_hard_data_consistency(moving, fixed, inputs[3].mask))
         with torch.no_grad():
             extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
             metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs, model_outputs, loss_outputs, extended_log)
             log_metrics(config, metrics, writer, epoch, imgs_to_save)
-            all_metrics.append({'metrics':copy.deepcopy(metrics), 'losses':copy.deepcopy(loss_outputs[0])})
+            # Reduce the per-pixel 'loss' maps to per-frame sums on CPU before archiving:
+            # keeping the full GPU maps in all_metrics leaks GPU memory linearly in
+            # epochs (~tens of MB each) and OOMs multi-thousand-epoch runs. The summary
+            # pdf (prep_metrics) only ever uses the per-frame sums anyway.
+            slim_losses = {name: {**{k: v for k, v in d.items() if k != 'loss'},
+                                  'loss': (d['loss'].sum(dim=tuple(range(1, d['loss'].dim())))
+                                           if d['loss'].dim() > 1 else d['loss']).cpu()}
+                           for name, d in loss_outputs[0].items()}
+            all_metrics.append({'metrics':copy.deepcopy(metrics), 'losses':slim_losses})
 
         time_stamps[5, epoch-1] = time.time()
         if epoch == 1 or log_epoch:
@@ -104,15 +152,6 @@ def registration(config: Namespace, writer: SummaryWriter, logger:Logger, inputs
                 logger.info(log_msg)
             else:
                 print(log_msg)
-        if loss_sum <= best_loss and epoch > config.schedule[-1]:
-            best_loss = loss_sum
-            best_model_out = [model_outputs[0].clone(), model_outputs[1].clone(), None]
-            best_loss_out = [copy.deepcopy(loss_outputs[0]), loss_outputs[1].clone()]
-            best_moving = inputs[0].detach().clone()
-            best_st_dict = copy.deepcopy(func.state_dict())
-            best_epoch = epoch
-            coords = coord_tensor
-
         if epoch < config.epochs:
             time_stamps[6, epoch] = time.time()
 

@@ -243,8 +243,11 @@ def prep_metrics(all_metrics):
         for i, m in enumerate(all_metrics):
             for l in m['losses'].values():
                 if l['name'] == name:
-                    losses[name][i] = l['lambda'] * l['loss'].sum(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
-                    debug_losses[name][i] = l['loss'].sum(dim=tuple(range(1, l['loss'].dim()))).cpu().numpy()
+                    # all_metrics may already store per-frame sums (1-D); only reduce
+                    # spatial dims when the full per-pixel map is present.
+                    per_frame = l['loss'].sum(dim=tuple(range(1, l['loss'].dim()))) if l['loss'].dim() > 1 else l['loss']
+                    losses[name][i] = l['lambda'] * per_frame.cpu().numpy()
+                    debug_losses[name][i] = per_frame.cpu().numpy()
     
     name = 'Reconstruction reg'
     losses[name] = np.zeros((len(all_metrics), T))

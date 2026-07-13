@@ -194,9 +194,12 @@ def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> l
     for t in range(gt_recon.shape[0]):
         for c in range(gt_recon.shape[1]):
             pred, gt = pred_recon[t, c], gt_recon[t, c]
-            psnr_array[t, c] = psnr(gt / gt.max(), pred / pred.max())
-            ssim_array[t, c] = ssim(gt / gt.max(), pred / pred.max())
-            nmse_array[t, c] = nmse(gt / gt.max(), pred / pred.max())
+            # No per-image self-normalization: pred/pred.max() would hide global scale
+            # errors and let a single bright artifact pixel shift the score. psnr/ssim/nmse
+            # already use gt.max() as the data range, as in the official CMRxRecon eval.
+            psnr_array[t, c] = psnr(gt, pred)
+            ssim_array[t, c] = ssim(gt, pred)
+            nmse_array[t, c] = nmse(gt, pred)
     return psnr_array, ssim_array, nmse_array
 
 def add_cmr_eval_metrics(moving: torch.Tensor, gt_im: torch.Tensor, metrics: dict) -> dict:
