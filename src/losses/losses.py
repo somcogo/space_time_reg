@@ -68,6 +68,11 @@ def im_space_l2_loss(config, inputs, model_outputs):
     is_complex_img = config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset
 
     if config.use_nreps:
+        if moving_inr is None:
+            raise ValueError(
+                "use_nreps=True requires a neural-representation image (moving_inr), but it "
+                "is None for this dataset. Set use_nreps=False (the supported cmr mode)."
+            )
         moved_im = ST.apply(moving_inr)
     elif is_complex_img and getattr(config, 'imdiff_warp_mag', False):
         # Warp the magnitude image, not the complex channels: the phase is temporally

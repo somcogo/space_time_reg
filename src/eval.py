@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 
 from src.metrics.calc_metrics import calculate_metrics
-from src.utils.log_and_save import log_metrics
+from src.utils.logging import log_metrics
 from src.metrics.visualisation import prep_vis_summary_pdf
 
 def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger, output: list, inputs: list, eval_inputs: list) -> dict[torch.Tensor]:
