@@ -30,24 +30,22 @@ def calculate_losses(config, inputs, model_outputs, coord_tensor, losses, recon_
     return loss_sum, [losses, moved_imgs_imspace]
 
 def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer=None):
-    if loss_name == 'sim':
-        return similarity_loss(config, inputs, model_outputs)
-    elif loss_name == 'imdiff':
-        return im_space_l2_loss(config, inputs, model_outputs)
-    elif loss_name == 'negJ':
-        return negJ_loss(model_outputs, coord_tensor, shape)
-    elif loss_name == 'grd':
-        return vel_grad_loss(model_outputs, shape)
-    elif loss_name == 'lap':
-        return vel_lap_loss(model_outputs, shape)
-    elif loss_name == 'pgr':
-        return phi_grad_loss(model_outputs, coord_tensor, shape)
-    elif loss_name == 'hyper_el':
-        return compute_hyper_elastic_loss(model_outputs, coord_tensor, shape)
-    elif loss_name == 'recon_reg':
-        return compute_recon_reg_loss(inputs, recon_regularizer)
-    elif loss_name == 'mcdc':
-        return motion_comp_dc_loss(config, inputs, model_outputs)
+    # Each entry adapts a single-loss function to the uniform call context. Replaces the
+    # previous if/elif ladder; new losses register a lambda here.
+    dispatch = {
+        'sim': lambda: similarity_loss(config, inputs, model_outputs),
+        'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
+        'negJ': lambda: negJ_loss(model_outputs, coord_tensor, shape),
+        'grd': lambda: vel_grad_loss(model_outputs, shape),
+        'lap': lambda: vel_lap_loss(model_outputs, shape),
+        'pgr': lambda: phi_grad_loss(model_outputs, coord_tensor, shape),
+        'hyper_el': lambda: compute_hyper_elastic_loss(model_outputs, coord_tensor, shape),
+        'recon_reg': lambda: compute_recon_reg_loss(inputs, recon_regularizer),
+        'mcdc': lambda: motion_comp_dc_loss(config, inputs, model_outputs),
+    }
+    if loss_name not in dispatch:
+        raise ValueError(f"Unknown loss {loss_name!r}; registered: {sorted(dispatch)}")
+    return dispatch[loss_name]()
 
 def similarity_loss(config, inputs, model_outputs):
     moving, moving_inr, fixed, forw = inputs
