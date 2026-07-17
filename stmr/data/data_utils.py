@@ -25,6 +25,12 @@ def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
         raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
         kspace_mask = (raw_kspace_data[:2] != 0)
     elif config.dataset == 'cmr_test2':
+        # Fully-sampled, unmasked "no k-space undersampling" mode used by the staged
+        # ablation (stage S0-S2). Reload from the full file honoring slice/frame selection
+        # so it can run at the same time_points as the real cmr datasets; the module-level
+        # gt_kspace_data above is pinned to [:2, 0] (kept for cmr_test1).
+        gt_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:, config.slice_number].permute(0, 3, 1, 2)
+        gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = torch.ones_like(gt_kspace_data, dtype=bool)
         raw_kspace_data = gt_kspace_data
     elif config.dataset == 'cmr_test3':

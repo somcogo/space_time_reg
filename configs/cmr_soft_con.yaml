@@ -1,5 +1,6 @@
-# Full pipeline on CMRxRecon P001, k-t mask + hard DC + WCRR denoiser.
-# Direct port of the old bash_script.sh (soft_con / tuned_kt_dc_wcrr).
+# Full pipeline on CMRxRecon P001, static (time-constant) mask + hard DC + WCRR denoiser.
+# Ported from the old bash_script.sh (soft_con / tuned_kt_dc_wcrr); the k-t mask it used
+# is replaced by the time-constant 'st' mask.
 exp_name: cmr/soft_con/full_pipeline/tuned_kt_dc_wcrr
 dataset: cmr_P001
 device: cuda
@@ -10,7 +11,7 @@ time_points: 6
 start_frame: 0
 slice_number: 0
 factor: 4
-mask: kt
+mask: st
 
 # initial reconstruction (nmAPG)
 use_nmapg: true

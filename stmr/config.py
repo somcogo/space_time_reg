@@ -48,7 +48,7 @@ class Config:
     # --- reconstruction regularizer ---
     reg: str = "learned"
     reg_variant: str = "crr"  # 'crr' (weak_convexity=0) or 'wcrr' (weak_convexity=1)
-    reg_alpha: float = 0.0
+    reg_alpha: float | None = None  # None -> keep the pretrained alpha (do not overwrite)
     recon_scale: float = 0.1  # 0 -> None (keep pretrained scale)
 
     # --- velocity network ---
@@ -78,6 +78,8 @@ class Config:
 
     # --- losses ---
     loss: str = "mse"  # F3: MSE for k-space data fidelity
+    sim_domain: str = "fourier"  # 'fourier' (k-space DC) or 'image' (image-space DC; equal
+    #                              to fourier on fully-sampled data by Parseval, FFT unitary)
     lambda_st: float = 1.0
     lambda_negJ: float = 0.1
     lambda_grd: float = 1.0
@@ -164,6 +166,11 @@ def parse_cli(argv=None) -> Config:
 def _coerce_to_type(value, type_annotation):
     """Coerce a YAML-loaded value to the dataclass field's declared type."""
     ann = str(type_annotation)
+    if value is None:
+        # An explicit null (e.g. ``reg_alpha:`` in YAML) stays None regardless of the
+        # declared type, so optional fields can be set back to their "keep pretrained"
+        # sentinel without tripping float(None).
+        return None
     if "bool" in ann:
         if isinstance(value, str):
             return value.lower() in ("1", "true", "yes")
@@ -183,4 +190,13 @@ def _coerce(raw: str, current):
         return int(float(raw))
     if isinstance(current, float):
         return float(raw)
+    if current is None:
+        # Optional field (e.g. reg_alpha) whose current value is the None sentinel.
+        # "none"/"null"/"" set it back to None; anything else is treated as a float.
+        if raw.lower() in ("none", "null", ""):
+            return None
+        try:
+            return float(raw)
+        except ValueError:
+            return raw
     return raw

@@ -103,8 +103,9 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
             best_loss = loss_sum.detach()
             best_model_out = ModelOutputs(model_outputs.rel_vel.clone(),
                                           model_outputs.abs_phi.clone(), None)
-            best_loss_out = LossOutputs(copy.deepcopy(loss_outputs.losses),
-                                        loss_outputs.moved_imspace.clone())
+            best_loss_out = LossOutputs(
+                copy.deepcopy(loss_outputs.losses),
+                loss_outputs.moved_imspace.clone() if loss_outputs.moved_imspace is not None else None)
             best_moving = inputs.moving.detach().clone()
             best_st_dict = copy.deepcopy(func.state_dict())
             best_epoch = epoch

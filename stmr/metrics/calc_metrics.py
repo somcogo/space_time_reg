@@ -56,22 +56,27 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
         reduce = len(fixed.shape) == 5
         fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce)
 
-        reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(moved_im, moving, config)
         flow_col = prep_flow_vis(rel_phi)
         sim_grid, log_sim_grid = prep_sim_meas_vis(sim_loss)
         def_grid = prep_grid_def_vis(abs_phi[-1])
 
         imgs_to_save = {
-            'imgs/reg_last':reg_last,
-            'imgs/reg_all':reg_all,
-            'imgs/reg_imspace':reg_imspace,
-            'imgs/moving':moving_im,
             'flows/flow':flow_col,
             'energies/sim_loss':sim_grid,
             'energies/log_sim_loss':log_sim_grid,
             'grid_deform/grid_def_last_step':def_grid
         }
-        
+
+        # The warped-image panels need a moved image, which only the imdiff loss produces.
+        # When that loss is off (lambda_rl2 == 0) skip them; the recon itself is still
+        # shown via imgs/comp_imspace below.
+        if moved_im is not None:
+            reg_last, reg_all, reg_imspace, moving_im = prep_moved_img_vis(moved_im, moving, config)
+            imgs_to_save['imgs/reg_last'] = reg_last
+            imgs_to_save['imgs/reg_all'] = reg_all
+            imgs_to_save['imgs/reg_imspace'] = reg_imspace
+            imgs_to_save['imgs/moving'] = moving_im
+
         if imdiff_loss is not None:
             imdiff_grid = prep_imdiff_energy_vis(imdiff_loss)
             imgs_to_save['energies/im_diff_loss'] = imdiff_grid
@@ -97,42 +102,26 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
     return metrics, imgs_to_save
 
 def get_relevant_loss_names(config):
-    losses = {'sim':{'name':'Similarity loss',
-                       'lambda':config.lambda_st,
-                       'time':0.}}
+    # Only losses with a strictly positive weight are computed: a zero-weight term
+    # contributes nothing to loss_sum but still builds its full autograd graph every
+    # epoch, which is pure wasted compute (and memory). Each term is gated by its own
+    # lambda. 'sim' is always kept: it is the data-fidelity term and its per-pixel map is
+    # required by the metrics/visualisation path (reduce_dim, prep_sim_meas_vis).
+    is_cmr = 'cmr' in config.dataset
+    candidates = [
+        ('negJ',     'Phi negative det J',   config.lambda_negJ, True),
+        ('grd',      'Vel gradient',         config.lambda_grd,  True),
+        ('lap',      'Vel Laplacian',        config.lambda_lap,  True),
+        ('pgr',      'Phi gradient',         config.lambda_pgr,  True),
+        ('hyper_el', 'Hyper elasticity',     config.lambda_hel,  True),
+        ('recon_reg', 'Reconstruction reg',  config.lambda_recon, is_cmr),
+        ('mcdc',     'Motion comp DC',       config.lambda_mcdc, is_cmr),
+        ('imdiff',   'Image space diff',     config.lambda_rl2,  True),
+    ]
 
-    include_all = False
-    # include_all = config.debug
-    if config.lambda_negJ > 0 or config.lambda_grd > 0 or include_all:
-        losses['negJ'] = {'name':'Phi negative det J',
-                       'lambda':config.lambda_negJ,
-                       'time':0.}
-        losses['grd'] = {'name':'Vel gradient',
-                       'lambda':config.lambda_grd,
-                       'time':0.}
-    if config.lambda_lap > 0 or include_all:
-        losses['lap'] = {'name':'Vel Laplacian',
-                       'lambda':config.lambda_lap,
-                       'time':0.}
-    if config.lambda_pgr > 0 or include_all:
-        losses['pgr'] = {'name':'Phi gradient',
-                       'lambda':config.lambda_pgr,
-                       'time':0.}
-    if config.lambda_hel > 0 or include_all:
-        losses['hyper_el'] = {'name':'Hyper elasticity',
-                       'lambda':config.lambda_hel,
-                       'time':0.}
-    if (config.lambda_recon > 0 or include_all) and 'cmr' in config.dataset:
-        losses['recon_reg'] = {'name':'Reconstruction reg',
-                       'lambda':config.lambda_recon,
-                       'time':0.}
-    if config.lambda_mcdc > 0 and 'cmr' in config.dataset:
-        losses['mcdc'] = {'name':'Motion comp DC',
-                       'lambda':config.lambda_mcdc,
-                       'time':0.}
-    # if config.lambda_rl2 > 0 or include_all:
-    losses['imdiff'] = {'name':'Image space diff',
-                    'lambda':config.lambda_rl2,
-                    'time':0.}
+    losses = {'sim': {'name': 'Similarity loss', 'lambda': config.lambda_st, 'time': 0.}}
+    for key, name, lam, enabled in candidates:
+        if enabled and lam > 0:
+            losses[key] = {'name': name, 'lambda': lam, 'time': 0.}
 
     return losses

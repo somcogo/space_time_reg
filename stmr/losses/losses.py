@@ -3,7 +3,7 @@ import time
 import fastmri
 import torch
 
-from stmr.data.fft_utils import fft2c_new
+from stmr.data.fft_utils import fft2c_new, ifft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
 from stmr.losses.sim_loss import get_sim_loss_fn
 from stmr.state import Inputs, LossOutputs, ModelOutputs
@@ -53,9 +53,17 @@ def similarity_loss(config, inputs, model_outputs):
     moving, forw = inputs.moving, inputs.forward
     loss_fn = get_sim_loss_fn(config, moving)
 
-    recon_kspace = forw(moving)
-    loss = loss_fn(inputs.fixed, recon_kspace)
-    
+    if getattr(config, 'sim_domain', 'fourier') == 'image':
+        # Image-space data consistency: compare the recon directly to the IFFT of the
+        # measured k-space. On fully-sampled data this is identical (value AND gradient) to
+        # the Fourier-space MSE below, because the FFT is unitary (Parseval). Running one
+        # stage each way is a check that the FFT/IFFT data-consistency path is correct.
+        target = ifft2c_new(inputs.fixed.movedim(1, -1)).movedim(-1, 1)
+        loss = loss_fn(target, moving)
+    else:
+        recon_kspace = forw(moving)
+        loss = loss_fn(inputs.fixed, recon_kspace)
+
     return loss, None
 
 def im_space_l2_loss(config, inputs, model_outputs):

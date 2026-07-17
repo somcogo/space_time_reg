@@ -153,7 +153,10 @@ def reduce_dim(fixed: torch.Tensor, moved_im: torch.Tensor, rel_phi: torch.Tenso
     slice_ndx = fixed.shape[-1] // 2
     if reduce:
         fixed = fixed[..., slice_ndx]
-        moved_im = moved_im[..., slice_ndx]
+        # moved_im is None when the image-space temporal loss (imdiff) is disabled
+        # (lambda_rl2 == 0); nothing produced a warped image that epoch.
+        if moved_im is not None:
+            moved_im = moved_im[..., slice_ndx]
         rel_phi = rel_phi[..., slice_ndx, :-1]
         abs_phi = abs_phi[..., slice_ndx, :-1]
         if rel_vel is not None:
