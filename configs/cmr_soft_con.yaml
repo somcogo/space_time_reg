@@ -7,7 +7,7 @@ device: cuda
 seed: 0
 
 # data / mask
-time_points: 6
+time_points: 12
 start_frame: 0
 slice_number: 0
 factor: 4
