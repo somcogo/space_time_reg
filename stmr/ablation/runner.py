@@ -7,7 +7,7 @@ import os
 from stmr.config import Config
 
 from .report import extract_row
-from .stages import BASE, STAGE_BY_ID, StageSpec
+from .stages import BASE, StageSpec
 
 
 def build_config(spec: StageSpec, epochs: int, device: str, outdir: str,
@@ -53,12 +53,12 @@ def run_stage(spec: StageSpec, epochs: int, device: str, outdir: str,
     return extract_row(spec, stage_res_path(spec, outdir))
 
 
-def run_ladder(stage_ids: list[str], epochs: int, device: str, outdir: str,
-               overrides: dict | None = None) -> list[dict]:
+def run_ladder(stage_ids: list[str], stage_by_id: dict[str, StageSpec], epochs: int,
+               device: str, outdir: str, overrides: dict | None = None) -> list[dict]:
     """Run the stages in order, threading each stage's row into the next stage's pass_fn."""
     rows, prev = [], None
     for sid in stage_ids:
-        spec = STAGE_BY_ID[sid]
+        spec = stage_by_id[sid]
         row = run_stage(spec, epochs, device, outdir, overrides)
         row["passed"] = spec.pass_fn(row, prev) if spec.pass_fn is not None else None
         rows.append(row)

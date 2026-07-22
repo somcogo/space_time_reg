@@ -26,6 +26,7 @@ def prep_vis_summary_pdf(config: Namespace,
     os.makedirs(pdf_dir_path, exist_ok=True)
     img_pdf_path = os.path.join(pdf_dir_path, 'images.pdf')
     phi_pdf_path = os.path.join(pdf_dir_path, 'deformation.pdf')
+    losses_pdf_path = os.path.join(pdf_dir_path, 'losses.pdf')
     vel_pdf_path = os.path.join(pdf_dir_path, 'velocity.pdf')
     T, C, H, W = gt.shape
     gt = prep_tensor(config, gt)
@@ -47,7 +48,13 @@ def prep_vis_summary_pdf(config: Namespace,
 
     # Create pdf with deformation visualised
     with PdfPages(phi_pdf_path) as pdf:
-        create_figure_for_deformation(pdf, gt, final, abs_phi, rel_phi, losses, debug_losses)
+        create_figure_for_deformation(pdf, gt, final, abs_phi, rel_phi)
+        plt.close('all')
+
+    # Create pdf with loss curves for every non-zero-weight loss (sim gets one graph;
+    # every other active loss gets a weighted and an unweighted graph)
+    with PdfPages(losses_pdf_path) as pdf:
+        create_figure_for_losses(pdf, losses, debug_losses)
         plt.close('all')
 
     # Create pdf with velocity visualised
@@ -127,32 +134,22 @@ def prep_phi(phi: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     phi = phi.reshape(shape)
     return phi
 
-def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray, losses: dict, debug_losses: dict):
+def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarray, abs_phi: np.ndarray, rel_phi: np.ndarray):
     fontsize = 12
-    f, a = plt.subplots(abs_phi.shape[0] + 1, 12, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2, 1, 1, 1, 1, 1, 1, 1]})
-    f.set_size_inches(36, (abs_phi.shape[0] + 1)*2)
+    f, a = plt.subplots(abs_phi.shape[0] + 1, 5, gridspec_kw={'width_ratios': [1, 1, 1, 1, 1.2]})
+    f.set_size_inches(15, (abs_phi.shape[0] + 1)*2)
 
     use_imshow_on_axes(a[0,0], gt[0], True, "GT at time 0", fontsize, False)
     use_imshow_on_axes(a[0,1], final[0], True, "Final recon at time 0", fontsize, False)
     a[0,2].axis("off")
     a[0,3].axis("off")
     a[0,4].axis("off")
-    a[0,5].plot(losses['Similarity loss'][:,0])
-    a[0,5].set_title('Sim loss', fontsize=fontsize)
-    a[0,6].plot(losses['Reconstruction reg'][:,0])
-    a[0,6].set_title('CRR weighted', fontsize=fontsize)
-    a[0,7].axis("off")
-    a[0,8].axis("off")
-    a[0,9].plot(debug_losses['Reconstruction reg'][:,0])
-    a[0,9].set_title('CRR original value', fontsize=fontsize)
-    a[0,10].axis("off")
-    a[0,11].axis("off")
 
     for t in range(1, abs_phi.shape[0] + 1):
         use_imshow_on_axes(a[t,0], gt[t], True, f"GT at time {t}", fontsize, False)
         use_imshow_on_axes(a[t,1], final[t], True, f"Final recon at time {t}", fontsize, False)
 
-        deform_dir = flow_to_color(rel_phi[t - 1])        
+        deform_dir = flow_to_color(rel_phi[t - 1])
         use_imshow_on_axes(a[t,2], deform_dir, True, f"Deformation at time {t}", fontsize, False, cmap=None)
         draw_deformed_grid(torch.from_numpy(abs_phi[t - 1]), a[t, 3])
         a[t,3].set_title(f"Deformed grid at time {t}", fontsize=fontsize)
@@ -161,45 +158,40 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
         phi_norm = np.linalg.norm(rel_phi[t - 1], axis=-1)
         use_imshow_on_axes(a[t,4], phi_norm, True, f"Deformation norm at time {t}", fontsize, True, ticks=[phi_norm.min(), phi_norm.max()])
 
-        a[t,5].plot(losses['Similarity loss'][:,t])
-        a[t,5].set_title('Sim loss', fontsize=fontsize)
+    f.tight_layout()
+    pdf.savefig(f)
+    plt.close(f)
 
-        if 'Reconstruction reg' in losses.keys():
-            a[t,6].plot(losses['Reconstruction reg'][:,t])
-            a[t,6].set_title('CRR weighted', fontsize=fontsize)
-        else:
-            a[t,6].axis("off")
-        
-        if 'Phi negative det J' in losses.keys():
-            a[t,7].plot(losses['Phi negative det J'][:,t-1])
-            a[t,7].set_title('Deform grad loss weighted', fontsize=fontsize)
-        else:
-            a[t,7].axis("off")
-        
-        if 'Image space diff' in losses.keys():
-            a[t,8].plot(losses['Image space diff'][:,t-1])
-            a[t,8].set_title('Temp cons loss weighted', fontsize=fontsize)
-        else:
-            a[t,7].axis("off")
-        
-        if 'Reconstruction reg' in losses.keys():
-            a[t,9].plot(debug_losses['Reconstruction reg'][:,t])
-            a[t,9].set_title('CRR OG value', fontsize=fontsize)
-        else:
-            a[t,8].axis("off")
-        
-        if 'Phi negative det J' in losses.keys():
-            a[t,10].plot(debug_losses['Phi negative det J'][:,t-1])
-            a[t,10].set_title('Deform grad loss OG value', fontsize=fontsize)
-        else:
-            a[t,10].axis("off")
-        
-        if 'Image space diff' in losses.keys():
-            a[t,11].plot(debug_losses['Image space diff'][:,t-1])
-            a[t,11].set_title('Temp cons loss OG value', fontsize=fontsize)
-        else:
-            a[t,11].axis("off")
-        
+def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict):
+    # debug_losses holds exactly the currently-active (non-zero-weight) loss terms -- the
+    # metric-only entries (GT error sum/max[, init]) live only in `losses`, so iterating
+    # debug_losses already excludes zero-weight losses and non-loss metrics.
+    fontsize = 12
+    other_names = [name for name in debug_losses if name != 'Similarity loss']
+    n_cols = 1 + 2 * len(other_names)
+    T = losses['Similarity loss'].shape[1]
+
+    f, a = plt.subplots(T, n_cols, squeeze=False)
+    f.set_size_inches(3 * n_cols, T * 2)
+
+    for t in range(T):
+        a[t,0].plot(losses['Similarity loss'][:,t])
+        a[t,0].set_title(f'Sim loss t={t}', fontsize=fontsize)
+
+        for i, name in enumerate(other_names):
+            w_col, og_col = 1 + 2 * i, 2 + 2 * i
+            # 'Reconstruction reg' is per-frame (T entries, like sim); every other
+            # regularizer is defined on frame-to-frame transitions (T-1 entries).
+            idx = t if losses[name].shape[1] == T else t - 1
+            if idx < 0:
+                a[t,w_col].axis("off")
+                a[t,og_col].axis("off")
+                continue
+            a[t,w_col].plot(losses[name][:,idx])
+            a[t,w_col].set_title(f'{name} weighted', fontsize=fontsize)
+            a[t,og_col].plot(debug_losses[name][:,idx])
+            a[t,og_col].set_title(f'{name} OG value', fontsize=fontsize)
+
     f.tight_layout()
     pdf.savefig(f)
     plt.close(f)
@@ -251,13 +243,14 @@ def prep_metrics(all_metrics):
                     debug_losses[name][i] = per_frame.cpu().numpy()
     
     name = 'Reconstruction reg'
-    losses[name] = np.zeros((len(all_metrics), T))
-    debug_losses[name] = np.zeros((len(all_metrics), T))
-    for i, m in enumerate(all_metrics):
-        for l in m['losses'].values():
-            if l['name'] == name:
-                losses[name][i] = l['lambda'] * l['loss'].cpu().numpy()
-                debug_losses[name][i] = l['loss'].cpu().numpy()
+    if any(l['name'] == name for l in all_metrics[0]['losses'].values()):
+        losses[name] = np.zeros((len(all_metrics), T))
+        debug_losses[name] = np.zeros((len(all_metrics), T))
+        for i, m in enumerate(all_metrics):
+            for l in m['losses'].values():
+                if l['name'] == name:
+                    losses[name][i] = l['lambda'] * l['loss'].cpu().numpy()
+                    debug_losses[name][i] = l['loss'].cpu().numpy()
 
     name = 'GT error sum'
     losses[name] = np.zeros((len(all_metrics), T))

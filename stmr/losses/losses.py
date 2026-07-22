@@ -37,10 +37,11 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
     dispatch = {
         'sim': lambda: similarity_loss(config, inputs, model_outputs),
         'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
-        'negJ': lambda: negJ_loss(model_outputs, coord_tensor, shape),
+        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, shape),
+        'detJ': lambda: detJ_loss(model_outputs, coord_tensor, shape),
+        'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, shape),
         'grd': lambda: vel_grad_loss(model_outputs, shape),
         'lap': lambda: vel_lap_loss(model_outputs, shape),
-        'pgr': lambda: phi_grad_loss(model_outputs, coord_tensor, shape),
         'hyper_el': lambda: compute_hyper_elastic_loss(model_outputs, coord_tensor, shape),
         'recon_reg': lambda: compute_recon_reg_loss(inputs, recon_regularizer),
         'mcdc': lambda: motion_comp_dc_loss(config, inputs, model_outputs),
@@ -99,12 +100,42 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
     return loss, moved_im.detach().cpu()
 
-def negJ_loss(model_outputs, coord_tensor: torch.Tensor, shape: list):
+def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, shape: list):
+    # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
+    # identity, i.e. penalizes the gradient of the displacement field phi - x. Finite
+    # differencing is linear, so phi_J - I here is exactly the Jacobian of (phi - x); unlike
+    # the det-based losses below, no inv(I) normalization is needed for this additive form.
     abs_phi = model_outputs.abs_phi
-    # rel_phi = abs_phi - coord_tensor
     phi_J = get_Jacobian(abs_phi, shape)
     I = get_Jacobian(coord_tensor, shape)
-    loss = neg_Jdet_loss(phi_J, I)
+    loss = grad_phi_norm(phi_J, I)
+    return loss, None
+
+def _relative_phi_Jacobian(model_outputs, coord_tensor, shape):
+    # get_Jacobian is a raw finite-difference operator in grid-index space: even the
+    # identity map's own Jacobian I = get_Jacobian(coord_tensor, shape) isn't torch.eye
+    # (grid spacing != 1, further perturbed near the boundary by replicate padding).
+    # Normalizing by I -- as grad_phi_loss's J - I already does additively -- makes phi=identity
+    # map to exactly J_rel=Identity (det=1) everywhere, including at the boundary.
+    phi_J = get_Jacobian(model_outputs.abs_phi, shape)
+    I = get_Jacobian(coord_tensor, shape)
+    return phi_J @ torch.linalg.inv(I)
+
+def detJ_loss(model_outputs, coord_tensor, shape):
+    # (det(D phi) - 1)^2: penalizes local volume change of the deformation away from 1
+    # (volume-preserving). Squared so over- and under-expansion both push the loss up and
+    # the term stays non-negative (an unsquared det - 1 would be minimized by driving det
+    # to -inf).
+    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, shape))
+    loss = (detJ - 1) ** 2
+    return loss, None
+
+def log_detJ_loss(model_outputs, coord_tensor, shape, eps=1e-6):
+    # log(det(D phi))^2: symmetric under det -> 1/det (unlike (det-1)^2), so compression and
+    # expansion by the same factor are penalized equally. Squared for the same reason as
+    # detJ_loss above. det is clamped away from 0 to avoid log(<=0) under a fold.
+    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, shape))
+    loss = torch.log(detJ.clamp_min(eps)) ** 2
     return loss, None
 
 def vel_grad_loss(model_outputs, shape):
@@ -117,12 +148,6 @@ def vel_lap_loss(model_outputs, shape):
     rel_vel = model_outputs.rel_vel
     lap = get_Laplacian(rel_vel, shape)
     loss = torch.linalg.vector_norm(lap, dim=-1)
-    return loss, None
-
-def phi_grad_loss(model_outputs, coord_tensor, shape):
-    abs_phi = model_outputs.abs_phi
-    phi_J = get_phi_Jacobian(abs_phi, coord_tensor, shape)
-    loss = torch.linalg.vector_norm(phi_J, dim=-1)
     return loss, None
 
 def motion_comp_dc_loss(config, inputs, model_outputs):
@@ -154,17 +179,8 @@ def compute_recon_reg_loss(inputs, recon_regularizer):
     loss = recon_regularizer.g(moving_abs)
     return loss, None
 
-def neg_Jdet_loss(J, I):
-    # I = torch.eye(J.shape[-1], device=J.device)
-    # Jdet = torch.det(J)
-    # print(Jdet.mean(), J.mean(dim=(0,1,2)))
-    # out = (Jdet - 1) ** 2
-    out = torch.linalg.matrix_norm(J - I, dim=(-2, -1), ord='fro')
-    # Jdet = torch.det(J)
-    # neg_Jdet = -1.0 * Jdet
-    # neg_Jdet = F.relu(neg_Jdet) + 1
-    # out = torch.log(neg_Jdet)
-    return out
+def grad_phi_norm(J, I):
+    return torch.linalg.matrix_norm(J - I, dim=(-2, -1), ord='fro')
 
 def get_phi_Jacobian(abs_phi, coord_tensor, shape):
     rel_phi = abs_phi - coord_tensor

@@ -20,7 +20,7 @@ import torch
 from fastmri import complex_abs
 from torch import nn
 
-from stmr.ablation.stages import BASE, STAGES
+from stmr.ablation.stages import BASE, LADDERS
 from stmr.config import Config, build_velocity_kwargs
 from stmr.data.data_utils import generate_standard_mask
 from stmr.data.fft_utils import FastmriFT, MaskedFT, apply_hard_data_consistency
@@ -39,7 +39,7 @@ def _cpu_config(**over):
         device="cpu", dataset="cmr_P001", func_name="groupsiren",
         siren_depth=2, siren_dim=16, solver="euler", step_size=0.5,
         loss="mse", use_nreps=False,
-        lambda_negJ=1e-2, lambda_grd=0.0, lambda_lap=0.0, lambda_pgr=0.0,
+        lambda_grad_phi=1e-2, lambda_grd=0.0, lambda_lap=0.0,
         lambda_hel=0.0, lambda_recon=0.0, lambda_mcdc=0.0,
     )
     base.update(over)
@@ -96,7 +96,7 @@ def _imdiff_residual(moving, config, func):
 
 
 def test_S0_registration_recovers_shift():
-    """Frozen recon = GT; only imdiff+negJ drive the motion net. It should reduce the
+    """Frozen recon = GT; only imdiff+grad_phi drive the motion net. It should reduce the
     frame-to-frame residual well below identity (the S0 pass criterion)."""
     torch.manual_seed(0)
     config = _cpu_config(time_points=3, lambda_st=0.0, lambda_rl2=1.0)
@@ -198,11 +198,12 @@ def test_S4_masked_gt_init_bounded_drift(hard_dc):
 
 
 def test_ladder_wiring():
-    """Every StageSpec (except the YAML-backed S5) builds a valid Config with no unknown
-    keys and finalizes cleanly."""
-    for spec in STAGES:
-        if spec.yaml is not None:
-            continue
-        merged = {**BASE, **spec.overrides}
-        cfg = Config.from_dict(merged).finalize()
-        assert cfg.dataset.startswith("cmr")
+    """Every StageSpec in every ladder (except any YAML-backed ones) builds a valid Config
+    with no unknown keys and finalizes cleanly."""
+    for stages in LADDERS.values():
+        for spec in stages:
+            if spec.yaml is not None:
+                continue
+            merged = {**BASE, **spec.overrides}
+            cfg = Config.from_dict(merged).finalize()
+            assert cfg.dataset.startswith("cmr")

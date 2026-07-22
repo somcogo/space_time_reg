@@ -109,10 +109,11 @@ def get_relevant_loss_names(config):
     # required by the metrics/visualisation path (reduce_dim, prep_sim_meas_vis).
     is_cmr = 'cmr' in config.dataset
     candidates = [
-        ('negJ',     'Phi negative det J',   config.lambda_negJ, True),
+        ('grad_phi', 'Grad phi (Dphi - Id)', config.lambda_grad_phi, True),
+        ('detJ',     'Det(Dphi) - 1',        config.lambda_detJ, True),
+        ('logdetJ',  'log det(Dphi)',        config.lambda_logdetJ, True),
         ('grd',      'Vel gradient',         config.lambda_grd,  True),
         ('lap',      'Vel Laplacian',        config.lambda_lap,  True),
-        ('pgr',      'Phi gradient',         config.lambda_pgr,  True),
         ('hyper_el', 'Hyper elasticity',     config.lambda_hel,  True),
         ('recon_reg', 'Reconstruction reg',  config.lambda_recon, is_cmr),
         ('mcdc',     'Motion comp DC',       config.lambda_mcdc, is_cmr),
