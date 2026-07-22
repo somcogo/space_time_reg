@@ -15,10 +15,16 @@ from torchvision.utils import make_grid
 
 def add_loss_specific_imgs(imgs_to_save: dict, losses: dict, reduce_dim: bool) -> dict:
     for loss_type, loss_dict in losses.items():
-        if loss_type == 'negJ':
+        if loss_type == 'grad_phi':
             loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
-            negJ = prep_detJ_vis(loss)
-            imgs_to_save['vel_J_det/negJ'] = negJ
+            grad_phi = prep_detJ_vis(loss)
+            imgs_to_save['vel_J_det/grad_phi'] = grad_phi
+        elif loss_type == 'detJ':
+            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            imgs_to_save['vel_J_det/detJ'] = prep_detJ_vis(loss)
+        elif loss_type == 'logdetJ':
+            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            imgs_to_save['vel_J_det/logdetJ'] = prep_detJ_vis(loss)
         elif loss_type == 'grd':
             loss = loss_dict['loss'][..., 0, :] if reduce_dim else loss_dict['loss']
             grad_norm = prep_vel_grad_vis(loss)
@@ -27,10 +33,6 @@ def add_loss_specific_imgs(imgs_to_save: dict, losses: dict, reduce_dim: bool) -
             loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
             lap_norm = prep_vel_lap_vis(loss)
             imgs_to_save['laplacian/laplacian_norm'] = lap_norm
-        elif loss_type == 'pgr':
-            loss = loss_dict['loss'][..., 0, :] if reduce_dim else loss_dict['loss']
-            phi_grad_norm = prep_phi_grad_vis(loss)
-            imgs_to_save['phi_grad_norm/phi_grad_norm'] = phi_grad_norm
 
     return imgs_to_save
 
@@ -122,8 +124,8 @@ def prep_seg_vis(segs: torch.Tensor, pred_segs: torch.Tensor) -> list[torch.Tens
     seg_comb_all = (seg_comb_all*255).to(torch.uint8).permute(1, 2, 0)
     return seg_comb_all, seg_comb_last
 
-def prep_detJ_vis(negJ: torch.Tensor) -> torch.Tensor:
-    J_det_grid = make_grid(negJ.unsqueeze(1), nrow=5, normalize=True, pad_value=1)    
+def prep_detJ_vis(loss: torch.Tensor) -> torch.Tensor:
+    J_det_grid = make_grid(loss.unsqueeze(1), nrow=5, normalize=True, pad_value=1)
     J_det_grid =(J_det_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
     return J_det_grid
 
@@ -136,11 +138,6 @@ def prep_vel_lap_vis(lap: torch.Tensor) -> torch.Tensor:
     lap_grid = make_grid(lap.unsqueeze(1), nrow=5, normalize=True)
     lap_grid = (lap_grid*255).cpu().to(torch.uint8).permute(1, 2, 0)
     return lap_grid
-
-def prep_phi_grad_vis(phi_grad: torch.Tensor) -> torch.Tensor:
-    phi_grad_norm = make_grid(torch.linalg.norm(phi_grad, dim=-1).unsqueeze(1), nrow=5, normalize=True)
-    phi_grad_norm = (phi_grad_norm*255).cpu().to(torch.uint8).permute(1, 2, 0)
-    return phi_grad_norm
 
 def draw_deformed_grid(phi: torch.Tensor, ax: Axes) -> tuple[Axes]:
     # fig, ax = plt.subplots()

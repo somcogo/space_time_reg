@@ -3,7 +3,7 @@ import torch
 
 from stmr.config import Config
 from stmr.data.fft_utils import FastmriFT
-from stmr.losses.losses import im_space_l2_loss, negJ_loss, similarity_loss
+from stmr.losses.losses import detJ_loss, grad_phi_loss, im_space_l2_loss, log_detJ_loss, similarity_loss
 from stmr.state import Inputs, ModelOutputs
 from stmr.utils.spatial_transformer import get_spatial_transformer
 from stmr.utils.spatial_utils import generate_coord_tensor
@@ -23,12 +23,30 @@ def _identity_model_outputs(config, h=8, w=8, moving=None):
     return coord, ModelOutputs(rel_vel=None, abs_phi=abs_phi, transformer=st)
 
 
-def test_negJ_is_zero_for_identity_deformation():
+def test_grad_phi_is_zero_for_identity_deformation():
     config = _config()
     h = w = 8
     coord, model_outputs = _identity_model_outputs(config, h, w)
     shape = [-1, h, w, 2]
-    loss, _ = negJ_loss(model_outputs, coord, shape)
+    loss, _ = grad_phi_loss(model_outputs, coord, shape)
+    assert loss.abs().max() < 1e-4
+
+
+def test_detJ_is_zero_for_identity_deformation():
+    config = _config()
+    h = w = 8
+    coord, model_outputs = _identity_model_outputs(config, h, w)
+    shape = [-1, h, w, 2]
+    loss, _ = detJ_loss(model_outputs, coord, shape)
+    assert loss.abs().max() < 1e-4
+
+
+def test_log_detJ_is_zero_for_identity_deformation():
+    config = _config()
+    h = w = 8
+    coord, model_outputs = _identity_model_outputs(config, h, w)
+    shape = [-1, h, w, 2]
+    loss, _ = log_detJ_loss(model_outputs, coord, shape)
     assert loss.abs().max() < 1e-4
 
 

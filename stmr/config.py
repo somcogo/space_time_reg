@@ -81,14 +81,15 @@ class Config:
     sim_domain: str = "fourier"  # 'fourier' (k-space DC) or 'image' (image-space DC; equal
     #                              to fourier on fully-sampled data by Parseval, FFT unitary)
     lambda_st: float = 1.0
-    lambda_negJ: float = 0.1
+    lambda_grad_phi: float = 0.1
     lambda_grd: float = 1.0
     lambda_lap: float = 1.0
-    lambda_pgr: float = 1.0
     lambda_hel: float = 1.0
     lambda_recon: float = 1.0
     lambda_rl2: float = 1.0
     lambda_mcdc: float = 0.0
+    lambda_detJ: float = 0.0
+    lambda_logdetJ: float = 0.0
     imdiff_warp_mag: bool = False  # warp magnitude (not complex) in the E3 image loss
 
     # --- derived / internal (filled by finalize) ---
