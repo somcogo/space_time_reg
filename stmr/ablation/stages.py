@@ -48,7 +48,7 @@ BASE = dict(
     interval=0,
     motion_warmup=0,
     loss="mse",
-    lambda_grad_phi=1e-2,
+    lambda_grad_phi=1e-3,
     lambda_grd=0.0,
     lambda_lap=0.0,
     lambda_hel=0.0,
@@ -117,14 +117,14 @@ def _improves_pass(row, prev):
 
 _S0_OVERRIDES = dict(
     dataset="cmr_test2", init="gt", init_skip=True, learn_recon=False,
-    hard_dc=False, lambda_st=0.0, lambda_recon=0.0, lambda_rl2=1e4,
+    hard_dc=False, lambda_st=0.0, lambda_recon=0.0, lambda_rl2=1e2,
 )
 
 # + sim loss, recon learning: free (jointly optimised) recon starting from GT, fully
 # sampled, image-space data consistency.
 _SIM_RECON = dict(
     dataset="cmr_test2", init="gt", init_skip=True, learn_recon=True,
-    hard_dc=False, lambda_st=1.0, lambda_recon=0.0, lambda_rl2=1e4,
+    hard_dc=False, lambda_st=1.0, lambda_recon=0.0, lambda_rl2=1e2,
     sim_domain="image",
 )
 
@@ -143,7 +143,7 @@ _UNDERSAMPLING = dict(dataset="cmr_P001", hard_dc=True)
 
 # + learned reg: turn on the pretrained WCRR prior as a joint-optimisation regularizer.
 _LEARNED_REG = dict(
-    lambda_recon=1.0, reg="learned", reg_variant="wcrr",
+    lambda_recon=1e-1, reg="learned", reg_variant="wcrr",
     reg_alpha=1.0, recon_scale=6.0,
 )
 

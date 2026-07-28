@@ -15,6 +15,7 @@ from stmr.models.factory import get_func
 from stmr.registration import registration
 from stmr.utils.log_and_save import save_results
 from stmr.utils.logging import get_logger, log_metrics
+from stmr.viz.post_run import generate_run_visuals
 
 
 def set_seed(seed: int) -> None:
@@ -46,4 +47,5 @@ def run(config: Config):
     output = registration(config, writer, logger, inputs, eval_inputs, func)
     imgs_to_save = evaluate(config, writer, logger, output, inputs, eval_inputs)
     save_results(config, output, inputs, eval_inputs, imgs_to_save)
+    generate_run_visuals(config, logger)
     return output

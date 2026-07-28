@@ -53,12 +53,12 @@ use_nreps: false
 # losses
 loss: mse
 lambda_st: 1.0
-lambda_grad_phi: 1.0e-1
+lambda_grad_phi: 1.0e-3
 lambda_grd: 0
 lambda_lap: 0
 lambda_hel: 0
 lambda_recon: 1.0
-lambda_rl2: 1.0e+4
+lambda_rl2: 1.0e+2
 
 log_cadence: 50
 debug: false

@@ -35,6 +35,13 @@ def resolve_tb_dir(logdir: str) -> str:
     return tb if os.path.isdir(tb) else logdir
 
 
+def list_image_tags(tb_dir: str) -> list[str]:
+    """Return every image tag with at least one logged event in tb_dir."""
+    acc = EventAccumulator(tb_dir, size_guidance={"images": 0})
+    acc.Reload()
+    return acc.Tags()["images"]
+
+
 def load_image_events(tb_dir: str, tag: str):
     """Return the tag's image events as (step, png_bytes), deduped by step (latest wins)
     and sorted by step."""

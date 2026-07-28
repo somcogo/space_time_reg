@@ -253,7 +253,7 @@ def plot_displacement(phi_full, gt_im, H, W, start, out_path, mag=5.0):
 
 
 def visualise(res_path, out_dir, substeps=1, source="gt", start=0, device="cpu",
-              quiver_mag=5.0, mode="propagate"):
+              quiver_mag=5.0, mode="stepwise"):
     os.makedirs(out_dir, exist_ok=True)
     d, cfg = load_run(res_path, device)
     T = cfg.time_points
@@ -310,7 +310,7 @@ def main(argv=None):
     p.add_argument("--source", choices=["gt", "recon"], default="gt",
                    help="deform the GT image (default) or the reconstructed image")
     p.add_argument("--frame", type=int, default=0, help="source/start frame index")
-    p.add_argument("--mode", choices=["propagate", "stepwise"], default="propagate",
+    p.add_argument("--mode", choices=["propagate", "stepwise"], default="stepwise",
                    help="propagate = chain the running warped image through the cycle; "
                         "stepwise = warp each real GT frame once (GT0, warp(GT0), "
                         "warp(GT1), ...), re-anchored to GT every step")
