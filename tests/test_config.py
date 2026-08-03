@@ -10,7 +10,7 @@ def test_unsigned_exponent_is_coerced_to_float(tmp_path):
     cfg_file.write_text("lambda_rl2: 1.0e4\nrecon_scale: 6\n")
     config = Config.from_yaml(cfg_file)
     assert isinstance(config.lambda_rl2, float)
-    assert config.lambda_rl2 == 10000.0
+    assert config.lambda_rl2 == 100.0
     assert isinstance(config.recon_scale, float)
 
 

@@ -25,6 +25,17 @@ from typing import Callable, Optional
 # stage. Data/geometry (T, patient slice), the velocity net, the ODE solver and the base
 # optimiser lrs all match configs/cmr_soft_con.yaml; imdiff_warp_mag is left at the Config
 # default (matching the yaml).
+#
+# reg/reg_variant/reg_alpha/recon_scale are set here (not just where a stage turns
+# lambda_recon on) because get_relevant_loss_names gates the recon_reg loss purely on
+# lambda_recon > 0 -- and any global override (e.g. --set lambda_recon=...) can make that
+# true at a stage that hasn't reached _LEARNED_REG yet. Without a real value here, such a
+# stage silently falls back to the bare Config defaults (reg_variant='crr', recon_scale=0.1)
+# -- an uncalibrated regularizer, unrelated to whatever the override was meant to test, that
+# corrupts the whole training run (recon_reg loss explodes to O(1) then crashes as the
+# regularizer violently reshapes the reconstruction, which in turn wrecks the jointly
+# trained motion field). This bit ladder1 S1/S2 and ladder2 S1 specifically because their
+# stage blocks set lambda_recon=0.0 by design, relying on it staying off.
 BASE = dict(
     device="cuda",
     seed=0,
@@ -53,6 +64,10 @@ BASE = dict(
     lambda_lap=0.0,
     lambda_hel=0.0,
     lambda_mcdc=0.0,
+    reg="learned",
+    reg_variant="wcrr",
+    reg_alpha=1.0,
+    recon_scale=6.0,
     log_cadence=50,
     debug=False,
 )
@@ -133,9 +148,19 @@ _FT = dict(sim_domain="fourier")
 
 # + real nmAPG init: replace the GT init with the actual nmAPG-based initial reconstruction
 # pathway used by the real pipeline (still runs whatever dataset/domain is active so far).
+#
+# The regularizer fields (reg/reg_variant/reg_alpha/recon_scale) are set here too, even
+# though this block doesn't turn lambda_recon on: nmAPG always needs *some* regularizer for
+# its internal energy (see stmr/data/recon_init.py get_reg), and recon_epochs/init_lr/
+# lambda_init_recon above were tuned assuming the pretrained WCRR prior at this scale (they
+# match configs/cmr_soft_con.yaml). Without this, a ladder that reaches _NMAPG_INIT before
+# _LEARNED_REG (ladder 1) falls back to the bare Config defaults (reg_variant='crr',
+# recon_scale=0.1) -- a stale, uncalibrated regularizer -- and nmAPG produces a badly
+# under/over-regularized init unrelated to whatever the stage is actually trying to isolate.
 _NMAPG_INIT = dict(
     init="adj", init_skip=False, use_nmapg=True, recon_epochs=150,
     init_lr=1e-2, init_loss="l2", lambda_init_recon=2e-2,
+    reg="learned", reg_variant="wcrr", reg_alpha=1.0, recon_scale=6.0,
 )
 
 # + undersampling: switch to the real (factor=4) undersampled k-space and turn on hard DC.
