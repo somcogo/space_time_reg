@@ -7,6 +7,7 @@ from stmr.config import Config
 from stmr.state import EvalInputs, Inputs
 
 from .data_utils import get_data, get_init, get_operators
+from .noise import add_image_noise, add_kspace_noise
 from .recon_init import init_using_nmAPG, init_with_grad_desc
 
 
@@ -22,6 +23,7 @@ def prepare_inputs(config: Config, logger: Logger) -> tuple[Inputs, EvalInputs]:
     # time-varying (k-t) masks where the number of measured rows differs between frames,
     # which the old row-subsampled representation could not express.
     fixed = raw_kspace_data.to(config.device)
+    fixed = add_kspace_noise(fixed, kspace_mask.to(config.device), config.kspace_noise_sigma)
     gt_im = full_adj(gt_kspace_data).to(config.device)
 
     init = get_init(config, raw_kspace_data, gt_im,
@@ -40,7 +42,7 @@ def prepare_inputs(config: Config, logger: Logger) -> tuple[Inputs, EvalInputs]:
     else:
         recon, _ = init_with_grad_desc(config, init, fixed, forw_subs)
 
-    recon = recon.detach()
+    recon = add_image_noise(recon.detach(), config.init_noise_sigma).detach()
     moving = nn.Parameter(recon.clone()).to(config.device)
 
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw_subs)

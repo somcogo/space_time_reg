@@ -44,6 +44,8 @@ class Config:
     tol: float = 1e-4
     detach_grads: bool = True
     lambda_init_recon: float = 1.0
+    kspace_noise_sigma: float = 0.0  # robustness: relative noise on measured k-space (0=off)
+    init_noise_sigma: float = 0.0    # robustness: relative noise on the init recon (0=off)
 
     # --- reconstruction regularizer ---
     reg: str = "learned"
