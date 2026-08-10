@@ -36,7 +36,7 @@ def run(config: Config):
     writer = SummaryWriter(os.path.join(config.log_path, "tensorboard"))
 
     inputs, eval_inputs = prepare_inputs(config, logger)
-    init_metrics, init_imgs = calc_init_metrics(eval_inputs=eval_inputs)
+    init_metrics, init_imgs = calc_init_metrics(config, eval_inputs=eval_inputs)
     log_metrics(config, init_metrics, writer, 0, init_imgs, True)
 
     dims = len(inputs.fixed.shape) - 2

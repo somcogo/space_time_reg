@@ -48,7 +48,10 @@ def prep_moved_img_vis(moved_im: torch.Tensor, moving: torch.Tensor, config: Nam
         moved_im = complex_abs(moved_im.movedim(1,-1))
         moving = complex_abs(moving.movedim(1, -1))
     else:
-        moving = moving.squeeze(0)
+        # Real single-channel (e.g. CBCT): drop the channel dim, matching moved_im.squeeze(1)
+        # below -- this branch previously did squeeze(0), which is a no-op whenever there's
+        # more than one frame and left a stray channel dim causing a stack-shape mismatch.
+        moving = moving.squeeze(1)
     moved_im = moved_im.squeeze(1)
 
     reg_last = make_grid([torch.stack([moving[-1], moved_im[-1], moved_im[-1]])], nrow=2, normalize=True)
@@ -72,8 +75,9 @@ def prep_image_space_comp(moving: torch.Tensor, gt_im: torch.Tensor) -> torch.Te
     im_space_comp = (im_space_comp*255).to(torch.uint8).permute(1, 2, 0)
     return im_space_comp
 
-def prep_init_recon(init_recon: torch.Tensor):
-    init_im = complex_abs(init_recon.detach().cpu().movedim(1, -1))
+def prep_init_recon(init_recon: torch.Tensor, is_complex: bool = True):
+    init_recon = init_recon.detach().cpu()
+    init_im = complex_abs(init_recon.movedim(1, -1)) if is_complex else init_recon.squeeze(1)
     init_grid = make_grid(init_im.unsqueeze(1), nrow=5, normalize=True)
     init_grid = (init_grid*255).to(torch.uint8).permute(1, 2, 0)
     return init_grid

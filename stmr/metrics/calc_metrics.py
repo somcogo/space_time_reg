@@ -26,12 +26,14 @@ from stmr.metrics.prep_visuals import (
 )
 
 
-def calc_init_metrics(eval_inputs) -> list[dict]:
+def calc_init_metrics(config: Namespace, eval_inputs) -> list[dict]:
     init_recon = eval_inputs.init_recon
     gt_im = eval_inputs.gt_im
+    is_complex = 'cmr' in config.dataset or 'heart' in config.dataset
     metrics = {}
-    metrics = add_cmr_eval_metrics(init_recon, gt_im, metrics)
-    imgs_to_save = {'imgs/init_recon':prep_init_recon(init_recon)}
+    if is_complex:
+        metrics = add_cmr_eval_metrics(init_recon, gt_im, metrics)
+    imgs_to_save = {'imgs/init_recon':prep_init_recon(init_recon, is_complex)}
     return metrics, imgs_to_save
 
 def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=False):

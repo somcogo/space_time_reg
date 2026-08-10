@@ -24,6 +24,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+# cbct (stmr/data/ct_utils.py, stmr/data/spare_data.py) needs torch-radon (carterbox
+# fork, github.com/carterbox/torch-radon) for its differentiable fan-beam projector.
+# It has no PyPI package -- build from source against the local torch/CUDA install:
+#   git clone https://github.com/carterbox/torch-radon.git && cd torch-radon
+#   export CUDA_HOME=<a CUDA toolkit matching torch.version.cuda>
+#   export PATH="$CUDA_HOME/bin:$PATH"
+#   python -m pip install --no-build-isolation -e .
+# (On this dev environment: CUDA_HOME was the conda env itself after
+# `conda install -c nvidia cuda-nvcc=12.4.131 cuda-cudart-dev=12.4 cuda-cccl=12.4
+# libcurand-dev=10.3.5.147 --no-deps` -- --no-deps avoids conda pulling in a `numpy-base`
+# package that corrupts a pip-installed numpy in a pre-existing "inconsistent" env.)
 
 [project.scripts]
 stmr-run = "stmr.cli:main"

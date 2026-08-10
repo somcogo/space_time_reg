@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchdiffeq import odeint_adjoint as odeint
 
 from stmr.config import Config
+from stmr.data.data_utils import get_dataset_capabilities
 from stmr.data.fft_utils import apply_hard_data_consistency
 from stmr.losses.losses import calculate_losses
 from stmr.losses.recon_reg import get_recon_regularizer
@@ -36,7 +37,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
                  eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
     moving = inputs.moving
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-    if 'cmr' in config.dataset:
+    if get_dataset_capabilities(config).joint_recon:
         optimizer.add_param_group({'params': moving, 'lr': config.recon_lr,
                                    'weight_decay': 0., 'eps': config.recon_eps})
 

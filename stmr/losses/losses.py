@@ -3,6 +3,7 @@ import time
 import fastmri
 import torch
 
+from stmr.data.data_utils import get_dataset_capabilities
 from stmr.data.fft_utils import fft2c_new, ifft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
 from stmr.losses.sim_loss import get_sim_loss_fn
@@ -71,7 +72,8 @@ def im_space_l2_loss(config, inputs, model_outputs):
     moving, moving_inr = inputs.moving, inputs.moving_inr
     ST = model_outputs.transformer
     loss_fn = torch.nn.MSELoss(reduction='none')
-    is_complex_img = config.dataset == 'heart_gt_ft_abs' or 'cmr' in config.dataset
+    is_complex_img = (config.dataset == 'heart_gt_ft_abs'
+                      or get_dataset_capabilities(config).is_complex_img)
 
     if config.use_nreps:
         if moving_inr is None:

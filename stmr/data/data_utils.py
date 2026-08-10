@@ -1,10 +1,13 @@
 import argparse
 import random
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 import torch
 from torch import nn
 
+from . import spare_data
 from .fft_utils import FastmriFT, FastmriIFT, MaskedFT, MaskedIFT
 
 
@@ -19,7 +22,18 @@ def real_abs(x:torch.Tensor) -> torch.Tensor:
     return x.abs()
 
 
-def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
+@dataclass
+class DatasetSpec:
+    """One dataset family's loader + forward-operator factory, plus capability flags that
+    replace ad hoc `'cmr' in config.dataset` string checks elsewhere in the pipeline
+    (registration.py's joint recon+motion optimizer, losses.py's complex-image handling)."""
+    load: Callable[[argparse.Namespace], tuple]
+    operators: Callable[[argparse.Namespace, torch.Tensor], tuple]
+    is_complex_img: bool
+    joint_recon: bool
+
+
+def _cmr_load(config: argparse.Namespace) -> tuple:
     gt_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
     if config.dataset == 'cmr_test1':
         raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
@@ -37,7 +51,7 @@ def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
         kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)
         raw_kspace_data = torch.zeros_like(gt_kspace_data)
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
-    elif 'cmr' in config.dataset:
+    else:
         patient = config.dataset.split('_')[1][1:]
         gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
@@ -46,7 +60,8 @@ def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
     return raw_kspace_data, gt_kspace_data, kspace_mask
 
-def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Module]:
+
+def _cmr_operators(config: argparse.Namespace, mask: torch.Tensor) -> tuple:
     if config.dataset == 'cmr_test2':
         full_forw = FastmriFT()
         full_adj = FastmriIFT()
@@ -59,13 +74,42 @@ def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Mod
         forw_subs_adj = MaskedIFT(mask)
     return full_forw, full_adj, forw_subs, forw_subs_adj
 
+
+DATASET_FAMILIES: dict[str, DatasetSpec] = {
+    'cmr': DatasetSpec(load=_cmr_load, operators=_cmr_operators,
+                       is_complex_img=True, joint_recon=True),
+    'cbct': DatasetSpec(load=spare_data.get_data, operators=spare_data.get_operators,
+                        is_complex_img=False, joint_recon=True),
+}
+
+
+def _get_family(config: argparse.Namespace) -> DatasetSpec:
+    name = config.dataset.split('_')[0]
+    if name not in DATASET_FAMILIES:
+        raise ValueError(f"Unknown dataset family {name!r} for dataset={config.dataset!r}; "
+                         f"registered families: {sorted(DATASET_FAMILIES)}")
+    return DATASET_FAMILIES[name]
+
+
+def get_data(config: argparse.Namespace) -> list[torch.Tensor]:
+    return _get_family(config).load(config)
+
+def get_operators(config: argparse.Namespace, mask: torch.Tensor) -> list[nn.Module]:
+    return _get_family(config).operators(config, mask)
+
+def get_dataset_capabilities(config: argparse.Namespace) -> DatasetSpec:
+    return _get_family(config)
+
 def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: torch.Tensor, fixed_adj: torch.Tensor, kspace_mask: torch.Tensor = None) -> nn.Parameter:
     if config.init == 'zero':
-        recon_init = nn.Parameter(torch.zeros_like(raw_kspace_data, device=config.device), requires_grad=True)
+        # Shaped from gt_im (image domain), not raw_kspace_data: those coincide for MRI
+        # (FFT preserves shape) but not for e.g. CBCT, where raw data lives in the
+        # sinogram domain and has a different shape than the image being initialized.
+        recon_init = nn.Parameter(torch.zeros_like(gt_im, device=config.device), requires_grad=True)
     elif config.init == 'gt':
         recon_init = nn.Parameter(gt_im.clone(), requires_grad=True)
     elif config.init == 'rand':
-        recon_init = torch.nn.Parameter(torch.randn_like(raw_kspace_data, device=config.device)*1e-3, requires_grad=True)
+        recon_init = torch.nn.Parameter(torch.randn_like(gt_im, device=config.device)*1e-3, requires_grad=True)
     elif config.init == 'adj':
         recon_init = torch.nn.Parameter(fixed_adj.clone(), requires_grad=True)
     elif config.init == 'ktavg':

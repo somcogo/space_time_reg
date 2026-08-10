@@ -46,8 +46,11 @@ from stmr.utils.spatial_utils import generate_coord_tensor  # noqa: E402
 
 
 def to_mag(img4: torch.Tensor) -> np.ndarray:
-    """[B, 2, H, W] complex -> [B, H, W] magnitude as a numpy array."""
-    return complex_abs(img4.movedim(1, -1)).cpu().numpy()
+    """[B, 2, H, W] complex -> [B, H, W] magnitude, or [B, 1, H, W] real -> [B, H, W]
+    (e.g. CBCT), as a numpy array."""
+    if img4.shape[1] == 2:
+        return complex_abs(img4.movedim(1, -1)).cpu().numpy()
+    return img4.squeeze(1).cpu().numpy()
 
 
 def load_run(res_path: str, device: str = "cpu"):
