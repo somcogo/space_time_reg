@@ -1,0 +1,68 @@
+# Fully-sampled frozen GT template (frame 0) + factor-4 undersampled remaining frames.
+# Full pipeline (learned recon, Fourier DC, nmAPG init, WCRR reg) as in cmr_soft_con.yaml,
+# but frame 0 is kept fully sampled everywhere and its recon is frozen at GT, and the siren is
+# made more regular (lambda_grad_phi 1e-3 -> 1e-2). Sits between the fully-sampled and the
+# fully-undersampled ablation stages. hard_dc off (standing rule; soft_con uses true).
+exp_name: cmr/partial_template/frozen_gt_template
+dataset: cmr_P001
+device: cuda
+seed: 0
+
+# data / mask
+time_points: 2
+start_frame: 0
+slice_number: 0
+factor: 4
+mask: st
+template_frames: 1        # frame 0: fully sampled + recon frozen at GT
+
+# initial reconstruction (nmAPG)
+use_nmapg: true
+recon_epochs: 150
+init_lr: 1.0e-2
+init_loss: l2
+lambda_init_recon: 2.0e-2
+
+# reconstruction regularizer
+reg: learned
+reg_variant: wcrr
+reg_alpha: 1.0
+recon_scale: 6.0
+
+# velocity network
+func_name: groupsiren
+siren_depth: 3
+siren_dim: 64
+last_init_zero: true
+
+# ODE solver
+solver: euler
+step_size: 0.1
+atol: 1.0e-8
+rtol: 1.0e-6
+
+# optimisation
+epochs: 2000
+lr: 1.0e-4
+recon_lr: 1.0e-5
+recon_eps: 1.0e-4
+weight_decay: 0
+learn_recon: true
+interval: 0
+motion_warmup: 0
+hard_dc: false
+use_nreps: false
+
+# losses
+loss: mse
+sim_domain: fourier
+lambda_st: 1.0
+lambda_grad_phi: 1.0e-2    # more-regular siren (was 1e-3)
+lambda_grd: 0
+lambda_lap: 0
+lambda_hel: 0
+lambda_recon: 1.0
+lambda_rl2: 1.0e+2
+
+log_cadence: 50
+debug: false

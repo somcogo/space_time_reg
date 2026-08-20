@@ -2,6 +2,7 @@ import argparse
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -9,6 +10,15 @@ from torch import nn
 
 from . import spare_data
 from .fft_utils import FastmriFT, FastmriIFT, MaskedFT, MaskedIFT
+
+# Anchor data paths to the repo root (this file is <root>/stmr/data/data_utils.py), so loading
+# works from any working directory -- e.g. a notebook in notebooks/, not just the repo root.
+_DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
+
+
+def _cmr(name: str) -> str:
+    """Absolute path to a CMRxRecon test file, independent of the current working directory."""
+    return str(_DATA_ROOT / "processed" / "cmrxrecon" / "test" / name)
 
 
 def complex_abs(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
@@ -34,16 +44,16 @@ class DatasetSpec:
 
 
 def _cmr_load(config: argparse.Namespace) -> tuple:
-    gt_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
+    gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:2,0].permute(0, 3, 1, 2)
     if config.dataset == 'cmr_test1':
-        raw_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_acc_04_cine_sax_norm.pt')[:2,0].permute(0, 3, 1, 2)
+        raw_kspace_data = torch.load(_cmr('training_p001_single_coil_acc_04_cine_sax_norm.pt'))[:2,0].permute(0, 3, 1, 2)
         kspace_mask = (raw_kspace_data[:2] != 0)
     elif config.dataset == 'cmr_test2':
         # Fully-sampled, unmasked "no k-space undersampling" mode used by the staged
         # ablation (stage S0-S2). Reload from the full file honoring slice/frame selection
         # so it can run at the same time_points as the real cmr datasets; the module-level
         # gt_kspace_data above is pinned to [:2, 0] (kept for cmr_test1).
-        gt_kspace_data = torch.load('data/processed/cmrxrecon/test/training_p001_single_coil_full_cine_sax_norm.pt')[:, config.slice_number].permute(0, 3, 1, 2)
+        gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:, config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = torch.ones_like(gt_kspace_data, dtype=bool)
         raw_kspace_data = gt_kspace_data
@@ -53,9 +63,17 @@ def _cmr_load(config: argparse.Namespace) -> tuple:
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
     else:
         patient = config.dataset.split('_')[1][1:]
-        gt_kspace_data = torch.load(f'data/processed/cmrxrecon/test/training_p{patient}_single_coil_full_cine_sax_norm.pt')[:,config.slice_number].permute(0, 3, 1, 2)
+        gt_kspace_data = torch.load(_cmr(f'training_p{patient}_single_coil_full_cine_sax_norm.pt'))[:,config.slice_number].permute(0, 3, 1, 2)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)
+        raw_kspace_data = torch.zeros_like(gt_kspace_data)
+        raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
+    # Keep the first `template_frames` frames fully sampled (frozen GT template): full k-space
+    # for those frames feeds both the nmAPG init and the joint-opt data consistency. Only
+    # applies to the generated-mask (undersampled) datasets; cmr_test1/test2 are left as-is.
+    n = getattr(config, 'template_frames', 0)
+    if n > 0 and config.dataset not in ('cmr_test1', 'cmr_test2'):
+        kspace_mask[:n] = True
         raw_kspace_data = torch.zeros_like(gt_kspace_data)
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]
     return raw_kspace_data, gt_kspace_data, kspace_mask
@@ -120,6 +138,10 @@ def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: t
         avg = raw_kspace_data.sum(0, keepdim=True) / counts
         filled = torch.where(kspace_mask, raw_kspace_data, avg.expand_as(raw_kspace_data))
         recon_init = nn.Parameter(FastmriIFT()(filled).to(config.device), requires_grad=True)
+    elif config.init == 'template':
+        # Every frame starts as a copy of the template image (frame 0's GT). The frozen
+        # template keeps its GT; non-template frames begin static and are moved by the flow.
+        recon_init = nn.Parameter(gt_im[0:1].expand_as(gt_im).clone().to(config.device), requires_grad=True)
     return recon_init
 
     

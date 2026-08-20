@@ -32,6 +32,7 @@ class Config:
     factor: int = 4
     mask: str = "st"
     random_mask: bool = False
+    template_frames: int = 0  # leading frames kept fully-sampled + recon frozen at GT (0 = off)
 
     # --- initial reconstruction ---
     init: str = "zero"
@@ -77,6 +78,7 @@ class Config:
     motion_warmup: int = 0
     hard_dc: bool = False
     use_nreps: bool = False  # F2: default off (only supported cmr mode)
+    template_warp_recon: bool = False  # recon_t = warp(template, phi); only the motion net is learned
 
     # --- losses ---
     loss: str = "mse"  # F3: MSE for k-space data fidelity

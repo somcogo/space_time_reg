@@ -37,14 +37,26 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
                  eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
     moving = inputs.moving
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-    if get_dataset_capabilities(config).joint_recon:
+    if get_dataset_capabilities(config).joint_recon and not config.template_warp_recon:
         optimizer.add_param_group({'params': moving, 'lr': config.recon_lr,
                                    'weight_decay': 0., 'eps': config.recon_eps})
+
+    # Template-warp recon: no learned image. Each epoch the recon is a differentiable warp of
+    # the fully-sampled GT template (frame 0); only the motion net is optimised (above).
+    template = eval_inputs.gt_im[:1].detach() if config.template_warp_recon else None
 
     moving.requires_grad_(config.learn_recon)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
 
-    if config.hard_dc and hasattr(inputs.forward, 'mask'):
+    # Fully-sampled frozen template: pin the first `template_frames` recon frames to GT. Their
+    # gradients are zeroed every step below so Adam never moves them off GT.
+    n_template = config.template_frames
+    if n_template > 0:
+        with torch.no_grad():
+            moving[:n_template].copy_(eval_inputs.gt_im[:n_template])
+        logger.info(f'Froze first {n_template} recon frame(s) at GT (fully-sampled template)')
+
+    if config.hard_dc and not config.template_warp_recon and hasattr(inputs.forward, 'mask'):
         # Start from a measurement-consistent recon so every epoch (including the motion
         # warm-up, which never updates the recon) sees the projected images.
         with torch.no_grad():
@@ -91,12 +103,23 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         time_stamps[0, epoch - 1] = time.time()
         model_outputs = get_model_outputs(config, func, coord_tensor, inputs)
 
+        if config.template_warp_recon:
+            # recon_t = warp(template, phi_{0->t}); recon_0 = template. Differentiable in phi,
+            # so the k-space data term drives the motion net directly (no free recon).
+            G = model_outputs.abs_phi.shape[0]
+            warped = model_outputs.transformer.apply(
+                template.expand(G, *template.shape[1:]).contiguous())
+            inputs.moving = torch.cat([template, warped], dim=0)
+
         time_stamps[1, epoch - 1] = time.time()
         loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord_tensor,
                                                   losses_to_calc, recon_regularizer)
 
         time_stamps[2, epoch - 1] = time.time()
         loss_sum.backward()
+
+        if n_template > 0 and moving.grad is not None:
+            moving.grad[:n_template].zero_()
 
         # Snapshot before optimizer.step() and hard DC mutate moving/func, so the saved
         # state is exactly the one loss_sum was computed on.
@@ -116,7 +139,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         optimizer.step()
 
         time_stamps[4, epoch - 1] = time.time()
-        if config.hard_dc and hasattr(inputs.forward, 'mask'):
+        if config.hard_dc and not config.template_warp_recon and hasattr(inputs.forward, 'mask'):
             # Project the recon back onto the measurements: the regularizer terms may
             # only fill in the unmeasured k-space entries, never corrupt measured ones.
             with torch.no_grad():
