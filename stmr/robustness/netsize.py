@@ -15,6 +15,7 @@ import torch
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from fastmri import complex_abs  # noqa: E402
 
 from .collect import collect_sweep, disagreement_map, group_by_axis  # noqa: E402
 from .figures import plot_disagreement  # noqa: E402
@@ -40,15 +41,40 @@ def _best_metrics(rec):
     return bp, bn
 
 
+def _gt_weight(recs):
+    """Per-interval GT source-frame intensity weight [T-1, H, W], normalized to sum 1.
+
+    We only care about motion where there is anatomy, so pixels are weighted by the GT
+    image magnitude of the source frame (interval k uses GT frame k). All seeds share the
+    same GT, so recs[0] suffices.
+    """
+    mag = complex_abs(recs[0].gt_im.movedim(1, -1))  # [T, H, W]
+    w = mag[:-1]                                       # [T-1, H, W] source frames
+    return w / (w.sum() + 1e-12)
+
+
 def _flow_disagreement(recs):
-    """Cross-seed disagreement. Returns (abs_px, rel, std_mag, mean_disp).
-    abs_px = mean pixelwise displacement STD (px); rel = abs / mean flow magnitude (px)."""
-    std_mag, mean = disagreement_map(recs)          # normalized units
+    """Cross-seed disagreement, unweighted and GT-intensity-weighted.
+
+    Returns (abs_px, rel, abs_px_w, rel_w, std_mag, mean_disp). abs_px = mean pixelwise
+    displacement STD (px); rel = abs / mean flow magnitude. The _w variants replace the
+    uniform pixel mean with a GT-intensity-weighted mean, so background pixels (no anatomy,
+    no meaningful motion) don't dilute the metric.
+    """
+    std_mag, mean = disagreement_map(recs)          # [T-1,H,W], [T-1,H,W,2]; normalized units
     H = recs[0].H
     to_px = (H - 1) / 2.0
-    abs_px = float(std_mag.mean()) * to_px
-    flow_px = float(mean.norm(dim=-1).mean()) * to_px + 1e-9
-    return abs_px, abs_px / flow_px, std_mag, mean
+    flow_mag = mean.norm(dim=-1)                     # [T-1, H, W]
+
+    abs_u = float(std_mag.mean())
+    flow_u = float(flow_mag.mean())
+
+    w = _gt_weight(recs)                              # [T-1, H, W], sums to 1
+    abs_w = float((std_mag * w).sum())
+    flow_w = float((flow_mag * w).sum())
+
+    return (abs_u * to_px, abs_u / (flow_u + 1e-12),
+            abs_w * to_px, abs_w / (flow_w + 1e-12), std_mag, mean)
 
 
 def analyze(root, out):
@@ -60,7 +86,7 @@ def analyze(root, out):
         if not m:
             continue
         depth, dim = int(m.group(1)), int(m.group(2))
-        abs_px, rel, std_mag, mean = _flow_disagreement(rs)
+        abs_px, rel, abs_px_w, rel_w, std_mag, mean = _flow_disagreement(rs)
         bp = np.array([_best_metrics(r)[0] for r in rs])
         bn = np.array([_best_metrics(r)[1] for r in rs])
         rows.append({
@@ -68,6 +94,7 @@ def analyze(root, out):
             "params": _param_count(depth, dim),
             "nseed": len(rs),
             "disagree_px": abs_px, "rel_disagree": rel,
+            "disagree_px_w": abs_px_w, "rel_disagree_w": rel_w,
             "psnr_mean": float(np.nanmean(bp)), "psnr_std": float(np.nanstd(bp)),
             "nmse_mean": float(np.nanmean(bn)), "nmse_std": float(np.nanstd(bn)),
             "vel_l2_mean": float(np.mean([r.vel_l2 for r in rs])),
@@ -123,7 +150,8 @@ def _plot_summary(rows, path):
 def _write_table(rows, md_path, csv_path):
     import csv
     cols = ["size", "params", "nseed", "psnr_mean", "psnr_std", "nmse_mean", "nmse_std",
-            "disagree_px", "rel_disagree", "vel_l2_mean", "detJmin_mean", "fold_max", "imdiff_mean"]
+            "disagree_px", "rel_disagree", "disagree_px_w", "rel_disagree_w",
+            "vel_l2_mean", "detJmin_mean", "fold_max", "imdiff_mean"]
     os.makedirs(os.path.dirname(md_path), exist_ok=True)
     with open(csv_path, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore"); w.writeheader(); w.writerows(rows)

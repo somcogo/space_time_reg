@@ -99,8 +99,8 @@ def cmd_analyze(a):
 
 
 def cmd_synthetic(a):
-    from .figures import plot_epe
-    from .synthetic import run_synthetic_sweep
+    from .figures import plot_epe, plot_synthetic_determinacy
+    from .synthetic import analyze_synthetic, run_synthetic_sweep
     seeds = (0, 1, 2) if a.quick else (0, 1, 2, 3, 4)
     sig = (0.0, 0.05) if a.quick else (0.0, 0.02, 0.05, 0.1)
     kw = dict(seeds=seeds, img_sigmas=sig,
@@ -109,9 +109,12 @@ def cmd_synthetic(a):
               steps=(70 if a.quick else 300),
               lr=(1e-3 if a.quick else 3e-4),
               step_size=(0.5 if a.quick else 0.1), device="cpu")
-    rows = run_synthetic_sweep(**kw)
-    plot_epe(rows, os.path.join(a.out, "synthetic", "epe.png"))
-    print(f"wrote synthetic EPE figure to {a.out}/synthetic (rows={len(rows)})")
+    out = os.path.join(a.out, "synthetic")
+    rows, img, H, W = run_synthetic_sweep(**kw)
+    plot_epe(rows, os.path.join(out, "epe.png"))
+    summ = analyze_synthetic(rows, img, H, W, out)          # runs.csv, summary.csv/md, metrics
+    plot_synthetic_determinacy(summ, os.path.join(out, "determinacy.png"))
+    print(f"wrote synthetic logs to {out} ({len(rows)} runs, {len(summ)} (amp,noise) groups)")
 
 
 def cmd_netsize(a):

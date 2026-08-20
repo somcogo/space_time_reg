@@ -165,6 +165,35 @@ def plot_perturbation_sensitivity(records, baseline, out_path, scene=""):
     _save(fig, out_path)
 
 
+def plot_synthetic_determinacy(summ, out_path):
+    """Cross-seed determinacy of the recovered synthetic flow (orig + weighted), vs motion
+    amplitude (at zero noise) and vs image noise (at the middle amplitude)."""
+    amps = sorted({r["amp_px"] for r in summ})
+    sigs = sorted({r["sigma"] for r in summ})
+
+    def get(amp, sig, k):
+        for r in summ:
+            if r["amp_px"] == amp and r["sigma"] == sig:
+                return r[k]
+        return np.nan
+
+    fig, ax = plt.subplots(1, 2, figsize=(13, 5), layout="constrained")
+    s0 = sigs[0]
+    ax[0].plot(amps, [get(a, s0, "rel_disagree") for a in amps], "o-", color="#0072B2", label="rel (orig)")
+    ax[0].plot(amps, [get(a, s0, "rel_disagree_w") for a in amps], "s--", color="#D55E00", label="rel (weighted)")
+    ax[0].set_xlabel("motion amplitude (px)"); ax[0].set_ylabel("cross-seed relative disagreement")
+    ax[0].set_title(f"vs motion amplitude (noise={s0})")
+    am = amps[len(amps) // 2]
+    ax[1].plot(sigs, [get(am, s, "rel_disagree") for s in sigs], "o-", color="#0072B2", label="rel (orig)")
+    ax[1].plot(sigs, [get(am, s, "rel_disagree_w") for s in sigs], "s--", color="#D55E00", label="rel (weighted)")
+    ax[1].set_xlabel("image noise sigma"); ax[1].set_ylabel("cross-seed relative disagreement")
+    ax[1].set_title(f"vs image noise (amp={am:g}px)")
+    for a in ax:
+        a.axhline(1.0, color="k", lw=.7, ls=":"); a.grid(alpha=.25); a.legend(fontsize=8)
+    fig.suptitle("Synthetic flow: cross-seed determinacy of the recovered deformation", fontsize=12)
+    _save(fig, out_path)
+
+
 def plot_epe(rows, out_path):
     """Synthetic-GT EPE vs seed (per amplitude) and vs noise."""
     amps = sorted({r["amp_px"] for r in rows})

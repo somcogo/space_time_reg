@@ -10,6 +10,10 @@ and GT flows live in one convention and the EPE is unambiguous. (This is the liv
 self-consistent successor to the stale motion_findings/verify_4_motion_bug_audit.py.)
 """
 
+import csv
+import os
+from collections import defaultdict
+
 import numpy as np
 import torch
 from torchdiffeq import odeint
@@ -17,6 +21,8 @@ from torchdiffeq import odeint
 from stmr.models.siren import GroupedSiren
 from stmr.utils.spatial_transformer import GridSampleTransformer
 from stmr.utils.spatial_utils import generate_coord_tensor
+
+from .jacobian import detJ_from_phi, detJ_stats
 
 
 def _phantom(H, W, device):
@@ -83,8 +89,11 @@ def epe(rel_pred, rel_gt, H, W):
 def run_synthetic_sweep(seeds=(0, 1, 2, 3, 4), amps=(1.0, 3.0, 6.0),
                         img_sigmas=(0.0, 0.02, 0.05, 0.1), H=64, W=64,
                         steps=300, lr=3e-4, step_size=0.1, device="cpu"):
-    """Grid over (seed, amp, noise); return a list of {seed, amp_px, sigma, epe_px, resid_red}."""
+    """Grid over (seed, amp, noise). Returns (rows, img, H, W); each row carries the recovered
+    flow ``rel_pred`` so the full metric set (determinacy, Jacobian, ...) can be computed. The
+    phantom ``img`` is the same for every amp (only the target differs), so one copy suffices."""
     rows = []
+    img = None
     for amp_px in amps:
         amp = amp_px / (W / 2)  # pixels -> normalized units
         img, target, rel_gt, _ = analytic_flow(H, W, amp, device)
@@ -97,5 +106,83 @@ def run_synthetic_sweep(seeds=(0, 1, 2, 3, 4), amps=(1.0, 3.0, 6.0),
                     "seed": seed, "amp_px": amp_px, "sigma": sigma,
                     "epe_px": epe(rel_pred, rel_gt, H, W),
                     "resid_reduction": 1.0 - res[-1] / (res[0] + 1e-12),
+                    "rel_pred": rel_pred.detach().cpu(),  # [H*W, 2], for downstream metrics
                 })
-    return rows
+    return rows, img.detach().cpu(), H, W
+
+
+# ---------------------------------------------------------------------------
+# Full metric logging (mirrors the netsize/data robustness checks)
+# ---------------------------------------------------------------------------
+
+def _run_detJ(rel_pred, H, W):
+    """detJ stats of a recovered flow (rel_pred = displacement [H*W,2])."""
+    coord = generate_coord_tensor((H, W), "cpu")
+    aphi = (rel_pred + coord).unsqueeze(0)          # [1, H*W, 2] absolute deformation
+    return detJ_stats(detJ_from_phi(aphi, H, W))
+
+
+def _flow_mag_px(rel_pred, H, W):
+    return float(rel_pred.reshape(H, W, 2).norm(dim=-1).mean()) * (H - 1) / 2.0
+
+
+def _synthetic_disagreement(rel_preds, img, H, W):
+    """Cross-seed disagreement of recovered flows, unweighted and phantom-intensity-weighted.
+    Mirrors netsize._flow_disagreement. Returns (abs_px, rel, abs_px_w, rel_w)."""
+    disps = torch.stack([rp.reshape(H, W, 2) for rp in rel_preds], 0)  # [n, H, W, 2]
+    mean = disps.mean(0)
+    std_mag = disps.std(0, unbiased=False).norm(dim=-1)  # [H, W]
+    flow_mag = mean.norm(dim=-1)
+    to_px = (H - 1) / 2.0
+    abs_u, flow_u = float(std_mag.mean()), float(flow_mag.mean())
+    w = img[0, 0].abs()
+    w = w / (w.sum() + 1e-12)                        # phantom intensity weight
+    abs_w = float((std_mag * w).sum())
+    flow_w = float((flow_mag * w).sum())
+    return abs_u * to_px, abs_u / (flow_u + 1e-12), abs_w * to_px, abs_w / (flow_w + 1e-12)
+
+
+def analyze_synthetic(rows, img, H, W, out):
+    """Write per-run + per-(amp,noise) summary CSV/MD with the full metric set, and figures."""
+    os.makedirs(out, exist_ok=True)
+    for r in rows:
+        st = _run_detJ(r["rel_pred"], H, W)
+        r["detJmin"] = st["detJ_min"]
+        r["foldover_frac"] = st["foldover_frac"]
+        r["flow_mag_px"] = _flow_mag_px(r["rel_pred"], H, W)
+
+    run_cols = ["seed", "amp_px", "sigma", "epe_px", "resid_reduction",
+                "flow_mag_px", "detJmin", "foldover_frac"]
+    with open(os.path.join(out, "runs.csv"), "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=run_cols, extrasaction="ignore")
+        w.writeheader(); w.writerows(rows)
+
+    groups = defaultdict(list)
+    for r in rows:
+        groups[(r["amp_px"], r["sigma"])].append(r)
+    summ = []
+    for (amp, sig), rs in sorted(groups.items()):
+        ad, rd, adw, rdw = _synthetic_disagreement([r["rel_pred"] for r in rs], img, H, W)
+        e = np.array([r["epe_px"] for r in rs])
+        summ.append({
+            "amp_px": amp, "sigma": sig, "nseed": len(rs),
+            "epe_mean": float(e.mean()), "epe_std": float(e.std()),
+            "resid_reduction": float(np.mean([r["resid_reduction"] for r in rs])),
+            "disagree_px": ad, "rel_disagree": rd,
+            "disagree_px_w": adw, "rel_disagree_w": rdw,
+            "flow_mag_px": float(np.mean([r["flow_mag_px"] for r in rs])),
+            "detJmin_mean": float(np.mean([r["detJmin"] for r in rs])),
+            "fold_max": float(np.max([r["foldover_frac"] for r in rs])),
+        })
+    cols = ["amp_px", "sigma", "nseed", "epe_mean", "epe_std", "resid_reduction",
+            "disagree_px", "rel_disagree", "disagree_px_w", "rel_disagree_w",
+            "flow_mag_px", "detJmin_mean", "fold_max"]
+    with open(os.path.join(out, "summary.csv"), "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
+        w.writeheader(); w.writerows(summ)
+    with open(os.path.join(out, "summary.md"), "w") as fh:
+        fh.write("| " + " | ".join(cols) + " |\n|" + "|".join("---" for _ in cols) + "|\n")
+        for r in summ:
+            fh.write("| " + " | ".join(
+                f"{r[c]:.4g}" if isinstance(r[c], float) else str(r[c]) for c in cols) + " |\n")
+    return summ
