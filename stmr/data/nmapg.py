@@ -45,6 +45,14 @@ def nmAPG(
     reg: Callable[[torch.Tensor], torch.Tensor] = None,
     debug: bool = False,
     logger: logging.Logger = None,
+    # Optional per-iteration hook: callback(i, x, stats) with
+    # stats = {data_fit, reg, res, L, n_active}. i = -1 for the initial point, then 0..max_iter-1.
+    # Kept generic on purpose (no TensorBoard/GT coupling) so callers own what they record.
+    # With callback=None the solver behaves exactly as before.
+    callback: Callable[[int, torch.Tensor, dict], None] = None,
+
+    data_grad: Callable = None,
+    reg_grad: Callable = None,
 ):
     """
     Algorithm 4: nonmonotone APG with line search
@@ -72,15 +80,22 @@ def nmAPG(
     grad_old = grad.clone()
 
     metrics = np.zeros((max_iter+1, 2)) if debug else None
+    # data_fit/reg are needed by the debug prints AND by the callback; compute once for either.
+    track = debug or (callback is not None)
 
-    if debug:
+    if track:
         df = data_fit(x,y).detach().cpu().sum(0)
         regval = reg(x).detach().cpu().sum(0)
-        metrics[0] = np.array([df, regval]).squeeze()
-        if logger is None:
-            print(f'Before opt energy {df+regval}, data fit {df}, reg {regval}')
-        else:
-            logger.info(f'Before opt energy {df+regval}, data fit {df}, reg {regval}')
+        if debug:
+            metrics[0] = np.array([df, regval]).squeeze()
+            if logger is None:
+                print(f'Before opt energy {df+regval}, data fit {df}, reg {regval}')
+            else:
+                logger.info(f'Before opt energy {df+regval}, data fit {df}, reg {regval}')
+        if callback is not None:
+            callback(-1, x, {"data_fit": float(df), "reg": float(regval),
+                             "res": float("nan"), "L": float(L.mean()),
+                             "n_active": int(idx.numel())})
     # Main loop
     for i in range(max_iter):
         assert not torch.any(
@@ -93,6 +108,15 @@ def nmAPG(
         )  # Eq 148, x_bar = yk
         x_old.copy_(x)
         energy, grad[idx] = f_and_nabla(x_bar[idx], y[idx])
+
+        # logger.debug(energy)
+        # logger.debug('whole grad sum ' + str(grad.abs().sum(dim=(1,2,3))) + ' min ' + str(grad.abs().amin(dim=(1,2,3))) + ' max ' + str(grad.abs().amax(dim=(1,2,3))))
+        # if data_grad is not None:
+        #     dgrad = data_grad(x_bar[idx], y[idx])
+        #     logger.debug('data grad sum ' + str(dgrad.abs().sum(dim=(1,2,3))) + ' min ' + str(dgrad.abs().amin(dim=(1,2,3))) + ' max ' + str(dgrad.abs().amax(dim=(1,2,3))))
+        # if reg_grad is not None:
+        #     rgrad = reg_grad(x_bar[idx], y[idx])
+        #     logger.debug('reg grad sum ' + str(rgrad.abs().sum(dim=(1,2,3))) + ' min ' + str(rgrad.abs().amin(dim=(1,2,3))) + ' max ' + str(rgrad.abs().amax(dim=(1,2,3))))
 
         # Lipschitz Update (Barzilai-Borwein style step)
         if i > 0:
@@ -189,14 +213,19 @@ def nmAPG(
         condition = res >= tol
         idx = condition.nonzero().view(-1)  # Update which data to still iterate on
 
-        if debug:
+        if track:
             df = data_fit(x,y).detach().cpu().sum(0)
             regval = reg(x).detach().cpu().sum(0)
-            metrics[i+1] = np.array([df, regval]).squeeze()
-            if logger is None:
-                print(f'Iter {i+1}/{max_iter}, energy {df+regval}, data fit {df}, reg {regval}')
-            else:
-                logger.info(f'Iter {i+1}/{max_iter}, energy {df+regval}, data fit {df}, reg {regval}')
+            if debug:
+                metrics[i+1] = np.array([df, regval]).squeeze()
+                if logger is None:
+                    print(f'Iter {i+1}/{max_iter}, energy {df+regval}, data fit {df}, reg {regval}, tol {res.detach().cpu()}')
+                else:
+                    logger.info(f'Iter {i+1}/{max_iter}, energy {df+regval}, data fit {df}, reg {regval}, tol {res.detach().cpu()}')
+            if callback is not None:
+                callback(i, x, {"data_fit": float(df), "reg": float(regval),
+                                "res": float(torch.max(res)), "L": float(L.mean()),
+                                "n_active": int(idx.numel())})
         if torch.max(res) < tol:
             if verbose:
                 if logger is None:

@@ -26,6 +26,10 @@ def set_seed(seed: int) -> None:
 
 def run(config: Config):
     torch.set_num_threads(8)
+    if getattr(config, "float64", False):
+        # Double precision end-to-end: model + internally-created tensors (coord, ODE times)
+        # follow the default dtype; loaded k-space data is cast in prepare_inputs.
+        torch.set_default_dtype(torch.float64)
     set_seed(config.seed)
 
     config.log_path = os.path.join(config.log_path, config.exp_name)

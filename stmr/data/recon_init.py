@@ -17,11 +17,20 @@ from .nmapg import nmAPG
 def init_using_nmAPG(config: argparse.Namespace,
                      recon_init: torch.Tensor,
                      fixed: torch.Tensor,
-                     forw_subs: nn.Module,
-                     forw_subs_adj: nn.Module,
-                     logger: logging.Logger) -> tuple[torch.Tensor, np.ndarray]:
+                     forw: nn.Module,
+                     adj: nn.Module,
+                     logger: logging.Logger,
+                     callback: Callable = None) -> tuple[torch.Tensor, np.ndarray]:
+    """Solve the initial reconstruction with nmAPG.
+
+    ``forw`` must be the *unmasked* forward operator (full_forw). The per-frame mask travels
+    inside ``fixed`` (packed ``[kspace, mask]``, see unpack_measurements) and the data-fit
+    functions apply it themselves: nmAPG drops converged frames by indexing x[idx]/y[idx] but
+    never the operator, so a mask stored in a MaskedFT buffer would broadcast against the wrong
+    frames. ``adj`` is currently unused.
+    """
     reg = get_reg(config)
-    data_fit, reg_eval, energy, energy_grad = get_functions(config, reg, forw_subs, forw_subs_adj)
+    data_fit, reg_eval, energy, energy_grad = get_functions(config, reg, forw, adj)
     energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
     
     weighted_data_fit = lambda val, y_in: config.lambda_st * data_fit(val, y_in)
@@ -40,7 +49,8 @@ def init_using_nmAPG(config: argparse.Namespace,
                                data_fit=weighted_data_fit,
                                reg=reg_eval,
                                debug=config.debug,
-                               logger=logger)
+                               logger=logger,
+                               callback=callback)
     t1 = time.time()
     if logger is None:
         print(f'Finished initial reconstruction in {t1-t0:.4f} seconds')
@@ -64,7 +74,7 @@ def unpack_measurements(y_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]
 def complex_l2(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
     kdata, mask = unpack_measurements(y_in)
     diff = mask * forw(val) - kdata
-    df = 0.5 * (diff ** 2).sum((1,2,3))
+    df = 0.5 * (diff.abs() ** 2).sum((1,2,3))
     return df.reshape(-1)
 
 def magnitude_l1(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config: argparse.Namespace) -> torch.Tensor:
