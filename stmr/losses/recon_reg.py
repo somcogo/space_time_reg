@@ -1,6 +1,12 @@
+from pathlib import Path
+
 import torch
 
 from stmr.regularizers import WCRR, ParameterLearningWrapper
+
+# Anchor data paths to the repo root (this file is <root>/stmr/data/data_utils.py), so loading
+# works from any working directory -- e.g. a notebook in notebooks/, not just the repo root.
+_WEIGHTS_ROOT = Path(__file__).resolve().parents[2] / "weights"
 
 # weak_convexity=0.0 is the plain CRR; 1.0 is WCRR. Empirically (see notes on the soft_con
 # branch) WCRR reconstructs cardiac cine MRI noticeably better than CRR at a comparable
@@ -8,11 +14,11 @@ from stmr.regularizers import WCRR, ParameterLearningWrapper
 REGULARIZER_VARIANTS = {
     'crr': {
         'weak_convexity': 0.0,
-        'weight_path': 'weights/bilevel_CT/CRR_bilevel_JFB_for_CT.pt',
+        'weight_path': _WEIGHTS_ROOT / 'bilevel_CT' / 'CRR_bilevel_JFB_for_CT.pt',
     },
     'wcrr': {
         'weak_convexity': 1.0,
-        'weight_path': 'weights/bilevel_CT/WCRR_bilevel_JFB_for_CT.pt',
+        'weight_path': _WEIGHTS_ROOT / 'bilevel_CT' / 'WCRR_bilevel_JFB_for_CT.pt',
     },
 }
 

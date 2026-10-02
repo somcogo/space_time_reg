@@ -35,7 +35,7 @@ def fin_diff_gradient(f, axis):
 
     # [B*N, H, W]
     f = f.reshape(b * c, 1, *spatial_shape)
-    grad_kernel = _grad_param(dims, 'default', axis=axis).to(f.device)
+    grad_kernel = _grad_param(dims, 'default', axis=axis).to(f)  # match input device AND dtype
     grad = spatial_filter_nd(f, grad_kernel)
     grad = grad.view(b, c, *spatial_shape)
     if dims == 2:

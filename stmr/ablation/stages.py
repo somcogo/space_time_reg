@@ -3,7 +3,7 @@
 Both ladders start at "fully-sampled GT images, registration only, no k-space
 undersampling" (S0) and end at the same full pipeline (matching
 ``configs/cmr_soft_con.yaml`` at time_points=6): free recon, Fourier-space sim loss,
-real nmAPG init, k-space undersampling + hard DC, and the learned WCRR prior. They differ
+real nmAPG init, k-space undersampling, and the learned WCRR prior. They differ
 in the ORDER those four components are switched on, which isolates whether a given
 component's effect on PSNR depends on what else is already active when it's introduced:
 
@@ -132,14 +132,14 @@ def _improves_pass(row, prev):
 
 _S0_OVERRIDES = dict(
     dataset="cmr_test2", init="gt", init_skip=True, learn_recon=False,
-    hard_dc=False, lambda_st=0.0, lambda_recon=0.0, lambda_rl2=1e2,
+    lambda_st=0.0, lambda_recon=0.0, lambda_rl2=1e2,
 )
 
 # + sim loss, recon learning: free (jointly optimised) recon starting from GT, fully
 # sampled, image-space data consistency.
 _SIM_RECON = dict(
     dataset="cmr_test2", init="gt", init_skip=True, learn_recon=True,
-    hard_dc=False, lambda_st=1.0, lambda_recon=0.0, lambda_rl2=1e2,
+    lambda_st=1.0, lambda_recon=0.0, lambda_rl2=1e2,
     sim_domain="image",
 )
 
@@ -163,8 +163,8 @@ _NMAPG_INIT = dict(
     reg="learned", reg_variant="wcrr", reg_alpha=1.0, recon_scale=6.0,
 )
 
-# + undersampling: switch to the real (factor=4) undersampled k-space and turn on hard DC.
-_UNDERSAMPLING = dict(dataset="cmr_P001", hard_dc=True)
+# + undersampling: switch to the real (factor=4) undersampled k-space.
+_UNDERSAMPLING = dict(dataset="cmr_P001")
 
 # + learned reg: turn on the pretrained WCRR prior as a joint-optimisation regularizer.
 _LEARNED_REG = dict(
@@ -218,7 +218,7 @@ LADDER_1 = [
     ),
     StageSpec(
         id="S4",
-        title="+ undersampling + hard DC",
+        title="+ undersampling",
         overrides=_merge(_SIM_RECON, _FT, _NMAPG_INIT, _UNDERSAMPLING),
         primary_metric="full_psnr",
         criterion="report-only: expect d_vs_init < 0 (drift off GT)",
@@ -281,7 +281,7 @@ LADDER_2 = [
     ),
     StageSpec(
         id="S5",
-        title="+ undersampling + hard DC [full pipeline]",
+        title="+ undersampling [full pipeline]",
         overrides=_merge(_SIM_RECON, _LEARNED_REG, _NMAPG_INIT, _FT, _UNDERSAMPLING),
         primary_metric="full_psnr",
         criterion="report-only: expect d_vs_init < 0 (drift off GT)",

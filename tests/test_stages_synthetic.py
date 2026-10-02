@@ -7,7 +7,7 @@ phantom, checking the *mechanism* each stage relies on:
   S0       registration recovers a known translation (imdiff drops).
   S1       fully-sampled data consistency anchors the recon at GT under joint optimisation.
   S1 vs S2 image-space and Fourier-space sim losses are identical (FFT is unitary).
-  S4       under an undersampling mask, hard DC preserves measured k-space and bounds drift.
+  S4       under an undersampling mask (soft DC only), drift off GT is bounded over a short run.
 
 The prior stages (S3 WCRR, S5 nmAPG init, S6 full pipeline) depend on pretrained weights /
 real data and are covered only by the real-data runner (python -m stmr.ablation run). All
@@ -23,7 +23,7 @@ from torch import nn
 from stmr.ablation.stages import BASE, LADDERS
 from stmr.config import Config, build_velocity_kwargs
 from stmr.data.data_utils import generate_standard_mask
-from stmr.data.fft_utils import FastmriFT, MaskedFT, apply_hard_data_consistency
+from stmr.data.fft_utils import FastmriFT, MaskedFT
 from stmr.losses.losses import calculate_losses, similarity_loss
 from stmr.metrics.calc_metrics import get_relevant_loss_names
 from stmr.models.factory import get_func
@@ -75,10 +75,6 @@ def _optimize(config, func, inputs, steps, learn_recon):
         loss_sum, _ = calculate_losses(config, inputs, model_outputs, coord, losses, None)
         loss_sum.backward()
         opt.step()
-        if config.hard_dc and hasattr(inputs.forward, "mask"):
-            with torch.no_grad():
-                inputs.moving.copy_(apply_hard_data_consistency(
-                    inputs.moving, inputs.fixed, inputs.forward.mask))
     return func
 
 
@@ -171,29 +167,23 @@ def test_fft_sim_equals_image_sim():
     assert torch.allclose(g_img, g_fou, atol=1e-6)
 
 
-@pytest.mark.parametrize("hard_dc", [True, False])
-def test_S4_masked_gt_init_bounded_drift(hard_dc):
-    """Under an undersampling mask starting at GT: with hard DC the measured k-space rows
-    are preserved exactly and PSNR drift is bounded; without it the recon drifts more."""
+def test_S4_masked_gt_init_bounded_drift():
+    """Under an undersampling mask starting at GT (soft DC only): the recon drifts off GT but
+    the drift is bounded over a short optimization -- some structure is retained."""
     torch.manual_seed(0)
     H = W = 64
     config = _cpu_config(time_points=3, lambda_st=1.0, lambda_rl2=1.0,
-                         learn_recon=True, hard_dc=hard_dc)
+                         learn_recon=True)
     moving_gt, _ = moving_phantom(T=3, H=H, W=W, shift_px=2.0)
     moving = nn.Parameter(moving_gt.clone())
 
     mask = generate_standard_mask(moving_gt.shape, factor=2)
     forward = MaskedFT(mask)
     func, inputs = _build(config, moving, forward)
-    measured_gt = forward(moving_gt)
 
     _optimize(config, func, inputs, steps=30, learn_recon=True)
 
-    if hard_dc:
-        # measured entries must be preserved to within numerical tolerance.
-        measured_now = forward(moving.detach())
-        assert torch.allclose(measured_now, measured_gt, atol=1e-4)
-    # some structure retained either way; drift is bounded.
+    # drift is bounded over a short run.
     assert _psnr(moving.detach(), moving_gt) > 20.0
 
 

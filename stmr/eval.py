@@ -20,8 +20,8 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger,
 
     with torch.no_grad():
         # inputs.moving is the live recon parameter, mutated by the final optimizer step
-        # (and hard DC) after the best snapshot was taken. Evaluate the best-epoch recon
-        # instead, so the reported metrics describe the same state as model_outputs/res.pt.
+        # after the best snapshot was taken. Evaluate the best-epoch recon instead, so the
+        # reported metrics describe the same state as model_outputs/res.pt.
         best_inputs = Inputs(moving, inputs.moving_inr, inputs.fixed, inputs.forward)
         metrics, imgs_to_save = calculate_metrics(config, None, best_inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)

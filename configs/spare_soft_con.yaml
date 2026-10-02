@@ -2,7 +2,7 @@
 # Real respiratory-phase-binned undersampling (RespBin.csv), not a synthetic mask --
 # `raw` is the actual sparse subset of the real acquisition (see stmr/data/spare_data.py).
 # Mirrors cmr_soft_con.yaml's structure so the two are directly comparable, minus the
-# CBCT-incompatible knobs (hard_dc, use_nmapg's complex-only unpack_measurements, ktavg
+# CBCT-incompatible knobs (use_nmapg's complex-only unpack_measurements, ktavg
 # init's FastmriIFT call, sim_domain=image's ifft2c_new call -- all MRI/FFT-specific).
 exp_name: spare/soft_con/full_pipeline
 dataset: cbct_P1T01
@@ -55,7 +55,6 @@ weight_decay: 0
 learn_recon: true
 interval: 0
 motion_warmup: 0
-hard_dc: false
 use_nreps: false
 
 # losses (sim_domain left at its 'fourier' default -- despite the name, similarity_loss's

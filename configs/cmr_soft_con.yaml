@@ -1,4 +1,4 @@
-# Full pipeline on CMRxRecon P001, static (time-constant) mask + hard DC + WCRR denoiser.
+# Full pipeline on CMRxRecon P001, static (time-constant) mask + WCRR denoiser.
 # Ported from the old bash_script.sh (soft_con / tuned_kt_dc_wcrr); the k-t mask it used
 # is replaced by the time-constant 'st' mask.
 exp_name: cmr/soft_con/full_pipeline/tuned_kt_dc_wcrr
@@ -47,7 +47,6 @@ weight_decay: 0
 learn_recon: true
 interval: 0
 motion_warmup: 0
-hard_dc: true
 use_nreps: false
 
 # losses

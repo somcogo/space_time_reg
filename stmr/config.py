@@ -76,14 +76,16 @@ class Config:
     learn_recon: bool = True
     interval: int = 0  # 0 -> epochs (alternation disabled)
     motion_warmup: int = 0
-    hard_dc: bool = False
     use_nreps: bool = False  # F2: default off (only supported cmr mode)
     template_warp_recon: bool = False  # recon_t = warp(template, phi); only the motion net is learned
+    float64: bool = False    # run the whole pipeline in double precision (data + model + losses)
 
     # --- losses ---
     loss: str = "mse"  # F3: MSE for k-space data fidelity
-    sim_domain: str = "fourier"  # 'fourier' (k-space DC) or 'image' (image-space DC; equal
-    #                              to fourier on fully-sampled data by Parseval, FFT unitary)
+    sim_domain: str = "fourier"  # 'fourier' (k-space DC), 'image' (image-space DC; equal to
+    #                              fourier on fully-sampled data by Parseval, FFT unitary),
+    #                              'fourier_mag' (|masked k-space| DC -- phase-insensitive), or
+    #                              'image_mag' (|magnitude image| DC -- phase-insensitive)
     lambda_st: float = 1.0
     lambda_grad_phi: float = 0.1
     lambda_grd: float = 1.0

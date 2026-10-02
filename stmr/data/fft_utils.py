@@ -96,13 +96,6 @@ class MaskedIFT(nn.Module):
         spectrum = spectrum * self.mask
         return ifft2c_new(spectrum.movedim(1, -1)).movedim(-1, 1)
 
-def apply_hard_data_consistency(image: torch.Tensor, measured_kspace: torch.Tensor, kspace_mask: torch.Tensor) -> torch.Tensor:
-    """Project an image onto the set of images consistent with the measurements:
-    replace the measured k-space entries with the measured values, keep the rest."""
-    spectrum = fft2c_new(image.movedim(1, -1)).movedim(-1, 1)
-    spectrum = torch.where(kspace_mask, measured_kspace, spectrum)
-    return ifft2c_new(spectrum.movedim(1, -1)).movedim(-1, 1)
-
 class FTAndSubsample(nn.Module):
     def __init__(self, kspace_mask):
         super().__init__()

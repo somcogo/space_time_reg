@@ -2,7 +2,7 @@
 # Full pipeline (learned recon, Fourier DC, nmAPG init, WCRR reg) as in cmr_soft_con.yaml,
 # but frame 0 is kept fully sampled everywhere and its recon is frozen at GT, and the siren is
 # made more regular (lambda_grad_phi 1e-3 -> 1e-2). Sits between the fully-sampled and the
-# fully-undersampled ablation stages. hard_dc off (standing rule; soft_con uses true).
+# fully-undersampled ablation stages.
 exp_name: cmr/partial_template/frozen_gt_template
 dataset: cmr_P001
 device: cuda
@@ -50,7 +50,6 @@ weight_decay: 0
 learn_recon: true
 interval: 0
 motion_warmup: 0
-hard_dc: false
 use_nreps: false
 
 # losses

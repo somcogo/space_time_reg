@@ -1,7 +1,7 @@
 # Template-warp reconstruction: no learned image. recon_t = warp(GT template frame 0, phi_{0->t});
 # only the motion net (GroupedSiren) is learned. Data term = FT(warp(template)) * mask vs measured
 # k-space (Fourier DC). Fully-sampled template (frame 0), frames 1..T-1 undersampled x factor.
-# Complex warp of the template. hard_dc off, no WCRR/image prior, no image-space loss.
+# Complex warp of the template. No WCRR/image prior, no image-space loss.
 exp_name: cmr/template_warp/frozen_gt_template
 dataset: cmr_P001
 device: cuda
@@ -48,7 +48,6 @@ recon_eps: 1.0e-4
 weight_decay: 0
 interval: 0
 motion_warmup: 0
-hard_dc: false
 use_nreps: false
 
 # losses: Fourier data consistency + motion regularity only

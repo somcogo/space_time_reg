@@ -10,7 +10,6 @@ from torchdiffeq import odeint_adjoint as odeint
 
 from stmr.config import Config
 from stmr.data.data_utils import get_dataset_capabilities
-from stmr.data.fft_utils import apply_hard_data_consistency
 from stmr.losses.losses import calculate_losses
 from stmr.losses.recon_reg import get_recon_regularizer
 from stmr.metrics.calc_metrics import calculate_metrics, get_relevant_loss_names
@@ -55,12 +54,6 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         with torch.no_grad():
             moving[:n_template].copy_(eval_inputs.gt_im[:n_template])
         logger.info(f'Froze first {n_template} recon frame(s) at GT (fully-sampled template)')
-
-    if config.hard_dc and not config.template_warp_recon and hasattr(inputs.forward, 'mask'):
-        # Start from a measurement-consistent recon so every epoch (including the motion
-        # warm-up, which never updates the recon) sees the projected images.
-        with torch.no_grad():
-            moving.copy_(apply_hard_data_consistency(moving, inputs.fixed, inputs.forward.mask))
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
@@ -121,8 +114,8 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         if n_template > 0 and moving.grad is not None:
             moving.grad[:n_template].zero_()
 
-        # Snapshot before optimizer.step() and hard DC mutate moving/func, so the saved
-        # state is exactly the one loss_sum was computed on.
+        # Snapshot before optimizer.step() mutates moving/func, so the saved state is
+        # exactly the one loss_sum was computed on.
         if loss_sum <= best_loss and epoch > config.schedule[-1]:
             best_loss = loss_sum.detach()
             best_model_out = ModelOutputs(model_outputs.rel_vel.clone(),
@@ -139,11 +132,6 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         optimizer.step()
 
         time_stamps[4, epoch - 1] = time.time()
-        if config.hard_dc and not config.template_warp_recon and hasattr(inputs.forward, 'mask'):
-            # Project the recon back onto the measurements: the regularizer terms may
-            # only fill in the unmeasured k-space entries, never corrupt measured ones.
-            with torch.no_grad():
-                moving.copy_(apply_hard_data_consistency(moving, inputs.fixed, inputs.forward.mask))
         with torch.no_grad():
             extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
             metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs,

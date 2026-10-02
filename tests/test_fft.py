@@ -3,7 +3,6 @@ import torch
 from stmr.data.fft_utils import (
     MaskedFT,
     MaskedIFT,
-    apply_hard_data_consistency,
     fft2c_new,
     ifft2c_new,
 )
@@ -29,13 +28,3 @@ def test_masked_ft_is_adjoint_consistent():
     lhs = (ft(x) * y).sum()
     rhs = (x * ift(y)).sum()
     assert torch.allclose(lhs, rhs, atol=1e-4)
-
-
-def test_hard_data_consistency_pins_measured_entries():
-    mask = torch.rand(2, 2, 16, 16) > 0.5
-    measured = fft2c_new(_rand_img().movedim(1, -1)).movedim(-1, 1)
-    img = _rand_img()
-    projected = apply_hard_data_consistency(img, measured, mask)
-    k = fft2c_new(projected.movedim(1, -1)).movedim(-1, 1)
-    # measured entries must equal the measurements after projection
-    assert torch.allclose(k[mask], measured[mask], atol=1e-4)

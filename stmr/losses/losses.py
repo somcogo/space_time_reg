@@ -55,13 +55,30 @@ def similarity_loss(config, inputs, model_outputs):
     moving, forw = inputs.moving, inputs.forward
     loss_fn = get_sim_loss_fn(config, moving)
 
-    if getattr(config, 'sim_domain', 'fourier') == 'image':
+    sim_domain = getattr(config, 'sim_domain', 'fourier')
+    if sim_domain == 'image':
         # Image-space data consistency: compare the recon directly to the IFFT of the
         # measured k-space. On fully-sampled data this is identical (value AND gradient) to
         # the Fourier-space MSE below, because the FFT is unitary (Parseval). Running one
         # stage each way is a check that the FFT/IFFT data-consistency path is correct.
         target = ifft2c_new(inputs.fixed.movedim(1, -1)).movedim(-1, 1)
         loss = loss_fn(target, moving)
+    elif sim_domain == 'image_mag':
+        # Phase-insensitive image-space DC: compare the |magnitude| images of the recon and
+        # the IFFT of the measured k-space. eps-guarded sqrt (not complex_abs) for safe grads.
+        target = ifft2c_new(inputs.fixed.movedim(1, -1)).movedim(-1, 1)
+        tm = (target.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |target| [T,1,H,W]
+        mm = (moving.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |recon|  [T,1,H,W]
+        loss = loss_fn(tm, mm)
+    elif sim_domain == 'fourier_mag':
+        # Phase-insensitive Fourier DC: compare the |magnitude| of the (masked) k-space on
+        # both sides, discarding k-space phase. Used by the template-warp experiment so the
+        # flow need not match the temporally-incoherent image phase. eps-guarded sqrt (not
+        # complex_abs) so the masked-out zeros don't produce NaN gradients from d(sqrt)/d0.
+        recon_kspace = forw(moving)
+        rm = (recon_kspace.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |k-space| [T,1,H,W]
+        fm = (inputs.fixed.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |target|  [T,1,H,W]
+        loss = loss_fn(fm, rm)
     else:
         recon_kspace = forw(moving)
         loss = loss_fn(inputs.fixed, recon_kspace)
