@@ -1,0 +1,65 @@
+# Template-warp with a PHASE-INSENSITIVE data term: compare |masked k-space| on both sides,
+# i.e. || |FT(warp(complex template)) * mask| - |FT(GT_t) * mask| ||^2. The warp stays complex;
+# the magnitude is taken per k-space point (after FT+mask), discarding k-space phase so the flow
+# need not match the temporally-incoherent image phase. Everything else = cmr_template_warp.yaml.
+exp_name: cmr/template_warp_mag/frozen_gt_template
+dataset: cmr_P001
+device: cuda
+seed: 0
+
+# data / mask
+time_points: 2
+start_frame: 0
+slice_number: 0
+factor: 4
+mask: st
+template_frames: 1        # frame 0: fully sampled + used as the warp source (GT)
+
+# reconstruction: derived from the template warp, nothing learned as an image
+template_warp_recon: true
+learn_recon: false
+init: gt
+init_skip: true
+use_nmapg: false
+
+# reconstruction regularizer (off: the recon is not a free image)
+reg: learned
+reg_variant: wcrr
+reg_alpha: 1.0
+recon_scale: 6.0
+
+# velocity network
+func_name: groupsiren
+siren_depth: 3
+siren_dim: 64
+last_init_zero: true
+
+# ODE solver
+solver: euler
+step_size: 0.1
+atol: 1.0e-8
+rtol: 1.0e-6
+
+# optimisation
+epochs: 2000
+lr: 1.0e-4
+recon_lr: 1.0e-5
+recon_eps: 1.0e-4
+weight_decay: 0
+interval: 0
+motion_warmup: 0
+use_nreps: false
+
+# losses: phase-insensitive |k-space| data consistency + motion regularity only
+loss: mse
+sim_domain: fourier_mag
+lambda_st: 1.0
+lambda_grad_phi: 1.0e-3
+lambda_grd: 0
+lambda_lap: 0
+lambda_hel: 0
+lambda_recon: 0           # no WCRR/image prior
+lambda_rl2: 0             # no image-space consecutive-warp loss
+
+log_cadence: 50
+debug: false
