@@ -44,7 +44,7 @@ def run_init(config: Config) -> dict:
                       log_every=config.log_cadence)
     t0 = time.time()
     recon, _ = init_using_nmAPG(config, data.init, packed, data.full_forw,
-                                data.forw_subs_adj, logger, callback=cb)
+                                data.full_adj, logger, callback=cb)
     wall = time.time() - t0
     logger.info(f"init solved in {wall:.1f}s over {len(cb.steps)} logged iterations")
 

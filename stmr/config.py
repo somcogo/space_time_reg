@@ -42,7 +42,9 @@ class Config:
     init_lr: float = 0.1
     init_loss: str = "l2"
     init_reg_abs: bool = True
+    init_grad: str = "autograd"  # 'autograd' or 'analytic' (closed form; needs init_loss='l2' and reg='learned')
     tol: float = 1e-4
+    L_init: float = 1.0  # nmAPG's initial Lipschitz estimate (first step = 1/L_init); independent of lambda_st
     detach_grads: bool = True
     lambda_init_recon: float = 1.0
     kspace_noise_sigma: float = 0.0  # robustness: relative noise on measured k-space (0=off)

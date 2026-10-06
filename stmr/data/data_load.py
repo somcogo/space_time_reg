@@ -67,7 +67,7 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
     """
     data = prepare_data(config)
     raw_kspace_data, gt_kspace_data, kspace_mask = data.raw_kspace_data, data.gt_kspace_data, data.kspace_mask
-    full_forw, forw_subs, forw_subs_adj = data.full_forw, data.forw_subs, data.forw_subs_adj
+    full_forw, full_adj, forw_subs, forw_subs_adj = data.full_forw, data.full_adj, data.forw_subs, data.forw_subs_adj
     fixed, gt_im, init = data.fixed, data.gt_im, data.init
 
     if config.init_skip:
@@ -85,7 +85,7 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
             from stmr.metrics.init_logger import InitTBLogger
             callback = InitTBLogger(writer, gt_im, kspace_mask.to(config.device), fixed, config)
         recon, _ = init_using_nmAPG(config, init, packed_measurements, full_forw,
-                                    forw_subs_adj, logger, callback=callback)
+                                    full_adj, logger, callback=callback)
     else:
         recon, _ = init_with_grad_desc(config, init, fixed, forw_subs)
 

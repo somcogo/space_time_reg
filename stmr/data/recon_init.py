@@ -27,14 +27,15 @@ def init_using_nmAPG(config: argparse.Namespace,
     inside ``fixed`` (packed ``[kspace, mask]``, see unpack_measurements) and the data-fit
     functions apply it themselves: nmAPG drops converged frames by indexing x[idx]/y[idx] but
     never the operator, so a mask stored in a MaskedFT buffer would broadcast against the wrong
-    frames. ``adj`` is currently unused.
+    frames. ``adj`` must be the *unmasked* adjoint of ``forw`` (full_adj) for the same reason; it is
+    only used when config.init_grad == 'analytic'.
     """
     reg = get_reg(config)
-    data_fit, reg_eval, energy, energy_grad = get_functions(config, reg, forw, adj)
-    energy_and_grad = lambda val, y_in: (energy(val, y_in), energy_grad(val, y_in))
-    
+    data_fit, reg_eval, energy, energy_grad, energy_and_grad = get_functions(config, reg, forw, adj)
+
     weighted_data_fit = lambda val, y_in: config.lambda_st * data_fit(val, y_in)
-    L_init = config.lambda_st
+    # getattr with a default so notebooks that build their own config Namespace keep nmAPG's default.
+    L_init = getattr(config, 'L_init', 1.0)
 
     t0 = time.time()
     x, L, i, converged, metrics = nmAPG(x0=recon_init,
@@ -105,6 +106,12 @@ def reg_without_abs(config: argparse.Namespace, val: torch.Tensor, regularizer: 
 
                   
 def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.Module, adj: nn.Module) -> list[Callable]:
+    # getattr with a default so notebooks that build their own config Namespace keep the autograd path.
+    analytic = getattr(config, 'init_grad', 'autograd') == 'analytic'
+    if analytic and (config.init_loss != 'l2' or config.reg != 'learned'):
+        raise ValueError("init_grad='analytic' is only implemented for init_loss='l2' with reg='learned', "
+                         f"got init_loss={config.init_loss!r}, reg={config.reg!r}")
+
     def data_fit(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
         if config.init_loss == 'mag_l1':
             df = magnitude_l1(val, y_in, forw, config)
@@ -129,7 +136,30 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
             fun = fun.detach()
         return fun.reshape(-1)
 
+    def analytic_energy_and_grad(val: torch.Tensor, y_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        # Closed-form counterpart of energy() + autograd: one forward operator call and one regularizer
+        # pass give both. The energy is assembled in the same order as energy(), so nmAPG's line search
+        # compares identical values whichever function produced them.
+        with torch.no_grad():
+            kdata, mask = unpack_measurements(y_in)
+            diff = mask * forw(val) - kdata
+            df = 0.5 * (diff.abs() ** 2).sum((1,2,3))
+            if config.init_reg_abs:
+                val_abs = complex_abs(val)
+                reg, reg_grad = regularizer.grad(val_abs, get_energy=True)
+                reg = config.lambda_init_recon * reg
+                reg_grad = reg_grad * val / val_abs  # chain rule through complex_abs (including its eps)
+            else:
+                reg, reg_grad = regularizer.grad(val.flatten(0,1).unsqueeze(1), get_energy=True)
+                reg = (config.lambda_init_recon * reg).reshape(val.shape[0], -1).sum(1)
+                reg_grad = reg_grad.reshape(val.shape)
+            fun = config.lambda_st * df.reshape(-1) + reg.reshape(-1)
+            grad = config.lambda_st * adj(mask * diff) + config.lambda_init_recon * reg_grad
+        return fun.reshape(-1), grad
+
     def energy_grad(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
+        if analytic:
+            return analytic_energy_and_grad(val, y_in)[1]
         val_req = val.detach().clone().requires_grad_(True)
         df = config.lambda_st * data_fit(val_req, y_in)
         reg = reg_eval(val_req)
@@ -137,14 +167,13 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
         energy = df + reg
         energy.sum().backward()
         return val_req.grad
-        # diff = forw(val) - y_in
-        # df_grad = adj(diff)
-        # reg_grad = config.lambda_init_recon * regularizer.grad(
-        #     val.flatten(0,1).unsqueeze(1)
-        # ).reshape(val.shape)
-        # return df_grad + reg_grad
-    
-    return data_fit, reg_eval, energy, energy_grad
+
+    def energy_and_grad(val: torch.Tensor, y_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if analytic:
+            return analytic_energy_and_grad(val, y_in)
+        return energy(val, y_in), energy_grad(val, y_in)
+
+    return data_fit, reg_eval, energy, energy_grad, energy_and_grad
 
 def init_with_grad_desc(config: argparse.Namespace,
                         recon: nn.Parameter,
