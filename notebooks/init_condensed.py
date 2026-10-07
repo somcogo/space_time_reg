@@ -26,17 +26,17 @@ C = dict(
     patient="001", slice=0, start_frame=0, T=2,   # data
     factor=4,                                     # mask: 24 centre rows + every factor-th row
     variant="wcrr",                               # 'crr' (weak_cvx 0) | 'wcrr' (weak_cvx 1)
-    lam=0.02,                                     # lambda_init_recon
+    lam=0.,                                     # lambda_init_recon
     scale=5.5,                                    # recon_scale (overrides pretrained s)
     alpha=1.0,                                    # reg_alpha   (overrides pretrained alpha)
     abs_reg=True,                                 # init_reg_abs: regularise |x| (True) or re/im
-    grad="autograd",                              # init_grad: 'autograd' | 'analytic' (closed-form gradient)
+    grad="analytic",                              # init_grad: 'autograd' | 'analytic' (closed-form gradient)
     lam_st=1.0,                                   # lambda_st (data weight)
     L_init=1.0,                                   # nmAPG's initial L (first step = 1/L_init)
-    max_iter=150,                                 # recon_epochs
+    max_iter=1000,                                 # recon_epochs
     tol=1e-4,                                     # nmAPG stop: max_t ||x_k - x_{k-1}|| / ||x_k|| < tol
     device="cuda",                                # pick a GPU with no compute processes listed
-    equiv_iters=50,                               # iterations for the equivalence cell in init_condensed_checks.py
+    # equiv_iters=50,                               # iterations for the equivalence cell in init_condensed_checks.py
 )
 C.update(json.loads(os.environ.get("INIT_CFG", "{}")))   # optional override for script runs
 ROOT = next(p for p in [Path.cwd(), *Path.cwd().parents] if (p / "weights").is_dir())
