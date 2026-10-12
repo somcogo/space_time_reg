@@ -86,6 +86,7 @@ def nmAPG(
     if track:
         df = data_fit(x,y).detach().cpu().sum(0)
         regval = reg(x).detach().cpu().sum(0)
+        grad_sum = nabla(x,y).detach().cpu().abs().sum()
         if debug:
             metrics[0] = np.array([df, regval]).squeeze()
             if logger is None:
@@ -95,7 +96,8 @@ def nmAPG(
         if callback is not None:
             callback(-1, x, {"data_fit": float(df), "reg": float(regval),
                              "res": float("nan"), "L": float(L.mean()),
-                             "n_active": int(idx.numel())})
+                             "n_active": int(idx.numel()),
+                             "grad_sum":float(grad_sum)})
     # Main loop
     for i in range(max_iter):
         assert not torch.any(
@@ -216,6 +218,7 @@ def nmAPG(
         if track:
             df = data_fit(x,y).detach().cpu().sum(0)
             regval = reg(x).detach().cpu().sum(0)
+            grad_sum = nabla(x,y).detach().cpu().abs().sum()
             if debug:
                 metrics[i+1] = np.array([df, regval]).squeeze()
                 if logger is None:
@@ -225,7 +228,8 @@ def nmAPG(
             if callback is not None:
                 callback(i, x, {"data_fit": float(df), "reg": float(regval),
                                 "res": float(torch.max(res)), "L": float(L.mean()),
-                                "n_active": int(idx.numel())})
+                                "n_active": int(idx.numel()),
+                                "grad_sum":float(grad_sum)})
         if torch.max(res) < tol:
             if verbose:
                 if logger is None:

@@ -33,6 +33,9 @@ def get_recon_regularizer(config):
         weights['scale'] = torch.tensor(config.recon_scale, device=config.device) * torch.ones_like(wrapped_reg.scale, device=config.device)
     if config.reg_alpha is not None:
         weights['alpha'] = torch.tensor(config.reg_alpha, device=config.device) * torch.ones_like(wrapped_reg.alpha, device=config.device)
+    # getattr with a default so configs built without reg_beta (tests, notebooks) keep the pretrained beta.
+    if getattr(config, 'reg_beta', None) is not None:
+        weights['regularizer.beta'] = torch.tensor(config.reg_beta, device=config.device) * torch.ones_like(reg.beta, device=config.device)
     wrapped_reg.load_state_dict(weights)
     wrapped_reg.eval()
     for p in wrapped_reg.parameters():

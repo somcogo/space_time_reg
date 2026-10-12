@@ -93,32 +93,5 @@ for abs_reg in (True, False):
     (Ea, Ga), (Eb, Gb) = out["autograd"], out["analytic"]
     print(f"grad | analytic vs autograd, abs_reg={abs_reg}: energy equal {torch.equal(Ea, Eb)}, gradient rel diff {rel(Gb, Ga):.1e}")
 
-# %% 9. Equivalence vs the pipeline (CPU, deterministic)
-# Both sides use the same solver (stmr/data/nmapg.py), so this checks the condensed data, FFT, regularizer
-# and objective against the pipeline's prepare_data + init_using_nmAPG.
-# Keep this cell last: these stmr imports can switch matplotlib back to the file-only Agg backend.
-from stmr.config import Config                              # noqa: E402
-from stmr.data.data_load import prepare_data                # noqa: E402
-from stmr.data.nmapg import nmAPG                           # noqa: E402
-from stmr.data.recon_init import init_using_nmAPG           # noqa: E402
 
-cfg = Config()
-for k, val in dict(dataset=f"cmr_P{C['patient']}", slice_number=C["slice"], start_frame=C["start_frame"],
-                   time_points=C["T"], factor=C["factor"], mask="st", template_frames=0, kspace_noise_sigma=0.0,
-                   init="adj", use_nmapg=True, reg="learned", reg_variant=C["variant"], reg_alpha=C["alpha"],
-                   recon_scale=C["scale"], lambda_init_recon=C["lam"], init_reg_abs=C["abs_reg"], init_grad=C["grad"],
-                   lambda_st=C["lam_st"], L_init=C["L_init"], init_loss="l2", detach_grads=True, tol=C["tol"],
-                   recon_epochs=C["equiv_iters"], debug=False, device="cpu").items():
-    setattr(cfg, k, val)
-d = prepare_data(cfg)
-packed = torch.cat([d.fixed, d.kspace_mask.to(d.fixed)], dim=1)
-x_pipe, _ = init_using_nmAPG(cfg, d.init, packed, d.full_forw, d.full_adj, logger=None)
-
-k_c, mask_c, y_c, gt_c, x0_c = load_data(C, "cpu")
-_, _, e_c, g_c, eg_c = make_objective(C, *load_reg(C, "cpu"))
-x_c, L_c, it_c, _, _ = nmAPG(x0=x0_c, y=torch.cat([y_c, mask_c.to(y_c)], dim=1), f=e_c, nabla=g_c, f_and_nabla=eg_c,
-                             max_iter=C["equiv_iters"], L_init=C["L_init"], tol=C["tol"])
-for name, a, b in (("measurements y", y_c, d.fixed), ("mask", mask_c, d.kspace_mask), ("GT image", gt_c, d.gt_im),
-                   ("zero-fill init", x0_c, d.init.detach()), (f"recon after {it_c + 1} iters", x_c, x_pipe.detach())):
-    print(f"equiv | {name:22}: bit-identical {torch.equal(a, b)}   max|diff| {float((a.float() - b.float()).abs().max()):.2e}")
-print("equiv | pipeline x requires_grad:", x_pipe.requires_grad, "grad_fn:", type(x_pipe.grad_fn).__name__)
+# %%

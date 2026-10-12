@@ -45,6 +45,14 @@ def prepare_data(config: Config) -> PreparedData:
     forw_subs = forw_subs.to(config.device)
     forw_subs_adj = forw_subs_adj.to(config.device)
 
+    # Normalise data: one scale for all loaded time points, the maximum of the GT magnitude image, so the
+    # relative brightness between frames is kept (the FFT is linear, so scaling k-space scales the image
+    # by the same factor). The magnitude, not |re|/|im|, so the scale does not depend on the image phase.
+    if getattr(config, 'normalize_data', False):
+        gt_scale = (full_adj(gt_kspace_data) ** 2).sum(dim=1).sqrt().max()
+        raw_kspace_data = raw_kspace_data / gt_scale
+        gt_kspace_data = gt_kspace_data / gt_scale
+
     # fixed keeps the full k-space shape, zero-filled at unmeasured entries. This supports
     # time-varying (k-t) masks where the number of measured rows differs between frames,
     # which the old row-subsampled representation could not express.
@@ -84,7 +92,9 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
             # exist inside this function.
             from stmr.metrics.init_logger import InitTBLogger
             callback = InitTBLogger(writer, gt_im, kspace_mask.to(config.device), fixed, config)
-        recon, _ = init_using_nmAPG(config, init, packed_measurements, full_forw,
+        # init is an nn.Parameter; detach it, or nmAPG's in-place iterate updates build an
+        # autograd graph that grows every iteration until the GPU runs out of memory.
+        recon, _ = init_using_nmAPG(config, init.detach(), packed_measurements, full_forw,
                                     full_adj, logger, callback=callback)
     else:
         recon, _ = init_with_grad_desc(config, init, fixed, forw_subs)

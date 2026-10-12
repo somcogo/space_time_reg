@@ -33,28 +33,30 @@ class Config:
     mask: str = "st"
     random_mask: bool = False
     template_frames: int = 0  # leading frames kept fully-sampled + recon frozen at GT (0 = off)
+    normalize_data: bool = True  # divide k-space by the max GT magnitude over all loaded frames
 
     # --- initial reconstruction ---
-    init: str = "zero"
+    init: str = "adj"
     init_skip: bool = False
-    use_nmapg: bool = False
-    recon_epochs: int = 200
+    use_nmapg: bool = True
+    recon_epochs: int = 300
     init_lr: float = 0.1
     init_loss: str = "l2"
-    init_reg_abs: bool = True
+    init_reg_abs: bool = False
     init_grad: str = "autograd"  # 'autograd' or 'analytic' (closed form; needs init_loss='l2' and reg='learned')
-    tol: float = 1e-4
+    tol: float = 0.0  # nmAPG stop on relative change; 0 = always run recon_epochs iterations
     L_init: float = 1.0  # nmAPG's initial Lipschitz estimate (first step = 1/L_init); independent of lambda_st
     detach_grads: bool = True
-    lambda_init_recon: float = 1.0
+    lambda_init_recon: float = 0.2
     kspace_noise_sigma: float = 0.0  # robustness: relative noise on measured k-space (0=off)
     init_noise_sigma: float = 0.0    # robustness: relative noise on the init recon (0=off)
 
     # --- reconstruction regularizer ---
     reg: str = "learned"
     reg_variant: str = "crr"  # 'crr' (weak_convexity=0) or 'wcrr' (weak_convexity=1)
-    reg_alpha: float | None = None  # None -> keep the pretrained alpha (do not overwrite)
-    recon_scale: float = 0.1  # 0 -> None (keep pretrained scale)
+    reg_alpha: float | None = 1.0  # None -> keep the pretrained alpha (do not overwrite)
+    reg_beta: float | None = 3.0  # None -> keep the pretrained beta (CRR 4.28, WCRR 1.15); lower = wider quadratic zone, less stiff
+    recon_scale: float = 3.55  # 0 -> None (keep pretrained scale)
 
     # --- velocity network ---
     func_name: str = "groupsiren"  # F5: default to the non-stationary ensemble

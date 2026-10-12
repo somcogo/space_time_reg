@@ -22,6 +22,7 @@ slice_number: 0
 # 'zero' is safe and dataset-agnostic (get_init shapes it from gt_im, not raw_kspace_data).
 use_nmapg: false
 init: zero
+normalize_data: false  # the normalisation (GT magnitude max) is only validated for MRI
 recon_epochs: 150
 init_lr: 1.0e-2
 init_loss: l2

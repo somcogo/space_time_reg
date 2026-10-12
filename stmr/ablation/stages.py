@@ -3,7 +3,7 @@
 Both ladders start at "fully-sampled GT images, registration only, no k-space
 undersampling" (S0) and end at the same full pipeline (matching
 ``configs/cmr_soft_con.yaml`` at time_points=6): free recon, Fourier-space sim loss,
-real nmAPG init, k-space undersampling, and the learned WCRR prior. They differ
+real nmAPG init, k-space undersampling, and the learned CRR prior. They differ
 in the ORDER those four components are switched on, which isolates whether a given
 component's effect on PSNR depends on what else is already active when it's introduced:
 
@@ -39,7 +39,7 @@ from typing import Callable, Optional
 BASE = dict(
     device="cuda",
     seed=0,
-    time_points=6,
+    time_points=12,
     start_frame=0,
     slice_number=0,
     factor=4,
@@ -65,11 +65,14 @@ BASE = dict(
     lambda_hel=0.0,
     lambda_mcdc=0.0,
     reg="learned",
-    reg_variant="wcrr",
+    reg_variant="crr",
     reg_alpha=1.0,
-    recon_scale=6.0,
+    reg_beta=3.0,
+    recon_scale=3.55,
     log_cadence=50,
     debug=False,
+    init_grad="analytic",
+    tol=0.0,
 )
 
 
@@ -152,24 +155,24 @@ _FT = dict(sim_domain="fourier")
 # The regularizer fields (reg/reg_variant/reg_alpha/recon_scale) are set here too, even
 # though this block doesn't turn lambda_recon on: nmAPG always needs *some* regularizer for
 # its internal energy (see stmr/data/recon_init.py get_reg), and recon_epochs/init_lr/
-# lambda_init_recon above were tuned assuming the pretrained WCRR prior at this scale (they
+# lambda_init_recon above were tuned assuming the pretrained CRR prior at this scale (they
 # match configs/cmr_soft_con.yaml). Without this, a ladder that reaches _NMAPG_INIT before
 # _LEARNED_REG (ladder 1) falls back to the bare Config defaults (reg_variant='crr',
 # recon_scale=0.1) -- a stale, uncalibrated regularizer -- and nmAPG produces a badly
 # under/over-regularized init unrelated to whatever the stage is actually trying to isolate.
 _NMAPG_INIT = dict(
-    init="adj", init_skip=False, use_nmapg=True, recon_epochs=150,
-    init_lr=1e-2, init_loss="l2", lambda_init_recon=2e-2,
-    reg="learned", reg_variant="wcrr", reg_alpha=1.0, recon_scale=6.0,
+    init="adj", init_skip=False, use_nmapg=True, recon_epochs=300,
+    init_lr=1e-2, init_loss="l2", lambda_init_recon=0.2,
+    reg="learned", reg_variant="crr", reg_alpha=1.0, recon_scale=3.55,
 )
 
 # + undersampling: switch to the real (factor=4) undersampled k-space.
 _UNDERSAMPLING = dict(dataset="cmr_P001")
 
-# + learned reg: turn on the pretrained WCRR prior as a joint-optimisation regularizer.
+# + learned reg: turn on the pretrained CRR prior as a joint-optimisation regularizer.
 _LEARNED_REG = dict(
-    lambda_recon=1e-1, reg="learned", reg_variant="wcrr",
-    reg_alpha=1.0, recon_scale=6.0,
+    lambda_recon=1e-1, reg="learned", reg_variant="crr",
+    reg_alpha=1.0, recon_scale=3.55,
 )
 
 
@@ -228,7 +231,7 @@ LADDER_1 = [
     ),
     StageSpec(
         id="S5",
-        title="+ learned (WCRR) reg [full pipeline]",
+        title="+ learned (CRR) reg [full pipeline]",
         overrides=_merge(_SIM_RECON, _FT, _NMAPG_INIT, _UNDERSAMPLING, _LEARNED_REG),
         primary_metric="full_psnr",
         criterion="PASS if S5.full_psnr >= S4.full_psnr",
@@ -251,7 +254,7 @@ LADDER_2 = [
     ),
     StageSpec(
         id="S2",
-        title="+ learned (WCRR) reg",
+        title="+ learned (CRR) reg",
         overrides=_merge(_SIM_RECON, _LEARNED_REG),
         primary_metric="full_psnr",
         criterion="PASS if S1.full_psnr - S2.full_psnr <= 2 dB",

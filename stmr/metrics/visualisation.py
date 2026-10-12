@@ -257,7 +257,7 @@ def prep_metrics(all_metrics):
     for i, m in enumerate(all_metrics):
         for k, v in m['metrics'].items():
             if name in k and 'moved' in k:
-                t = int(k[-1])
+                t = int(k.split()[-1])
                 losses[name][i][t] = v.cpu().numpy()
 
     name = 'GT error max'
@@ -265,7 +265,7 @@ def prep_metrics(all_metrics):
     for i, m in enumerate(all_metrics):
         for k, v in m['metrics'].items():
             if name in k and 'moved' in k:
-                t = int(k[-1])
+                t = int(k.split()[-1])
                 losses[name][i][t] = v.cpu().numpy()
     
 
@@ -274,7 +274,7 @@ def prep_metrics(all_metrics):
     for i, m in enumerate(all_metrics):
         for k, v in m['metrics'].items():
             if 'GT error sum' in k and 'init' in k:
-                t = int(k[-1])
+                t = int(k.split()[-1])
                 losses[name][i][t] = v.cpu().numpy()
 
     name = 'GT error max init'
@@ -282,7 +282,7 @@ def prep_metrics(all_metrics):
     for i, m in enumerate(all_metrics):
         for k, v in m['metrics'].items():
             if 'GT error max' in k and 'init' in k:
-                t = int(k[-1])
+                t = int(k.split()[-1])
                 losses[name][i][t] = v.cpu().numpy()
     
     return losses, debug_losses
