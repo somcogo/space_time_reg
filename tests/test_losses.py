@@ -32,6 +32,41 @@ def test_grad_phi_is_zero_for_identity_deformation():
     assert loss.abs().max() < 1e-4
 
 
+def _affine_px_model_outputs(A, h, w):
+    """Deformation X -> A X in pixel coordinates (about the centre), as normalized abs_phi."""
+    coord = generate_coord_tensor((h, w), "cpu").double()
+    span = torch.tensor([(h - 1) / 2, (w - 1) / 2], dtype=torch.float64)
+    abs_phi = (((coord * span) @ A.T) / span)[None]
+    return coord, ModelOutputs(rel_vel=None, abs_phi=abs_phi, transformer=None)
+
+
+def test_grad_phi_is_isotropic_on_non_square_grid():
+    """The same pixel-space stretch / shear costs the same along either axis, and the loss is
+    invariant to rotating the deformation, even when H != W."""
+    import math
+
+    h, w = 12, 30
+    shape = [-1, h, w, 2]
+    e = 0.01
+
+    def loss(A):
+        coord, mo = _affine_px_model_outputs(torch.tensor(A, dtype=torch.float64), h, w)
+        return grad_phi_loss(mo, coord, shape)[0]
+
+    stretch_y, stretch_x = loss([[1 + e, 0], [0, 1]]), loss([[1, 0], [0, 1 + e]])
+    shear_y, shear_x = loss([[1, e], [0, 1]]), loss([[1, 0], [e, 1]])
+    assert torch.allclose(stretch_y, stretch_x)
+    assert torch.allclose(shear_y, shear_x)
+
+    th = math.radians(30)
+    R = torch.tensor([[math.cos(th), -math.sin(th)], [math.sin(th), math.cos(th)]],
+                     dtype=torch.float64)
+    B = torch.tensor([[1.02, 0.01], [-0.005, 0.99]], dtype=torch.float64)
+    assert torch.allclose(loss(B.tolist()), loss((R @ B @ R.T).tolist()))
+    # same value at the (replicate-padded) border as in the interior for an affine map
+    assert torch.allclose(loss(B.tolist()), loss(B.tolist())[0, h // 2, w // 2].expand(1, h, w))
+
+
 def test_detJ_is_zero_for_identity_deformation():
     config = _config()
     h = w = 8
