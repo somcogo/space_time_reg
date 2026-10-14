@@ -55,7 +55,7 @@ def to_mag(img4: torch.Tensor) -> np.ndarray:
 
 def load_run(res_path: str, device: str = "cpu"):
     d = torch.load(res_path, map_location=device, weights_only=False)
-    cfg = Config.from_dict(d["config"]) if isinstance(d["config"], dict) else d["config"]
+    cfg = Config.from_saved(d["config"]) if isinstance(d["config"], dict) else d["config"]
     cfg.device = device
     return d, cfg
 

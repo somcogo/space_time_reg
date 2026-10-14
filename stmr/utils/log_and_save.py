@@ -30,6 +30,7 @@ def save_results(config, output: RegistrationResult, inputs: Inputs,
         'config': config.to_dict() if hasattr(config, 'to_dict') else vars(config),
         'fixed': fixed.detach().cpu(),
         'gt_im': gt_im.detach().cpu(),
+        'gt_phi': eval_inputs.gt_phi.detach().cpu() if eval_inputs.gt_phi is not None else None,
     }
     torch.save(save_dict, save_path)
     if config.debug:

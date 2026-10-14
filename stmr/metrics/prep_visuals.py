@@ -82,7 +82,16 @@ def prep_init_recon(init_recon: torch.Tensor, is_complex: bool = True):
     init_grid = (init_grid*255).to(torch.uint8).permute(1, 2, 0)
     return init_grid
 
+def _to_flow_uv(field: torch.Tensor) -> torch.Tensor:
+    # Fields here are [..., H, W, 2] in normalised [-1, 1] units, channels in (row/y, col/x)
+    # order. flow_vis reads channel 0 as horizontal u and channel 1 as vertical v, so swap them,
+    # and convert to pixels: on a non-square image one normalised unit is a different number of
+    # pixels per axis, which would otherwise skew the hue (direction) of the colour wheel.
+    H, W = field.shape[-3:-1]
+    return torch.stack([field[..., 1] * (W - 1) / 2, field[..., 0] * (H - 1) / 2], dim=-1)
+
 def prep_vel_vis(rel_vel: torch.Tensor) -> list[torch.Tensor]:
+    rel_vel = _to_flow_uv(rel_vel)
     rel_act_velocity_color = []
     for time in range(rel_vel.shape[0]):
         rel_act_velocity_color.append(torch.from_numpy(flow_to_color(rel_vel[time].numpy(), convert_to_bgr=False)).permute(2, 0, 1))
@@ -94,7 +103,7 @@ def prep_vel_vis(rel_vel: torch.Tensor) -> list[torch.Tensor]:
     return vel_color, vel_norm
 
 def prep_flow_vis(rel_phi: torch.Tensor) -> torch.Tensor:
-    rel_phi = rel_phi.numpy()
+    rel_phi = _to_flow_uv(rel_phi).numpy()
     rel_flow_colors = []
     for time in range(rel_phi.shape[0]):
         rel_flow_colors.append(torch.from_numpy(flow_to_color(rel_phi[time], convert_to_bgr=False)).permute(2, 0, 1))
