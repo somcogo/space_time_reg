@@ -1,7 +1,7 @@
 # Fully-sampled frozen GT template (frame 0) + factor-4 undersampled remaining frames.
 # Full pipeline (learned recon, Fourier DC, nmAPG init, WCRR reg) as in cmr_soft_con.yaml,
 # but frame 0 is kept fully sampled everywhere and its recon is frozen at GT, and the siren is
-# made more regular (lambda_grad_phi 1e-3 -> 1e-2). Sits between the fully-sampled and the
+# made more regular (old anisotropic lambda_grad_phi 1e-3 -> 1e-2). Sits between the fully-sampled and the
 # fully-undersampled ablation stages.
 exp_name: cmr/partial_template/frozen_gt_template
 dataset: cmr_P001
@@ -56,7 +56,7 @@ use_nreps: false
 loss: mse
 sim_domain: fourier
 lambda_st: 1.0
-lambda_grad_phi: 1.0e-2    # more-regular siren (was 1e-3)
+lambda_grad_phi: 1.1e-4    # more-regular siren; = old anisotropic 1e-2 (was 1e-3), pixel-unit loss ~90x larger
 lambda_grd: 0
 lambda_lap: 0
 lambda_hel: 0

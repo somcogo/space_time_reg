@@ -63,7 +63,7 @@ use_nreps: false
 # call the FFT-specific ifft2c_new and break)
 loss: mse
 lambda_st: 1.0
-lambda_grad_phi: 1.0e-3
+lambda_grad_phi: 7.8e-6  # = old anisotropic 1e-3 (the pixel-unit loss is 127.75x larger on 512x512)
 lambda_grd: 0
 lambda_lap: 0
 lambda_hel: 0

@@ -13,7 +13,10 @@ import sys
 import time
 
 SIZES = [[2, 32, 32, 2], [2, 64, 64, 2], [2, 128, 128, 2]]  # phi1 (depth 2, widths 32/64/128)
-REGS = [0.0, 1e-2, 1e-1]                                     # lam_grad_phi1 = lam_logdetJ1
+REGS = [0.0, 1e-2, 1e-1]                                     # lam_logdetJ1; lam_grad_phi1 = lam / GRAD_SCALE
+# grad_phi is the isotropic pixel-unit loss, ~90x larger on 204x512 than the old normalised-unit
+# one the REGS were chosen for; dividing keeps each grid point's original grad_phi strength.
+GRAD_SCALE = 90.0
 
 
 def _label(layers, lam):
@@ -29,7 +32,7 @@ def _cli(layers, lam, label, gpu, steps, root):
     return [sys.executable, "-m", "stmr.decomp", "run", "--exp-name", exp,
             "--device", f"cuda:{gpu}", "--set",
             f"phi1_layers={','.join(map(str, layers))}",
-            f"lam_grad_phi1={lam}", f"lam_logdetJ1={lam}",
+            f"lam_grad_phi1={lam / GRAD_SCALE:g}", f"lam_logdetJ1={lam}",
             f"steps1={steps}", f"steps2={steps}"]
 
 
@@ -83,7 +86,7 @@ def aggregate(root="sweep_phi1", out=None):
         d = torch.load(rp, map_location="cpu", weights_only=False)
         r = d["responsibility"]; p = d["params"]
         rows.append({
-            "label": lb, "dim": p["phi1_layers"][1], "reg": p["lam_grad_phi1"],
+            "label": lb, "dim": p["phi1_layers"][1], "reg": p["lam_logdetJ1"],  # grid value (grad = reg / GRAD_SCALE)
             "frac1": r["disp_split"]["frac1"], "frac2": r["disp_split"]["frac2"],
             "explained_phi1": r["resid_split"]["explained_phi1"],
             "explained_phi2": r["resid_split"]["explained_phi2"],
