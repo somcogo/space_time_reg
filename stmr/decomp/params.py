@@ -39,13 +39,15 @@ class DecompParams:
 
     # --- regularisation lambdas (data MSE is O(1e-4) after unit-peak normalisation, so these
     #     are moderate nudges; phi1's regularity comes mainly from its small size) ---
-    lam_grad_phi1: float = 1e-2    # regular coarse flow (regular but still free to move)
+    # grad_phi is the isotropic pixel-unit loss (stmr/losses/losses.py), ~90x larger on 204x512
+    # than the old normalised-unit one; the grad lambdas below are the old values / 90.
+    lam_grad_phi1: float = 1.1e-4  # regular coarse flow (regular but still free to move)
     lam_logdetJ1: float = 1e-2
     lam_grad_phi2: float = 0.0     # free residual on phi2
     lam_logdetJ2: float = 0.0
     lam_grad_base_large: float = 0.0
     lam_logdetJ_base_large: float = 0.0
-    lam_grad_base_small: float = 1e-2   # small-alone mirrors phi1's regularisation
+    lam_grad_base_small: float = 1.1e-4  # small-alone mirrors phi1's regularisation
     lam_logdetJ_base_small: float = 1e-2
 
     # --- bookkeeping ---
