@@ -15,6 +15,7 @@ import torch
 from fastmri import complex_abs
 
 from stmr.metrics.metric_utils import add_cmr_eval_metrics
+from stmr.metrics.motion_metrics import endpoint_error, fold_stats, inverse_consistency
 from stmr.utils.spatial_transformer import GridSampleTransformer
 
 
@@ -37,8 +38,13 @@ def _frame_residual(moving: torch.Tensor, phi: torch.Tensor):
     return mse(mag[:-1], mag[1:]), mse(warped_mag, mag[1:])
 
 
-def extract_row(spec, res_path: str) -> dict:
-    """Load a stage's res.pt and compute the metric row used by the summary table."""
+def extract_row(spec, res_path: str, outdir: str | None = None) -> dict:
+    """Load a stage's res.pt and compute the metric row used by the summary table.
+
+    Motion metrics: folds always; endpoint error when the run saved a known motion (gt_phi);
+    forward/backward consistency when the stage is the reversed counterpart of another stage
+    whose res.pt is in outdir.
+    """
     d = torch.load(res_path, map_location="cpu", weights_only=False)
     moving, gt, init = d["moving"], d["gt_im"], d["recon_init"]
     phi, vel = d["phi"], d.get("vel")
@@ -46,6 +52,16 @@ def extract_row(spec, res_path: str) -> dict:
     m = add_cmr_eval_metrics(moving, gt, {})
     m0 = add_cmr_eval_metrics(init, gt, {})
     base, warp = _frame_residual(moving, phi)
+
+    motion = fold_stats(phi, *gt.shape[-2:])
+    if d.get("gt_phi") is not None:
+        motion.update(endpoint_error(phi, d["gt_phi"], gt))
+    partner = getattr(spec, "reverse_of", None)
+    if partner and outdir:
+        partner_path = os.path.join(outdir, partner, "res.pt")
+        if os.path.exists(partner_path):
+            fwd = torch.load(partner_path, map_location="cpu", weights_only=False)
+            motion.update(inverse_consistency(fwd["phi"], phi, fwd["gt_im"]))
 
     return {
         "stage": spec.id,
@@ -58,6 +74,7 @@ def extract_row(spec, res_path: str) -> dict:
         "imdiff_base": base,
         "imdiff_warp": warp,
         "vel_rms": float(vel.pow(2).mean().sqrt()) if vel is not None else None,
+        **motion,
     }
 
 
@@ -82,7 +99,8 @@ def render_markdown(rows: list[dict], specs_by_id: dict) -> str:
         ("stage", "Stage"), ("full_psnr", "PSNR"), ("crop_psnr", "crop PSNR"),
         ("init_full_psnr", "init PSNR"), ("d_vs_init", "d vs init"),
         ("imdiff_base", "imdiff base"), ("imdiff_warp", "imdiff warp"),
-        ("vel_rms", "vel rms"), ("passed", "result"),
+        ("vel_rms", "vel rms"), ("epe_crop", "EPE crop px"), ("epe_rel_crop", "EPE rel"),
+        ("fwd_bwd_rel_crop", "fwd/bwd rel"), ("detJ_min", "min detJ"), ("passed", "result"),
     ]
     out = io.StringIO()
     out.write("| " + " | ".join(h for _, h in cols) + " |\n")
@@ -108,7 +126,9 @@ def render_markdown(rows: list[dict], specs_by_id: dict) -> str:
 
 def render_csv(rows: list[dict]) -> str:
     fields = ["stage", "title", "full_psnr", "crop_psnr", "full_ssim", "init_full_psnr",
-              "d_vs_init", "imdiff_base", "imdiff_warp", "vel_rms", "passed"]
+              "d_vs_init", "imdiff_base", "imdiff_warp", "vel_rms",
+              "epe_crop", "epe_rel_crop", "gt_motion_crop", "epe_tissue", "epe_air",
+              "fwd_bwd_crop", "fwd_bwd_rel_crop", "detJ_min", "fold_frac", "passed"]
     out = io.StringIO()
     w = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore")
     w.writeheader()

@@ -36,6 +36,15 @@ def build_config(spec: StageSpec, epochs: int, device: str, outdir: str,
     config.epochs = epochs
     config.exp_name = spec.id
     config.log_path = outdir
+    config.seed += spec.seed_offset
+    if config.synth_flow.startswith("stage:"):
+        # Known motion taken from another stage's learned motion (e.g. S0R re-applies S0's).
+        src_id = config.synth_flow.split(":", 1)[1]
+        src = os.path.join(outdir, src_id, "res.pt")
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"{spec.id} re-applies the motion learned by {src_id}: run "
+                                    f"{src_id} into the same --outdir first (missing {src})")
+        config.synth_flow = src
     return config.finalize()
 
 
@@ -50,7 +59,7 @@ def run_stage(spec: StageSpec, epochs: int, device: str, outdir: str,
     from stmr.pipeline import run  # deferred: importing torch/pipeline is slow
 
     run(config)
-    return extract_row(spec, stage_res_path(spec, outdir))
+    return extract_row(spec, stage_res_path(spec, outdir), outdir)
 
 
 def run_ladder(stage_ids: list[str], stage_by_id: dict[str, StageSpec], epochs: int,
@@ -60,6 +69,23 @@ def run_ladder(stage_ids: list[str], stage_by_id: dict[str, StageSpec], epochs: 
     for sid in stage_ids:
         spec = stage_by_id[sid]
         row = run_stage(spec, epochs, device, outdir, overrides)
+        row["passed"] = spec.pass_fn(row, prev) if spec.pass_fn is not None else None
+        rows.append(row)
+        prev = row
+    return rows
+
+
+def collect_ladder(stage_ids: list[str], stage_by_id: dict[str, StageSpec],
+                   outdir: str) -> list[dict]:
+    """Rows for the stages that already have a res.pt in outdir, without running anything --
+    for stages run separately (e.g. in parallel on several GPUs) into one outdir."""
+    rows, prev = [], None
+    for sid in stage_ids:
+        spec = stage_by_id[sid]
+        path = stage_res_path(spec, outdir)
+        if not os.path.exists(path):
+            continue
+        row = extract_row(spec, path, outdir)
         row["passed"] = spec.pass_fn(row, prev) if spec.pass_fn is not None else None
         rows.append(row)
         prev = row
