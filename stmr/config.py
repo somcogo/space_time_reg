@@ -8,6 +8,7 @@ as YAML files under ``configs/`` and override only the fields they care about.
 from __future__ import annotations
 
 import argparse
+import warnings
 from dataclasses import asdict, dataclass, field, fields
 
 import yaml
@@ -34,6 +35,16 @@ class Config:
     random_mask: bool = False
     template_frames: int = 0  # leading frames kept fully-sampled + recon frozen at GT (0 = off)
     normalize_data: bool = True  # divide k-space by the max GT magnitude over all loaded frames
+    reverse_frames: bool = False  # load the frames in reverse time order (forward/backward motion check)
+
+    # --- known-motion test (stmr/data/known_motion.py; off while synth_flow is '') ---
+    # The GT frames are replaced by frame 0 warped with a known motion, so the learned motion can
+    # be scored against it (ablation stages S0K / S0R).
+    synth_flow: str = ""  # '' off | 'analytic' | path to a res.pt whose 'phi' is the known motion
+    #                       | 'stage:<id>' (that stage's res.pt in the same ablation outdir)
+    synth_flow_amp: float = 1.0  # analytic: displacement amplitude in px; res.pt: displacement multiplier
+    synth_noise: float = 1.0  # fresh noise per frame, in units of the noise std measured in the data
+    synth_gain: float = 0.0  # known non-motion brightening of the bright (blood-pool-like) region per frame
 
     # --- initial reconstruction ---
     init: str = "adj"
@@ -82,6 +93,8 @@ class Config:
     motion_warmup: int = 0
     use_nreps: bool = False  # F2: default off (only supported cmr mode)
     template_warp_recon: bool = False  # recon_t = warp(template, phi); only the motion net is learned
+    fixed_motion: str = ""  # '' learn the motion | 'gt' the known motion of synth_flow frames (oracle)
+    #                         | 'identity' (no motion) | path to a res.pt whose 'phi' is used as-is
     float64: bool = False    # run the whole pipeline in double precision (data + model + losses)
 
     # --- losses ---
@@ -91,7 +104,7 @@ class Config:
     #                              'fourier_mag' (|masked k-space| DC -- phase-insensitive), or
     #                              'image_mag' (|magnitude image| DC -- phase-insensitive)
     lambda_st: float = 1.0
-    lambda_grad_phi: float = 0.1
+    lambda_grad_phi: float = 1e-2  # pixel-unit (isotropic) ||Dphi - Id||, see losses.grad_phi_loss
     lambda_grd: float = 1.0
     lambda_lap: float = 1.0
     lambda_hel: float = 1.0
@@ -126,6 +139,17 @@ class Config:
         # unsigned exponent like "1.0e4" is loaded as a str instead of a float.
         coerced = {k: _coerce_to_type(v, known[k].type) for k, v in data.items()}
         return cls(**coerced)
+
+    @classmethod
+    def from_saved(cls, data):
+        """Rebuild the Config stored in a res.pt. Unlike from_dict, keys this version no longer
+        knows (fields removed since the run, e.g. 'hard_dc') are dropped with a warning instead of
+        raising, so old runs stay loadable."""
+        known = cls.field_names()
+        unknown = sorted(set(data) - known)
+        if unknown:
+            warnings.warn(f"Ignoring config keys unknown to this version: {unknown}")
+        return cls.from_dict({k: v for k, v in data.items() if k in known})
 
     def finalize(self):
         """Normalise coupled fields once, instead of mutating config all over main.py."""

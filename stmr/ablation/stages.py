@@ -12,6 +12,15 @@ component's effect on PSNR depends on what else is already active when it's intr
   ladder 2: S0 -> + sim loss/recon learning -> + learned reg -> + nmAPG init -> + FT
             -> + undersampling
 
+A third ladder, ``motion``, checks the motion estimate itself in the S0 setting:
+
+  motion:   S0 -> S0B (S0 on the reversed frames: forward/backward consistency)
+               -> S0K (known smooth motion) -> S0R (S0's own motion re-applied as known motion)
+
+S0's residual reduction is report-only: it does not show the motion is right (noise, non-motion
+intensity change and motion along edges decouple the two). S0K/S0R gate the motion instead, by
+endpoint error against a known motion at the noise level of the real frames.
+
 Stages are expressed as ``BASE`` (constants held fixed across both ladders) + a per-stage
 ``overrides`` dict, materialised into a ``Config`` by :func:`stmr.ablation.runner.build_config`.
 """
@@ -59,7 +68,7 @@ BASE = dict(
     interval=0,
     motion_warmup=0,
     loss="mse",
-    lambda_grad_phi=1e-3,
+    lambda_grad_phi=1e-2,  # isotropic pixel-unit grad_phi; picked by known-truth sweep (~ old anisotropic 1.0)
     lambda_grd=0.0,
     lambda_lap=0.0,
     lambda_hel=0.0,
@@ -87,6 +96,14 @@ class StageSpec:
     # (this_row, prev_row) -> bool. None means "report only" (no pass/fail gate). prev_row
     # is None for the first stage in a ladder.
     pass_fn: Optional[Callable[[dict, Optional[dict]], bool]] = None
+    # Stage (same outdir) this stage is the time-reversed counterpart of; its row then reports
+    # forward/backward motion consistency against that stage's res.pt.
+    reverse_of: Optional[str] = None
+    # Added to the seed (after any global override). Stages compared against another stage's
+    # motion (S0B, S0R) must not start from the same random initial flow as that stage: the
+    # learned motion keeps part of its initial flow where the data is weak, which would then be
+    # matched for free (S0R) or doubled instead of inverted (S0B).
+    seed_offset: int = 0
     # If set, load Config.from_yaml(yaml) as the base instead of BASE, then apply overrides.
     yaml: Optional[str] = None
 
@@ -102,8 +119,10 @@ def _merge(*dicts: dict) -> dict:
 # Thresholds on the anchoring stages are provisional: treat the first real (500-epoch) run
 # as calibration and tighten them to the observed anchored values.
 
-def _s0_pass(row, _prev):
-    return row["imdiff_warp"] <= 0.7 * row["imdiff_base"] and (row["vel_rms"] or 0) > 0
+def _known_motion_pass(max_rel_error):
+    # Endpoint error in the heart crop relative to the true motion there (0 perfect, 1 = no
+    # better than predicting zero motion).
+    return lambda row, _prev: row.get("epe_rel_crop", float("inf")) <= max_rel_error
 
 
 def _anchor_pass(row, _prev):
@@ -137,6 +156,12 @@ _S0_OVERRIDES = dict(
     dataset="cmr_test2", init="gt", init_skip=True, learn_recon=False,
     lambda_st=0.0, lambda_recon=0.0, lambda_rl2=1e2,
 )
+
+# Known-motion variants of S0 (see stmr/data/known_motion.py): frame 0 carried along a known
+# motion, plus fresh noise at the level measured in the real frames. 'stage:S0' re-applies the
+# motion S0 learned on the real frames (resolved to <outdir>/S0/res.pt by the runner).
+_KNOWN_SMOOTH = dict(synth_flow="analytic", synth_flow_amp=2.0, synth_noise=1.0)
+_KNOWN_S0 = dict(synth_flow="stage:S0", synth_flow_amp=1.0, synth_noise=1.0)
 
 # + sim loss, recon learning: free (jointly optimised) recon starting from GT, fully
 # sampled, image-space data consistency.
@@ -181,10 +206,48 @@ S0 = StageSpec(
     title="registration only (k-space fidelity off, recon frozen at GT)",
     overrides=_S0_OVERRIDES,
     primary_metric="imdiff_warp",
-    criterion="PASS if imdiff_warp <= 0.7 * imdiff_base and vel_rms > 0",
-    expectation="warp(I_t) should match I_{t+1} clearly better than identity",
-    pass_fn=_s0_pass,
+    criterion="report-only: residual reduction does not show the motion is right (S0K/S0R gate it)",
+    expectation="warp(I_t) should match I_{t+1} better than identity",
+    pass_fn=None,
 )
+
+MOTION_LADDER = [
+    S0,
+    StageSpec(
+        id="S0B",
+        title="S0 on the frames in reverse order",
+        overrides=_merge(_S0_OVERRIDES, dict(reverse_frames=True)),
+        primary_metric="fwd_bwd_rel_crop",
+        criterion="report-only: |phi_S0(phi_S0B(x)) - x| / S0's motion in the heart crop "
+                  "(0 = exact inverses, ~1 = unrelated)",
+        expectation="forward and backward motion should be near-inverses; a large value means "
+                    "the data does not pin the motion down",
+        reverse_of="S0",
+        seed_offset=1,
+    ),
+    StageSpec(
+        id="S0K",
+        title="known smooth motion (analytic, 2 px) + measured noise",
+        overrides=_merge(_S0_OVERRIDES, _KNOWN_SMOOTH),
+        primary_metric="epe_rel_crop",
+        criterion="PASS if epe_rel_crop <= 0.10 (calibrated 2026-10-13 at 12 frames, 2000 "
+                  "epochs: 0.065 = 0.111 px of 1.71 px)",
+        expectation="smooth motion is recovered to ~0.1 px; nothing is recoverable in air",
+        pass_fn=_known_motion_pass(0.10),
+    ),
+    StageSpec(
+        id="S0R",
+        title="S0's learned motion re-applied as known motion + measured noise",
+        overrides=_merge(_S0_OVERRIDES, _KNOWN_S0),
+        primary_metric="epe_rel_crop",
+        criterion="PASS if epe_rel_crop <= 0.70 (calibrated 2026-10-13 at 12 frames, 2000 "
+                  "epochs: 0.62 = 0.204 px of 0.33 px; a regression guard, not a quality bar)",
+        expectation="realistic, sub-pixel heart motion; noise and edges along the motion limit "
+                    "recovery to well under half of it",
+        pass_fn=_known_motion_pass(0.70),
+        seed_offset=1,
+    ),
+]
 
 
 LADDER_1 = [
@@ -295,7 +358,7 @@ LADDER_2 = [
 ]
 
 
-LADDERS = {"1": LADDER_1, "2": LADDER_2}
+LADDERS = {"motion": MOTION_LADDER, "1": LADDER_1, "2": LADDER_2}
 
 
 def resolve_stage_ids(spec_str: str, stages: list[StageSpec]) -> list[str]:

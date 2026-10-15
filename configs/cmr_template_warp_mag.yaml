@@ -54,7 +54,7 @@ use_nreps: false
 loss: mse
 sim_domain: fourier_mag
 lambda_st: 1.0
-lambda_grad_phi: 1.0e-3
+lambda_grad_phi: 1.1e-5  # = old anisotropic 1e-3 (the isotropic pixel-unit loss is ~90x larger on 204x512)
 lambda_grd: 0
 lambda_lap: 0
 lambda_hel: 0

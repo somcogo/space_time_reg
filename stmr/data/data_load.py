@@ -8,6 +8,7 @@ from stmr.config import Config
 from stmr.state import EvalInputs, Inputs
 
 from .data_utils import get_data, get_init, get_operators
+from .known_motion import synthesize
 from .noise import add_image_noise, add_kspace_noise
 from .recon_init import init_using_nmAPG, init_with_grad_desc
 
@@ -30,11 +31,15 @@ class PreparedData:
     fixed: torch.Tensor
     gt_im: torch.Tensor
     init: nn.Parameter
+    gt_phi: torch.Tensor | None = None  # the known motion, when the frames are synthetic (synth_flow)
 
 
 def prepare_data(config: Config) -> PreparedData:
     """Load k-space, build the forward operators, and produce the (un-solved) initial guess."""
     raw_kspace_data, gt_kspace_data, kspace_mask = get_data(config)
+    if getattr(config, 'reverse_frames', False):
+        raw_kspace_data, gt_kspace_data, kspace_mask = (
+            x.flip(0) for x in (raw_kspace_data, gt_kspace_data, kspace_mask))
     # Cast loaded (float32) k-space to the active default dtype so the whole pipeline runs in
     # that precision (e.g. float64 when config.float64 is set). Mask stays bool.
     dt = torch.get_default_dtype()
@@ -53,6 +58,16 @@ def prepare_data(config: Config) -> PreparedData:
         raw_kspace_data = raw_kspace_data / gt_scale
         gt_kspace_data = gt_kspace_data / gt_scale
 
+    # Known-motion test: replace the frames by frame 0 carried along a known motion (see
+    # known_motion.py), and re-measure them with the same mask.
+    gt_phi = None
+    if getattr(config, 'synth_flow', ''):
+        if not config.dataset.startswith('cmr'):
+            raise ValueError("synth_flow builds the frames with the FFT; only cmr datasets are supported")
+        frames, gt_phi = synthesize(config, full_adj(gt_kspace_data))
+        gt_kspace_data = full_forw(frames)
+        raw_kspace_data = torch.where(kspace_mask, gt_kspace_data, torch.zeros_like(gt_kspace_data))
+
     # fixed keeps the full k-space shape, zero-filled at unmeasured entries. This supports
     # time-varying (k-t) masks where the number of measured rows differs between frames,
     # which the old row-subsampled representation could not express.
@@ -63,7 +78,7 @@ def prepare_data(config: Config) -> PreparedData:
     init = get_init(config, raw_kspace_data, gt_im,
                     forw_subs_adj(fixed).to(config.device), kspace_mask)
     return PreparedData(raw_kspace_data, gt_kspace_data, kspace_mask, full_forw, full_adj,
-                        forw_subs, forw_subs_adj, fixed, gt_im, init)
+                        forw_subs, forw_subs_adj, fixed, gt_im, init, gt_phi)
 
 
 def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs, EvalInputs]:
@@ -103,5 +118,6 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
     moving = nn.Parameter(recon.clone()).to(config.device)
 
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw_subs)
-    eval_inputs = EvalInputs(init_recon=recon, gt_im=gt_im, seg_moving=None, seg_fixed=None)
+    eval_inputs = EvalInputs(init_recon=recon, gt_im=gt_im, seg_moving=None, seg_fixed=None,
+                             gt_phi=data.gt_phi)
     return inputs, eval_inputs

@@ -29,6 +29,7 @@ class EvalInputs:
     gt_im: torch.Tensor
     seg_moving: object | None
     seg_fixed: object | None
+    gt_phi: torch.Tensor | None = None  # known motion [T-1, H*W, 2] (known-motion test only)
 
 
 @dataclass

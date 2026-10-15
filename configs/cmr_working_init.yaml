@@ -57,7 +57,7 @@ use_nreps: false
 # losses
 loss: mse
 lambda_st: 1.0
-lambda_grad_phi: 1.0e0
+lambda_grad_phi: 1.0e-2  # isotropic pixel-unit grad_phi (losses.py); ~ the old anisotropic 1.0
 lambda_grd: 0
 lambda_lap: 0
 lambda_hel: 0

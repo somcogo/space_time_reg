@@ -121,14 +121,26 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
 def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, shape: list):
     # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
-    # identity, i.e. penalizes the gradient of the displacement field phi - x. Finite
-    # differencing is linear, so phi_J - I here is exactly the Jacobian of (phi - x); unlike
-    # the det-based losses below, no inv(I) normalization is needed for this additive form.
-    abs_phi = model_outputs.abs_phi
-    phi_J = get_Jacobian(abs_phi, shape)
-    I = get_Jacobian(coord_tensor, shape)
-    loss = grad_phi_norm(phi_J, I)
+    # identity, i.e. penalizes the gradient of the displacement field phi - x. Measured in
+    # pixel units (see _pixel_phi_Jacobian) so the penalty is isotropic on non-square images.
+    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, shape)
+    eye = torch.eye(J.shape[-1], device=J.device, dtype=J.dtype)
+    loss = grad_phi_norm(J, eye)
     return loss, None
+
+def _pixel_phi_Jacobian(model_outputs, coord_tensor, shape):
+    # phi and the grid live in [-1, 1] on every axis, so on a non-square image one normalized
+    # unit spans a different number of pixels per axis ((N - 1) / 2). Differencing them as-is
+    # weights each displacement component by 1 / that span (2.5x more for rows than columns
+    # on 204x512), and right-multiplying by inv(I) alone (_relative_phi_Jacobian) only fixes
+    # stretches -- shears stay anisotropic. Rescaling both to pixels first, then normalizing
+    # by the identity's own finite-difference Jacobian, gives the Jacobian in pixel units:
+    # rotation-invariant, and exactly Id for phi = identity, including at the boundary.
+    span = torch.tensor([(n - 1) / 2 for n in shape[1:-1]], device=coord_tensor.device,
+                        dtype=coord_tensor.dtype)
+    phi_J = get_Jacobian(model_outputs.abs_phi * span, shape)
+    I = get_Jacobian(coord_tensor * span, shape)
+    return phi_J @ torch.linalg.inv(I)
 
 def _relative_phi_Jacobian(model_outputs, coord_tensor, shape):
     # get_Jacobian is a raw finite-difference operator in grid-index space: even the

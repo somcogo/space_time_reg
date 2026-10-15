@@ -32,6 +32,26 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
     return ModelOutputs(rel_vel=rel_vel, abs_phi=abs_phi, transformer=ST)
 
 
+def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalInputs) -> ModelOutputs:
+    """Motion held fixed instead of learned (oracle and control runs): the known motion of
+    synthetic frames ('gt'), no motion ('identity'), or the phi saved in a res.pt."""
+    T, _, H, W = inputs.moving.shape
+    coord = generate_coord_tensor((H, W), config.device)
+    if config.fixed_motion == 'identity':
+        abs_phi = coord.expand(T - 1, -1, -1).contiguous()
+    elif config.fixed_motion == 'gt':
+        if eval_inputs.gt_phi is None:
+            raise ValueError("fixed_motion='gt' needs frames with a known motion (set synth_flow)")
+        abs_phi = eval_inputs.gt_phi.to(config.device)
+    else:
+        abs_phi = torch.load(config.fixed_motion, map_location=config.device,
+                             weights_only=False)['phi'][:T - 1]
+    abs_phi = abs_phi.to(inputs.moving.dtype)
+    # The metrics/visuals expect a velocity; for a fixed motion the displacement stands in.
+    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[1:], config)
+    return ModelOutputs(rel_vel=abs_phi - coord, abs_phi=abs_phi, transformer=ST)
+
+
 def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: Inputs,
                  eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
     moving = inputs.moving
@@ -46,6 +66,12 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
 
     moving.requires_grad_(config.learn_recon)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
+
+    # Fixed motion: built once and reused every epoch; the motion net gets no gradient.
+    fixed_outputs = None
+    if config.fixed_motion:
+        fixed_outputs = get_fixed_motion_outputs(config, inputs, eval_inputs)
+        logger.info(f'Motion fixed ({config.fixed_motion!r}), not learned')
 
     # Fully-sampled frozen template: pin the first `template_frames` recon frames to GT. Their
     # gradients are zeroed every step below so Adam never moves them off GT.
@@ -94,7 +120,8 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         optimizer.zero_grad()
 
         time_stamps[0, epoch - 1] = time.time()
-        model_outputs = get_model_outputs(config, func, coord_tensor, inputs)
+        model_outputs = (fixed_outputs if fixed_outputs is not None
+                         else get_model_outputs(config, func, coord_tensor, inputs))
 
         if config.template_warp_recon:
             # recon_t = warp(template, phi_{0->t}); recon_0 = template. Differentiable in phi,

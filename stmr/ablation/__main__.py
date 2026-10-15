@@ -2,7 +2,12 @@
 
     python -m stmr.ablation run --ladder 1 --stages S0-S5 --epochs 500 --device cuda
     python -m stmr.ablation run --ladder 2 --stages S0,S3,S5 --full
+    python -m stmr.ablation run --ladder motion --full          # S0, S0B, S0K, S0R
+    python -m stmr.ablation report --ladder motion --outdir DIR  # summarise stages already run
     python -m stmr.ablation list
+
+S0R needs S0's res.pt in the same --outdir, and S0B's consistency row needs S0's, so in parallel
+run S0 (+ S0K) first, then S0B/S0R, then `report`.
 """
 
 from __future__ import annotations
@@ -12,7 +17,7 @@ import datetime
 import os
 
 from .report import write_summary
-from .runner import run_ladder
+from .runner import collect_ladder, run_ladder
 from .stages import LADDERS, resolve_stage_ids
 
 
@@ -59,6 +64,16 @@ def cmd_run(args) -> None:
     print(f"Wrote {os.path.join(outdir, 'summary.md')} and summary.csv")
 
 
+def cmd_report(args) -> None:
+    stages = LADDERS[args.ladder]
+    stage_by_id = {s.id: s for s in stages}
+    rows = collect_ladder(resolve_stage_ids(args.stages, stages), stage_by_id, args.outdir)
+    if not rows:
+        raise SystemExit(f"no stage res.pt found under {args.outdir}")
+    print(write_summary(rows, stage_by_id, args.outdir))
+    print(f"Wrote {os.path.join(args.outdir, 'summary.md')} and summary.csv")
+
+
 def cmd_list(_args) -> None:
     for ladder, stages in LADDERS.items():
         print(f"Ladder {ladder}:")
@@ -89,7 +104,13 @@ def main(argv=None) -> None:
     p_run.add_argument("--outdir", default=None, help="default: log/ablation/ladder<N>_<timestamp>")
     p_run.set_defaults(func=cmd_run)
 
-    p_list = sub.add_parser("list", help="list both ladders' stages and their criteria")
+    p_report = sub.add_parser("report", help="summarise stages already run into --outdir")
+    p_report.add_argument("--ladder", choices=sorted(LADDERS), default="1")
+    p_report.add_argument("--stages", default="all")
+    p_report.add_argument("--outdir", required=True)
+    p_report.set_defaults(func=cmd_report)
+
+    p_list = sub.add_parser("list", help="list the ladders' stages and their criteria")
     p_list.set_defaults(func=cmd_list)
 
     args = parser.parse_args(argv)
