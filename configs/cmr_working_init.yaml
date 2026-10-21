@@ -36,6 +36,7 @@ func_name: groupsiren
 siren_depth: 3
 siren_dim: 64
 last_init_zero: true
+last_init_std: 1.0e-6  # last layer ~ N(0, std^2): random, ~1e-3 px initial motion
 
 # ODE solver
 solver: euler

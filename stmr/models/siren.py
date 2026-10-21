@@ -11,6 +11,18 @@ import torch
 from torch import nn
 
 
+def init_last_layer(weight, bias, std):
+    # Near-zero initial velocity. std > 0: weights ~ N(0, std^2), e.g. std 1e-6 gives ~1e-3 px of
+    # initial motion while the weights stay random. std = 0: the original U(+-1/600), whose random
+    # field already moves ~1 px on average (SIREN features are O(1), so the output is ~weight scale).
+    if std > 0:
+        weight.normal_(0, std)
+    else:
+        val = 1 / 600
+        weight.uniform_(-val, val)
+    bias.zero_()
+
+
 class Siren(nn.Module):
     """Dense MLP with sine activations.
 
@@ -19,9 +31,10 @@ class Siren(nn.Module):
         weight_init: use the SIREN weight initialisation.
         last_init_zero: initialise the last layer to output near-zero velocity.
         omega: frequency scaling inside the activation.
+        last_init_std: with last_init_zero, std of a normal last-layer init (0: U(+-1/600)).
     """
 
-    def __init__(self, layers, weight_init=True, last_init_zero=False, omega=30):
+    def __init__(self, layers, weight_init=True, last_init_zero=False, omega=30, last_init_std=0.0):
         super().__init__()
         self.n_layers = len(layers) - 1
         self.omega = omega
@@ -34,9 +47,7 @@ class Siren(nn.Module):
                     if i == 0:
                         layer.weight.uniform_(-1 / layers[i], 1 / layers[i])
                     elif i == self.n_layers - 1 and last_init_zero:
-                        val = 1 / 600
-                        layer.weight.uniform_(-val, val)
-                        layer.bias.zero_()
+                        init_last_layer(layer.weight, layer.bias, last_init_std)
                     else:
                         bound = np.sqrt(6 / layers[i]) / self.omega
                         layer.weight.uniform_(-bound, bound)
@@ -74,9 +85,11 @@ class GroupedSiren(nn.Module):
         weight_init: use the SIREN weight initialisation.
         last_init_zero: initialise the last layer to output near-zero velocity.
         omega: frequency scaling inside the activation.
+        last_init_std: with last_init_zero, std of a normal last-layer init (0: U(+-1/600)).
     """
 
-    def __init__(self, groups, layers, weight_init=True, last_init_zero=False, omega=30):
+    def __init__(self, groups, layers, weight_init=True, last_init_zero=False, omega=30,
+                 last_init_std=0.0):
         super().__init__()
         self.groups = groups
         self.n_layers = len(layers) - 1
@@ -91,9 +104,7 @@ class GroupedSiren(nn.Module):
                     if i == 0:
                         layer.weight.uniform_(-1 / in_dim, 1 / in_dim)
                     elif i == self.n_layers - 1 and last_init_zero:
-                        val = 1 / 600
-                        layer.weight.uniform_(-val, val)
-                        layer.bias.zero_()
+                        init_last_layer(layer.weight, layer.bias, last_init_std)
                     else:
                         bound = np.sqrt(6 / in_dim) / self.omega
                         layer.weight.uniform_(-bound, bound)

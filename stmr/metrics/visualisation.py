@@ -2,6 +2,7 @@ import os
 from argparse import Namespace
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import numpy as np
 import torch
 from fastmri import complex_abs
@@ -176,6 +177,7 @@ def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict):
 
     for t in range(T):
         a[t,0].plot(losses['Similarity loss'][:,t])
+        set_loss_yscale(a[t,0], losses['Similarity loss'][:,t])
         a[t,0].set_title(f'Sim loss t={t}', fontsize=fontsize)
 
         for i, name in enumerate(other_names):
@@ -188,13 +190,30 @@ def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict):
                 a[t,og_col].axis("off")
                 continue
             a[t,w_col].plot(losses[name][:,idx])
+            set_loss_yscale(a[t,w_col], losses[name][:,idx])
             a[t,w_col].set_title(f'{name} weighted', fontsize=fontsize)
             a[t,og_col].plot(debug_losses[name][:,idx])
+            set_loss_yscale(a[t,og_col], debug_losses[name][:,idx])
             a[t,og_col].set_title(f'{name} OG value', fontsize=fontsize)
 
     f.tight_layout()
     pdf.savefig(f)
     plt.close(f)
+
+def set_loss_yscale(ax: Axes, values: np.ndarray):
+    # Log y-axis. A curve that touches zero or goes negative (e.g. the weakly convex
+    # regularizer) gets symlog -- linear only around zero -- so no points are dropped.
+    if np.all(values > 0):
+        ax.set_yscale('log')
+        if values.max() < 10 * values.min():
+            # Under a decade there is no decade tick in view and every minor tick gets a
+            # 'a x 10^b' label; a few plain-number ticks read better.
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(4))
+            ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
+            ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+    else:
+        nonzero = np.abs(values[values != 0])
+        ax.set_yscale('symlog', linthresh=nonzero.min() if nonzero.size else 1.0)
 
 def prep_vel(vel: torch.Tensor, gt: np.ndarray) -> np.ndarray:
     vel = vel.detach().cpu().numpy()

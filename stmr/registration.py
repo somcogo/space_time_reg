@@ -10,6 +10,7 @@ from torchdiffeq import odeint_adjoint as odeint
 
 from stmr.config import Config
 from stmr.data.data_utils import get_dataset_capabilities
+from stmr.data.recon_init import get_reg
 from stmr.losses.losses import calculate_losses
 from stmr.losses.recon_reg import get_recon_regularizer
 from stmr.metrics.calc_metrics import calculate_metrics, get_relevant_loss_names
@@ -86,8 +87,9 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
     # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
-    # epoch inside calculate_losses.
-    recon_regularizer = get_recon_regularizer(config) if 'recon_reg' in losses_to_calc else None
+    # epoch inside calculate_losses. joint_objective='init' uses the init's regularizer choice.
+    get_regularizer = get_reg if config.joint_objective == 'init' else get_recon_regularizer
+    recon_regularizer = get_regularizer(config) if 'recon_reg' in losses_to_calc else None
     all_metrics = []
 
     for epoch in range(1, config.epochs + 1):
