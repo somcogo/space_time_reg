@@ -24,3 +24,31 @@ def test_siren_last_init_std_matches_grouped():
     net = Siren(layers=[2, 64, 64, 2], last_init_zero=True, last_init_std=1e-6)
     assert abs(net.layers[-1].weight.std().item() - 1e-6) < 3e-7
     assert (net.layers[-1].bias == 0).all()
+
+
+def test_grouped_siren_matches_per_group_reference():
+    # GroupedLinear chunks the points and fuses omega/bias into one baddbmm for speed; output and
+    # gradients must equal independent per-group SIRENs, sin(omega * (x @ W^T + b)).
+    torch.manual_seed(0)
+    net = GroupedSiren(groups=3, layers=[2, 16, 16, 2], omega=30).double()
+    for p in net.parameters():
+        p.data.normal_(0, 0.1)
+    x = (torch.rand(3, 512, 2, dtype=torch.float64) * 2 - 1).requires_grad_()
+
+    def reference(x):
+        out = []
+        for g in range(3):
+            h = x[g]
+            for i, layer in enumerate(net.layers):
+                h = h @ layer.weight[g].T + layer.bias[g]
+                if i < len(net.layers) - 1:
+                    h = torch.sin(net.omega * h)
+            out.append(h)
+        return torch.stack(out)
+
+    out, ref = net(0., x), reference(x)
+    assert torch.allclose(out, ref, rtol=1e-12, atol=1e-12)
+    grads = torch.autograd.grad(out.square().sum(), [x, *net.parameters()])
+    ref_grads = torch.autograd.grad(ref.square().sum(), [x, *net.parameters()])
+    for g, r in zip(grads, ref_grads):
+        assert torch.allclose(g, r, rtol=1e-10, atol=1e-12)

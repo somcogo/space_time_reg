@@ -6,6 +6,8 @@ SIRENs in parallel over a leading batch dimension, giving one stationary velocit
 per time interval (the non-stationary ensemble described in the theory).
 """
 
+import math
+
 import numpy as np
 import torch
 from torch import nn
@@ -63,6 +65,9 @@ class Siren(nn.Module):
 class GroupedLinear(nn.Module):
     """Batched linear layer with independent weights per group."""
 
+    # The N points of each group are split into up to this many chunks (see forward).
+    max_chunks = 64
+
     def __init__(self, groups, in_dim, out_dim):
         super().__init__()
         self.groups = groups
@@ -71,9 +76,20 @@ class GroupedLinear(nn.Module):
         self.weight = nn.Parameter(torch.empty(groups, out_dim, in_dim))
         self.bias = nn.Parameter(torch.zeros(groups, out_dim))
 
-    def forward(self, x):
-        # x: (groups, N, in_dim); weight: (groups, out_dim, in_dim)
-        return torch.bmm(x, self.weight.transpose(1, 2)) + self.bias.unsqueeze(1)
+    def forward(self, x, scale=1.0):
+        # x: (groups, N, in_dim); weight: (groups, out_dim, in_dim). Returns
+        # scale * (x @ weight^T + bias); scale and bias are fused into the baddbmm.
+        # The weight gradient reduces over all N points into a tiny (out_dim, in_dim) matrix,
+        # which cuBLAS runs as ~one tile per batch entry: with only `groups` entries the GPU
+        # idles (~45% of an epoch at 204x512). Splitting N into chunks that share their
+        # group's weights fixes that; autograd sums the per-chunk weight grads through expand.
+        G, N, _ = x.shape
+        c = math.gcd(N, self.max_chunks)
+        x = x.reshape(G * c, N // c, self.in_dim)
+        weight = self.weight.unsqueeze(1).expand(-1, c, -1, -1).reshape(G * c, self.out_dim, self.in_dim)
+        bias = self.bias.unsqueeze(1).expand(-1, c, -1).reshape(G * c, 1, self.out_dim)
+        out = torch.baddbmm(bias, x, weight.transpose(1, 2), beta=scale, alpha=scale)
+        return out.reshape(G, N, self.out_dim)
 
 
 class GroupedSiren(nn.Module):
@@ -113,5 +129,5 @@ class GroupedSiren(nn.Module):
     def forward(self, t, x):
         # x: (groups, N, input_dim)
         for layer in self.layers[:-1]:
-            x = torch.sin(self.omega * layer(x))
+            x = torch.sin(layer(x, self.omega))
         return self.layers[-1](x)
