@@ -23,6 +23,8 @@ class Config:
     device: str = "cuda"
     log_level: str = "info"
     log_cadence: int = 10
+    metric_cadence: int = 1  # eval metrics, TensorBoard scalars and the summary-pdf curves every N
+    #                          epochs (plus the first and last); they cost ~0.15-0.5 s/epoch on CPU
     debug: bool = False
 
     # --- data ---
@@ -86,6 +88,10 @@ class Config:
 
     # --- optimisation ---
     lr: float = 0.01
+    lr_schedule: str = "const"  # velocity net only (recon_lr stays constant): 'const' | 'cosine'
+    #                             (lr -> lr_min over the epochs after the warm-up)
+    lr_warmup: int = 0  # velocity net: linear ramp lr/N, 2lr/N, ..., lr over the first N epochs
+    lr_min: float = 0.0  # cosine floor (absolute lr)
     recon_lr: float = 0.1
     recon_eps: float = 1e-4
     weight_decay: float = 0.1

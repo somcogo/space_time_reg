@@ -39,12 +39,12 @@ def prep_vis_summary_pdf(config: Namespace,
     coord_tensor = generate_coord_tensor(abs_phi.shape[1:-1], 'cpu').numpy().reshape(abs_phi.shape[1:])
     rel_phi = abs_phi - coord_tensor
 
-    losses, debug_losses = prep_metrics(all_metrics)
+    losses, debug_losses, epochs = prep_metrics(all_metrics)
 
     # Create pdf with images visualised
     with PdfPages(img_pdf_path) as pdf:
         for t in range(T):
-            create_figure_for_time_point(pdf, gt[t], init[t], final[t], t, losses)
+            create_figure_for_time_point(pdf, gt[t], init[t], final[t], t, losses, epochs)
         plt.close('all')
 
     # Create pdf with deformation visualised
@@ -55,7 +55,7 @@ def prep_vis_summary_pdf(config: Namespace,
     # Create pdf with loss curves for every non-zero-weight loss (sim gets one graph;
     # every other active loss gets a weighted and an unweighted graph)
     with PdfPages(losses_pdf_path) as pdf:
-        create_figure_for_losses(pdf, losses, debug_losses)
+        create_figure_for_losses(pdf, losses, debug_losses, epochs)
         plt.close('all')
 
     # Create pdf with velocity visualised
@@ -96,7 +96,8 @@ def norm_arrays(gt: np.ndarray, init: np.ndarray, final: np.ndarray):
     return gt, init, final
 
 
-def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray, final: np.ndarray, t: int, losses: dict):
+def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray, final: np.ndarray, t: int, losses: dict,
+                                 epochs: np.ndarray):
     fontsize = 12
     f, a = plt.subplots(3, 3)
     f.set_size_inches(9, 6)
@@ -107,8 +108,8 @@ def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray
     use_imshow_on_axes(a[1,0], init, True, f"Initial recon time {t}", fontsize, True, ticks=ticks)
     use_imshow_on_axes(a[2,0], final, True, f"Final recon time {t}", fontsize, True, ticks=ticks)
     
-    a[0,1].plot(losses['GT error sum'][:,t], 'r', label='learned')
-    a[0,1].plot(losses['GT error sum init'][:,t], 'b', label='init')
+    a[0,1].plot(epochs, losses['GT error sum'][:,t], 'r', label='learned')
+    a[0,1].plot(epochs, losses['GT error sum init'][:,t], 'b', label='init')
     # a[0,1].axhline(y=np.abs(init -gt).sum(), color='b', linestyle='-', label='init')
     a[0,1].set_title('Error sum', fontsize=fontsize)
     a[0,1].legend()
@@ -116,8 +117,8 @@ def create_figure_for_time_point(pdf: PdfPages, gt: np.ndarray, init: np.ndarray
     use_imshow_on_axes(a[1,1], np.abs(init - gt), True, "Error", fontsize, True, ticks=[np.abs(init - gt).min(), np.abs(init - gt).max()])
     use_imshow_on_axes(a[2,1], np.abs(final - gt), True, "Error", fontsize, True, ticks=[np.abs(final - gt).min(), np.abs(final - gt).max()])
 
-    a[0,2].plot(losses['GT error max'][:,t], 'r', label='learned')
-    a[0,2].plot(losses['GT error max init'][:,t], 'b', label='init')
+    a[0,2].plot(epochs, losses['GT error max'][:,t], 'r', label='learned')
+    a[0,2].plot(epochs, losses['GT error max init'][:,t], 'b', label='init')
     # a[0,2].axhline(y=np.abs(init -gt).max(), color='b', linestyle='-', label='init')
     a[0,2].set_title('Error max', fontsize=fontsize)
     a[0,2].legend()
@@ -163,7 +164,7 @@ def create_figure_for_deformation(pdf: PdfPages, gt: np.ndarray, final: np.ndarr
     pdf.savefig(f)
     plt.close(f)
 
-def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict):
+def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict, epochs: np.ndarray):
     # debug_losses holds exactly the currently-active (non-zero-weight) loss terms -- the
     # metric-only entries (GT error sum/max[, init]) live only in `losses`, so iterating
     # debug_losses already excludes zero-weight losses and non-loss metrics.
@@ -176,7 +177,7 @@ def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict):
     f.set_size_inches(3 * n_cols, T * 2)
 
     for t in range(T):
-        a[t,0].plot(losses['Similarity loss'][:,t])
+        a[t,0].plot(epochs, losses['Similarity loss'][:,t])
         set_loss_yscale(a[t,0], losses['Similarity loss'][:,t])
         a[t,0].set_title(f'Sim loss t={t}', fontsize=fontsize)
 
@@ -189,10 +190,10 @@ def create_figure_for_losses(pdf: PdfPages, losses: dict, debug_losses: dict):
                 a[t,w_col].axis("off")
                 a[t,og_col].axis("off")
                 continue
-            a[t,w_col].plot(losses[name][:,idx])
+            a[t,w_col].plot(epochs, losses[name][:,idx])
             set_loss_yscale(a[t,w_col], losses[name][:,idx])
             a[t,w_col].set_title(f'{name} weighted', fontsize=fontsize)
-            a[t,og_col].plot(debug_losses[name][:,idx])
+            a[t,og_col].plot(epochs, debug_losses[name][:,idx])
             set_loss_yscale(a[t,og_col], debug_losses[name][:,idx])
             a[t,og_col].set_title(f'{name} OG value', fontsize=fontsize)
 
@@ -304,4 +305,7 @@ def prep_metrics(all_metrics):
                 t = int(k.split()[-1])
                 losses[name][i][t] = v.cpu().numpy()
     
-    return losses, debug_losses
+    # Records are kept every config.metric_cadence epochs; older runs stored one per epoch
+    # without the 'epoch' key.
+    epochs = np.array([m.get('epoch', i + 1) for i, m in enumerate(all_metrics)])
+    return losses, debug_losses, epochs

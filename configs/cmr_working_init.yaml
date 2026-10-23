@@ -1,6 +1,8 @@
 # Full pipeline on CMRxRecon P001, static (time-constant) mask + WCRR denoiser.
 # Ported from the old bash_script.sh (soft_con / tuned_kt_dc_wcrr); the k-t mask it used
 # is replaced by the time-constant 'st' mask.
+# The joint loop optimizes the nmAPG init's own energy (joint_objective: init) plus the motion
+# terms; lambdas and recon_lr from the 2026-10 sweeps (log/cmr/soft_con_init_fix/initobj_*).
 exp_name: cmr/soft_con_init_fix/full_pipeline
 dataset: cmr_P001
 device: cuda
@@ -46,8 +48,8 @@ rtol: 1.0e-6
 
 # optimisation
 epochs: 2000
-lr: 1.0e-4
-recon_lr: 1.0e-5
+lr: 1.0e-4  # velocity net; 1e-3 is unstable (periodic imdiff / grad_phi spikes)
+recon_lr: 1.0e-3  # recon was the bottleneck at 1e-5; 1e-3..1e-2 is a plateau, 3e-2 too high
 recon_eps: 1.0e-4
 weight_decay: 0
 learn_recon: true
@@ -57,13 +59,15 @@ use_nreps: false
 
 # losses
 loss: mse
+joint_objective: init  # recon terms = the init's energy, summed over frames (see recon_init)
 lambda_st: 1.0
-lambda_grad_phi: 1.0e-2  # isotropic pixel-unit grad_phi (losses.py); ~ the old anisotropic 1.0
+lambda_grad_phi: 1.0e+1  # isotropic pixel-unit grad_phi; kept at 1e-4 * lambda_rl2 (S0-tuned ratio)
 lambda_grd: 0
 lambda_lap: 0
 lambda_hel: 0
-lambda_recon: 1.0e-1
-lambda_rl2: 1.0e+2
+lambda_recon: 1.0e-1  # unused with joint_objective: init (lambda_init_recon weights the reg)
+lambda_rl2: 1.0e+5  # imdiff is a per-pixel mean; ~equal stiffness with the init energy at ~1.1e5
 
 log_cadence: 50
+metric_cadence: 10
 debug: false
