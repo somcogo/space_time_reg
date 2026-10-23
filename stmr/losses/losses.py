@@ -3,7 +3,7 @@ import time
 import fastmri
 import torch
 
-from stmr.data.data_utils import get_dataset_capabilities
+from stmr.data.data_utils import complex_abs, get_dataset_capabilities
 from stmr.data.fft_utils import fft2c_new, ifft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
 from stmr.losses.sim_loss import get_sim_loss_fn
@@ -18,13 +18,18 @@ def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_
     shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
     loss_sum = 0.
     moved_imgs_imspace = None
+    if config.joint_objective not in ('default', 'init'):
+        raise ValueError(f"Unknown joint_objective {config.joint_objective!r}; use 'default' or 'init'")
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
         l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer)
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
-        mean = l.mean()
+        # joint_objective='init' reproduces the init's energy, which sums (not averages) over
+        # frames and k-space entries.
+        init_term = config.joint_objective == 'init' and loss_name in ('sim', 'recon_reg')
+        mean = l.sum() if init_term else l.mean()
         loss_dict['mean'] = mean.detach().cpu()
         loss_dict['loss'] = l.detach()
         loss_dict['time'] += t2 - t1
@@ -44,7 +49,7 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
         'grd': lambda: vel_grad_loss(model_outputs, shape),
         'lap': lambda: vel_lap_loss(model_outputs, shape),
         'hyper_el': lambda: compute_hyper_elastic_loss(model_outputs, coord_tensor, shape),
-        'recon_reg': lambda: compute_recon_reg_loss(inputs, recon_regularizer),
+        'recon_reg': lambda: compute_recon_reg_loss(config, inputs, recon_regularizer),
         'mcdc': lambda: motion_comp_dc_loss(config, inputs, model_outputs),
     }
     if loss_name not in dispatch:
@@ -56,7 +61,11 @@ def similarity_loss(config, inputs, model_outputs):
     loss_fn = get_sim_loss_fn(config, moving)
 
     sim_domain = getattr(config, 'sim_domain', 'fourier')
-    if sim_domain == 'image':
+    if getattr(config, 'joint_objective', 'default') == 'init':
+        # The init's data term (recon_init.complex_l2), kept per entry for the sim-energy
+        # visuals; calculate_losses sums it. forw is the masked FT and fixed is zero-filled.
+        loss = 0.5 * (forw(moving) - inputs.fixed) ** 2
+    elif sim_domain == 'image':
         # Image-space data consistency: compare the recon directly to the IFFT of the
         # measured k-space. On fully-sampled data this is identical (value AND gradient) to
         # the Fourier-space MSE below, because the FFT is unitary (Parseval). Running one
@@ -203,8 +212,15 @@ def motion_comp_dc_loss(config, inputs, model_outputs):
     loss = loss_fn(pred_kspace, fixed[1:])
     return loss, None
 
-def compute_recon_reg_loss(inputs, recon_regularizer):
+def compute_recon_reg_loss(config, inputs, recon_regularizer):
     moving = inputs.moving
+    if config.joint_objective == 'init':
+        # The init's regularizer term (recon_init.reg_on_abs / reg_without_abs) per frame,
+        # unweighted: lambda_init_recon is the loss weight (see get_relevant_loss_names).
+        if config.init_reg_abs:
+            return recon_regularizer.g(complex_abs(moving)).reshape(-1), None
+        loss = recon_regularizer.g(moving.flatten(0, 1).unsqueeze(1)).reshape(moving.shape[0], -1).sum(1)
+        return loss, None
     moving_abs = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
     moving_abs = (moving_abs + 1e-8).sqrt()
     loss = recon_regularizer.g(moving_abs)

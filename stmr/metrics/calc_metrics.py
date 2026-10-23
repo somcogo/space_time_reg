@@ -110,6 +110,8 @@ def get_relevant_loss_names(config):
     # lambda. 'sim' is always kept: it is the data-fidelity term and its per-pixel map is
     # required by the metrics/visualisation path (reduce_dim, prep_sim_meas_vis).
     is_cmr = 'cmr' in config.dataset
+    # joint_objective='init' weights the regularizer as the init does.
+    lambda_recon = config.lambda_init_recon if config.joint_objective == 'init' else config.lambda_recon
     candidates = [
         ('grad_phi', 'Grad phi (Dphi - Id)', config.lambda_grad_phi, True),
         ('detJ',     'Det(Dphi) - 1',        config.lambda_detJ, True),
@@ -117,7 +119,7 @@ def get_relevant_loss_names(config):
         ('grd',      'Vel gradient',         config.lambda_grd,  True),
         ('lap',      'Vel Laplacian',        config.lambda_lap,  True),
         ('hyper_el', 'Hyper elasticity',     config.lambda_hel,  True),
-        ('recon_reg', 'Reconstruction reg',  config.lambda_recon, is_cmr),
+        ('recon_reg', 'Reconstruction reg',  lambda_recon, is_cmr),
         ('mcdc',     'Motion comp DC',       config.lambda_mcdc, is_cmr),
         ('imdiff',   'Image space diff',     config.lambda_rl2,  True),
     ]

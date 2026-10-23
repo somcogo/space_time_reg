@@ -2,8 +2,17 @@ import pytest
 import torch
 
 from stmr.config import Config
-from stmr.data.fft_utils import FastmriFT
-from stmr.losses.losses import detJ_loss, grad_phi_loss, im_space_l2_loss, log_detJ_loss, similarity_loss
+from stmr.data.fft_utils import FastmriFT, FastmriIFT, MaskedFT
+from stmr.data.recon_init import get_functions, get_reg
+from stmr.losses.losses import (
+    calculate_losses,
+    detJ_loss,
+    grad_phi_loss,
+    im_space_l2_loss,
+    log_detJ_loss,
+    similarity_loss,
+)
+from stmr.metrics.calc_metrics import get_relevant_loss_names
 from stmr.state import Inputs, ModelOutputs
 from stmr.utils.spatial_transformer import get_spatial_transformer
 from stmr.utils.spatial_utils import generate_coord_tensor
@@ -105,6 +114,31 @@ def test_data_fidelity_zero_when_recon_matches_measurements():
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
     loss, _ = similarity_loss(config, inputs, None)
     assert loss.abs().max() < 1e-5
+
+
+@pytest.mark.parametrize("init_reg_abs", [True, False])
+def test_init_joint_objective_is_the_init_energy(init_reg_abs):
+    # joint_objective='init' must be exactly the nmAPG init's energy (summed over frames), with
+    # the gradient the init's analytic path uses.
+    config = Config(device="cpu", dataset="cmr_P001", time_points=2, joint_objective="init",
+                    reg_variant="wcrr", recon_scale=3.0, lambda_init_recon=0.05,
+                    init_reg_abs=init_reg_abs, init_grad="analytic").finalize()
+    g = torch.Generator().manual_seed(0)
+    x = 0.05 * torch.randn(2, 2, 32, 48, generator=g)
+    mask = torch.zeros(2, 2, 32, 48)
+    mask[:, :, ::3] = 1
+    kdata = mask * FastmriFT()(0.05 * torch.randn(2, 2, 32, 48, generator=g))
+    reg = get_reg(config)
+    *_, energy_and_grad = get_functions(config, reg, FastmriFT(), FastmriIFT())
+    energy, grad = energy_and_grad(x, torch.cat([kdata, mask], dim=1))
+
+    moving = x.clone().requires_grad_(True)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=kdata, forward=MaskedFT(mask))
+    losses = {k: v for k, v in get_relevant_loss_names(config).items() if k in ("sim", "recon_reg")}
+    loss_sum, _ = calculate_losses(config, inputs, None, None, losses, reg)
+    loss_sum.backward()
+    assert torch.allclose(loss_sum.detach(), energy.sum(), rtol=1e-6)
+    assert (moving.grad - grad).norm() / grad.norm() < 1e-4
 
 
 def test_use_nreps_without_inr_raises_clear_error():

@@ -10,6 +10,7 @@ from torchdiffeq import odeint_adjoint as odeint
 
 from stmr.config import Config
 from stmr.data.data_utils import get_dataset_capabilities
+from stmr.data.recon_init import get_reg
 from stmr.losses.losses import calculate_losses
 from stmr.losses.recon_reg import get_recon_regularizer
 from stmr.metrics.calc_metrics import calculate_metrics, get_relevant_loss_names
@@ -52,6 +53,20 @@ def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalIn
     return ModelOutputs(rel_vel=abs_phi - coord, abs_phi=abs_phi, transformer=ST)
 
 
+def velocity_lr_factor(config: Config, step: int) -> float:
+    """Multiplier on config.lr for optimizer step `step` (0-based): linear warm-up over
+    lr_warmup steps, then constant or cosine-decayed to lr_min by the last epoch."""
+    if step < config.lr_warmup:
+        return (step + 1) / config.lr_warmup
+    if config.lr_schedule == 'const':
+        return 1.0
+    if config.lr_schedule == 'cosine':
+        progress = (step - config.lr_warmup) / max(1, config.epochs - 1 - config.lr_warmup)
+        lr = config.lr_min + 0.5 * (config.lr - config.lr_min) * (1 + np.cos(np.pi * progress))
+        return lr / config.lr
+    raise ValueError(f"Unknown lr_schedule {config.lr_schedule!r}")
+
+
 def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: Inputs,
                  eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
     moving = inputs.moving
@@ -59,6 +74,11 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     if get_dataset_capabilities(config).joint_recon and not config.template_warp_recon:
         optimizer.add_param_group({'params': moving, 'lr': config.recon_lr,
                                    'weight_decay': 0., 'eps': config.recon_eps})
+    # Only the velocity net (group 0) is scheduled: the recon is in an early-stopping regime
+    # where the result tracks recon_lr * epochs, so decaying it would change the recon.
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, [lambda step: velocity_lr_factor(config, step)]
+        + [lambda step: 1.0] * (len(optimizer.param_groups) - 1))
 
     # Template-warp recon: no learned image. Each epoch the recon is a differentiable warp of
     # the fully-sampled GT template (frame 0); only the motion net is optimised (above).
@@ -86,8 +106,9 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
     # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
-    # epoch inside calculate_losses.
-    recon_regularizer = get_recon_regularizer(config) if 'recon_reg' in losses_to_calc else None
+    # epoch inside calculate_losses. joint_objective='init' uses the init's regularizer choice.
+    get_regularizer = get_reg if config.joint_objective == 'init' else get_recon_regularizer
+    recon_regularizer = get_regularizer(config) if 'recon_reg' in losses_to_calc else None
     all_metrics = []
 
     for epoch in range(1, config.epochs + 1):
@@ -156,22 +177,28 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
             coords = coord_tensor
 
         time_stamps[3, epoch - 1] = time.time()
+        velocity_lr = optimizer.param_groups[0]['lr']
         optimizer.step()
+        scheduler.step()
 
         time_stamps[4, epoch - 1] = time.time()
+        metric_epoch = epoch == 1 or epoch % config.metric_cadence == 0 or epoch == config.epochs
         with torch.no_grad():
-            extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
-            metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs,
-                                                      model_outputs, loss_outputs, extended_log)
-            log_metrics(config, metrics, writer, epoch, imgs_to_save)
-            # Reduce the per-pixel 'loss' maps to per-frame sums on CPU before archiving:
-            # keeping the full GPU maps in all_metrics leaks GPU memory linearly in epochs
-            # and OOMs multi-thousand-epoch runs. The summary pdf only uses per-frame sums.
-            slim_losses = {name: {**{k: v for k, v in d.items() if k != 'loss'},
-                                  'loss': (d['loss'].sum(dim=tuple(range(1, d['loss'].dim())))
-                                           if d['loss'].dim() > 1 else d['loss']).cpu()}
-                           for name, d in loss_outputs.losses.items()}
-            all_metrics.append({'metrics': copy.deepcopy(metrics), 'losses': slim_losses})
+            if metric_epoch:
+                extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
+                metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs,
+                                                          model_outputs, loss_outputs, extended_log)
+                log_metrics(config, metrics, writer, epoch, imgs_to_save)
+                writer.add_scalar('optim/velocity lr', velocity_lr, epoch)
+                # Reduce the per-pixel 'loss' maps to per-frame sums on CPU before archiving:
+                # keeping the full GPU maps in all_metrics leaks GPU memory linearly in epochs
+                # and OOMs multi-thousand-epoch runs. The summary pdf only uses per-frame sums.
+                slim_losses = {name: {**{k: v for k, v in d.items() if k != 'loss'},
+                                      'loss': (d['loss'].sum(dim=tuple(range(1, d['loss'].dim())))
+                                               if d['loss'].dim() > 1 else d['loss']).cpu()}
+                               for name, d in loss_outputs.losses.items()}
+                all_metrics.append({'epoch': epoch, 'metrics': copy.deepcopy(metrics),
+                                    'losses': slim_losses})
 
         time_stamps[5, epoch - 1] = time.time()
         if epoch == 1 or log_epoch:

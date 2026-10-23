@@ -23,6 +23,8 @@ class Config:
     device: str = "cuda"
     log_level: str = "info"
     log_cadence: int = 10
+    metric_cadence: int = 1  # eval metrics, TensorBoard scalars and the summary-pdf curves every N
+    #                          epochs (plus the first and last); they cost ~0.15-0.5 s/epoch on CPU
     debug: bool = False
 
     # --- data ---
@@ -75,6 +77,8 @@ class Config:
     siren_dim: int = 256
     siren_omega: int = 30
     last_init_zero: bool = True
+    last_init_std: float = 1e-6  # with last_init_zero: >0 -> last layer ~ N(0, std^2) (1e-6 ~ 1e-3 px
+    #                              initial motion); 0 -> U(+-1/600), which already moves ~1 px
 
     # --- ODE solver ---
     solver: str = "rk4"
@@ -84,6 +88,10 @@ class Config:
 
     # --- optimisation ---
     lr: float = 0.01
+    lr_schedule: str = "const"  # velocity net only (recon_lr stays constant): 'const' | 'cosine'
+    #                             (lr -> lr_min over the epochs after the warm-up)
+    lr_warmup: int = 0  # velocity net: linear ramp lr/N, 2lr/N, ..., lr over the first N epochs
+    lr_min: float = 0.0  # cosine floor (absolute lr)
     recon_lr: float = 0.1
     recon_eps: float = 1e-4
     weight_decay: float = 0.1
@@ -114,6 +122,10 @@ class Config:
     lambda_detJ: float = 0.0
     lambda_logdetJ: float = 0.0
     imdiff_warp_mag: bool = False  # warp magnitude (not complex) in the E3 image loss
+    joint_objective: str = "default"  # 'default': lambda_st * mean MSE + lambda_recon * mean_T reg(|x|)
+    #                                   'init': the nmAPG init's energy, summed over frames --
+    #                                   lambda_st * 0.5*sum|MFx - y|^2 + lambda_init_recon * reg
+    #                                   (on |x| or Re/Im as init_reg_abs), see recon_init
 
     # --- derived / internal (filled by finalize) ---
     schedule: list = field(default_factory=lambda: [1])
@@ -172,6 +184,7 @@ def build_velocity_kwargs(config: Config, dims: int) -> dict:
         "layers": layers,
         "omega": config.siren_omega,
         "last_init_zero": config.last_init_zero,
+        "last_init_std": config.last_init_std,
     }
     if "group" in config.func_name:
         kwargs["groups"] = config.time_points - 1
