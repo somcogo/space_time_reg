@@ -85,6 +85,8 @@ class Config:
     step_size: float = 0.001  # 0 -> adaptive (None)
     atol: float = 1e-9
     rtol: float = 1e-7
+    adjoint: bool = True  # odeint_adjoint (O(1) memory in steps) vs plain odeint: direct backprop,
+    #                       the exact gradient of the discrete solve, memory grows with the steps
 
     # --- optimisation ---
     lr: float = 0.01

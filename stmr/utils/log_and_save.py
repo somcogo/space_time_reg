@@ -31,6 +31,11 @@ def save_results(config, output: RegistrationResult, inputs: Inputs,
         'fixed': fixed.detach().cpu(),
         'gt_im': gt_im.detach().cpu(),
         'gt_phi': eval_inputs.gt_phi.detach().cpu() if eval_inputs.gt_phi is not None else None,
+        # Scalar metrics every metric_cadence epochs (the full all_metrics is debug-only), so
+        # sweeps can read e.g. the best-PSNR epoch without TensorBoard.
+        'metric_curve': [{'epoch': m['epoch'], **_scalars(m['metrics'])} for m in all_metrics],
+        'peak_mem_gb': (torch.cuda.max_memory_allocated(config.device) / 2**30
+                        if str(config.device).startswith('cuda') else None),
     }
     torch.save(save_dict, save_path)
     if config.debug:
@@ -40,3 +45,11 @@ def save_results(config, output: RegistrationResult, inputs: Inputs,
     os.makedirs(img_dir, exist_ok=True)
     for k, v in images.items():
         Image.fromarray(v.numpy()).save(os.path.join(img_dir, f"{k.split('/')[1]}.png"))
+
+
+def _scalars(metrics: dict) -> dict:
+    out = {}
+    for k, v in metrics.items():
+        if np.ndim(v) == 0:
+            out[k] = float(v)
+    return out

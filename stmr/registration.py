@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
-from torchdiffeq import odeint_adjoint as odeint
+from torchdiffeq import odeint, odeint_adjoint
 
 from stmr.config import Config
 from stmr.data.data_utils import get_dataset_capabilities
@@ -26,8 +26,9 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
     init_value = coord_tensor.expand((config.time_points - 1, -1, -1))
 
     rel_vel = get_relative_vel(config, func, init_value, time_points, keep_batch_dim=True)
-    abs_phi = odeint(func, init_value, time_points, method=config.solver, atol=config.atol,
-                     rtol=config.rtol, options={'step_size': config.step_size})
+    solve = odeint_adjoint if config.adjoint else odeint
+    abs_phi = solve(func, init_value, time_points, method=config.solver, atol=config.atol,
+                    rtol=config.rtol, options={'step_size': config.step_size})
     abs_phi = abs_phi[1]  # ignore abs_phi[0], which is just init_value anyway
     ST = get_spatial_transformer(abs_phi, inputs.moving.shape[1:], config)
     return ModelOutputs(rel_vel=rel_vel, abs_phi=abs_phi, transformer=ST)
