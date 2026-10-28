@@ -21,7 +21,7 @@ def _cmr(name: str) -> str:
     return str(_DATA_ROOT / "processed" / "cmrxrecon" / "test" / name)
 
 
-def _cmr_challenge_slice(patient: str, slice_number: int) -> torch.Tensor:
+def _cmr_challenge_slice(patient: str, slices: int) -> torch.Tensor:
     """Full single-coil k-space of one slice straight from the challenge release, [T, 2, H, W].
 
     The processed files are this times one real scale per patient and a sign flip on some frames
@@ -31,7 +31,7 @@ def _cmr_challenge_slice(patient: str, slice_number: int) -> torch.Tensor:
     path = (_DATA_ROOT / "raw" / "cmrxrecon" / "ChallengeData" / "SingleCoil" / "Cine"
             / "TrainingSet" / "FullSample" / f"P{patient}" / "cine_sax.mat")
     with h5py.File(path, "r") as f:
-        k = f["kspace_single_full"][:, slice_number]  # [T, H, W] of (real, imag) records
+        k = f["kspace_single_full"][:, slices]  # [T, D, H, W] of (real, imag) records
     return torch.from_numpy(np.stack([k["real"], k["imag"]], axis=1))
 
 
@@ -78,9 +78,9 @@ def _cmr_load(config: argparse.Namespace) -> tuple:
     else:
         patient = config.dataset.split('_')[1][1:]
         if getattr(config, 'cmr_raw', False):
-            gt_kspace_data = _cmr_challenge_slice(patient, config.slice_number)
+            gt_kspace_data = _cmr_challenge_slice(patient, config.slices)
         else:
-            gt_kspace_data = torch.load(_cmr(f'training_p{patient}_single_coil_full_cine_sax_norm.pt'))[:,config.slice_number].permute(0, 3, 1, 2)
+            gt_kspace_data = torch.load(_cmr(f'training_p{patient}_single_coil_full_cine_sax_norm.pt'))[:,config.slices].permute(0, 4, 1, 2, 3)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)
         raw_kspace_data = torch.zeros_like(gt_kspace_data)

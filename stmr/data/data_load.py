@@ -93,26 +93,31 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
     full_forw, full_adj, forw_subs, forw_subs_adj = data.full_forw, data.full_adj, data.forw_subs, data.forw_subs_adj
     fixed, gt_im, init = data.fixed, data.gt_im, data.init
 
+    init_batched = init.movedim(2, 1).flatten(0, 1)
+    fixed_batched = fixed.movedim(2, 1).flatten(0, 1)
+    kspace_mask_batched = kspace_mask.movedim(2, 1).flatten(0, 1)
+    gt_im_batched = gt_im.movedim(2, 1).flatten(0, 1)
     if config.init_skip:
-        recon = init.detach()
+        recon = init_batched.detach()
     elif config.use_nmapg:
         # nmAPG optimizes frames as batch items and drops converged ones, indexing x[idx]
         # and y[idx] but not the forward operator. Packing the mask into y as extra
         # channels keeps each frame's mask aligned with its measurements under that
         # subsetting; the data-fit functions unpack it again.
-        packed_measurements = torch.cat([fixed, kspace_mask.to(fixed)], dim=1)
+        packed_measurements = torch.cat([fixed_batched, kspace_mask_batched.to(fixed_batched)], dim=1)
         callback = None
         if writer is not None:
             # Built here (not by the caller) because it needs gt_im/kspace_mask, which only
             # exist inside this function.
             from stmr.metrics.init_logger import InitTBLogger
-            callback = InitTBLogger(writer, gt_im, kspace_mask.to(config.device), fixed, config)
+            callback = InitTBLogger(writer, gt_im_batched, kspace_mask_batched.to(config.device), fixed_batched, config)
         # init is an nn.Parameter; detach it, or nmAPG's in-place iterate updates build an
         # autograd graph that grows every iteration until the GPU runs out of memory.
-        recon, _ = init_using_nmAPG(config, init.detach(), packed_measurements, full_forw,
+        recon, _ = init_using_nmAPG(config, init_batched.detach(), packed_measurements, full_forw,
                                     full_adj, logger, callback=callback)
     else:
-        recon, _ = init_with_grad_desc(config, init, fixed, forw_subs)
+        recon, _ = init_with_grad_desc(config, init_batched, fixed_batched, forw_subs)
+    recon = recon.unflatten(dim=0, sizes=(fixed.shape[0], fixed.shape[2])).movedim(1, 2).contiguous()
 
     recon = add_image_noise(recon.detach(), config.init_noise_sigma).detach()
     moving = nn.Parameter(recon.clone()).to(config.device)

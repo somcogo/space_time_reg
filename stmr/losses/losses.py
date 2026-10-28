@@ -1,4 +1,5 @@
 import time
+from argparse import Namespace
 
 import fastmri
 import torch
@@ -43,12 +44,11 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
     dispatch = {
         'sim': lambda: similarity_loss(config, inputs, model_outputs),
         'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
-        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, shape),
+        'grad_phi': lambda: grad_phi_loss(config, model_outputs, coord_tensor, shape),
         'detJ': lambda: detJ_loss(model_outputs, coord_tensor, shape),
         'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, shape),
         'grd': lambda: vel_grad_loss(model_outputs, shape),
         'lap': lambda: vel_lap_loss(model_outputs, shape),
-        'hyper_el': lambda: compute_hyper_elastic_loss(model_outputs, coord_tensor, shape),
         'recon_reg': lambda: compute_recon_reg_loss(config, inputs, recon_regularizer),
         'mcdc': lambda: motion_comp_dc_loss(config, inputs, model_outputs),
     }
@@ -128,16 +128,16 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
     return loss, moved_im.detach().cpu()
 
-def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, shape: list):
+def grad_phi_loss(config: Namespace, model_outputs, coord_tensor: torch.Tensor, shape: list):
     # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
     # identity, i.e. penalizes the gradient of the displacement field phi - x. Measured in
     # pixel units (see _pixel_phi_Jacobian) so the penalty is isotropic on non-square images.
-    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, shape)
+    J = _pixel_phi_Jacobian(config, model_outputs, coord_tensor, shape)
     eye = torch.eye(J.shape[-1], device=J.device, dtype=J.dtype)
     loss = grad_phi_norm(J, eye)
     return loss, None
 
-def _pixel_phi_Jacobian(model_outputs, coord_tensor, shape):
+def _pixel_phi_Jacobian(config: Namespace, model_outputs, coord_tensor: torch.Tensor, shape: list):
     # phi and the grid live in [-1, 1] on every axis, so on a non-square image one normalized
     # unit spans a different number of pixels per axis ((N - 1) / 2). Differencing them as-is
     # weights each displacement component by 1 / that span (2.5x more for rows than columns
@@ -146,7 +146,7 @@ def _pixel_phi_Jacobian(model_outputs, coord_tensor, shape):
     # by the identity's own finite-difference Jacobian, gives the Jacobian in pixel units:
     # rotation-invariant, and exactly Id for phi = identity, including at the boundary.
     span = torch.tensor([(n - 1) / 2 for n in shape[1:-1]], device=coord_tensor.device,
-                        dtype=coord_tensor.dtype)
+                        dtype=coord_tensor.dtype) * config.voxel_spacing
     phi_J = get_Jacobian(model_outputs.abs_phi * span, shape)
     I = get_Jacobian(coord_tensor * span, shape)
     return phi_J @ torch.linalg.inv(I)
@@ -214,16 +214,13 @@ def motion_comp_dc_loss(config, inputs, model_outputs):
 
 def compute_recon_reg_loss(config, inputs, recon_regularizer):
     moving = inputs.moving
-    if config.joint_objective == 'init':
-        # The init's regularizer term (recon_init.reg_on_abs / reg_without_abs) per frame,
-        # unweighted: lambda_init_recon is the loss weight (see get_relevant_loss_names).
-        if config.init_reg_abs:
-            return recon_regularizer.g(complex_abs(moving)).reshape(-1), None
+    T = moving.shape[0]
+    moving = moving.movedim(2, 1).flatten(0, 1)
+    if config.init_reg_abs:
+        loss = recon_regularizer.g(complex_abs(moving)).reshape(-1)
+    else:
         loss = recon_regularizer.g(moving.flatten(0, 1).unsqueeze(1)).reshape(moving.shape[0], -1).sum(1)
-        return loss, None
-    moving_abs = fastmri.complex_abs_sq(moving.movedim(1,-1)).unsqueeze(1)
-    moving_abs = (moving_abs + 1e-8).sqrt()
-    loss = recon_regularizer.g(moving_abs)
+    loss = loss.view(T, -1).sum(1)
     return loss, None
 
 def grad_phi_norm(J, I):
@@ -233,56 +230,3 @@ def get_phi_Jacobian(abs_phi, coord_tensor, shape):
     rel_phi = abs_phi - coord_tensor
     phi_J = get_Jacobian(rel_phi, shape)
     return phi_J
-
-# hyperelastic loss implementation based on IDIR implementation https://github.com/MIAGroupUT/IDIR/blob/main/objectives/regularizers.py
-def compute_hyper_elastic_loss(
-    model_outputs, coord_tensor, shape, alpha_l=1, alpha_a=1, alpha_v=1
-):
-    """Compute the hyper-elastic regularization loss."""
-    rel_vel, abs_phi = model_outputs.rel_vel, model_outputs.abs_phi
-
-    grad_u = get_Jacobian(rel_vel, shape)
-    grad_y = get_phi_Jacobian(abs_phi, coord_tensor, shape)
-    # get_phi_Jacobian produces the grad of the relative displacement, want the grad of the absolut displacement
-    for i in range(grad_y.shape[-1]):
-        grad_y[..., i, i] = grad_y[..., i, i] + torch.ones_like(grad_y[..., i, i])
-
-    # Compute length loss
-    length_loss = torch.linalg.norm(grad_u, dim=(1, 2))
-    length_loss = torch.pow(length_loss, 2)
-    length_loss = torch.sum(length_loss)
-    length_loss = 0.5 * alpha_l * length_loss
-
-    # Compute cofactor matrices for the area loss
-    cofactors = torch.zeros(*grad_y.shape[:-2], 3, 3)
-
-    # Compute elements of cofactor matrices one by one (Ugliest solution ever?)
-    cofactors[..., 0, 0] = torch.det(grad_y[..., 1:, 1:])
-    cofactors[..., 0, 1] = torch.det(grad_y[..., 1:, 0::2])
-    cofactors[..., 0, 2] = torch.det(grad_y[..., 1:, :2])
-    cofactors[..., 1, 0] = torch.det(grad_y[..., 0::2, 1:])
-    cofactors[..., 1, 1] = torch.det(grad_y[..., 0::2, 0::2])
-    cofactors[..., 1, 2] = torch.det(grad_y[..., 0::2, :2])
-    cofactors[..., 2, 0] = torch.det(grad_y[..., :2, 1:])
-    cofactors[..., 2, 1] = torch.det(grad_y[..., :2, 0::2])
-    cofactors[..., 2, 2] = torch.det(grad_y[..., :2, :2])
-
-    # Compute area loss
-    area_loss = torch.pow(cofactors, 2)
-    area_loss = torch.sum(area_loss, dim=1)
-    area_loss = area_loss - 1
-    area_loss = torch.maximum(area_loss, torch.zeros_like(area_loss))
-    area_loss = torch.pow(area_loss, 2)
-    area_loss = torch.sum(area_loss)  # sum over dimension 1 and then 0
-    area_loss = alpha_a * area_loss
-
-    # Compute volume loss
-    volume_loss = torch.det(grad_y)
-    volume_loss = torch.mul(torch.pow(volume_loss - 1, 4), torch.pow(volume_loss, -2))
-    volume_loss = torch.sum(volume_loss)
-    volume_loss = alpha_v * volume_loss
-
-    # Compute total loss
-    loss = length_loss + area_loss + volume_loss
-
-    return loss, None

@@ -37,7 +37,8 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
 def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalInputs) -> ModelOutputs:
     """Motion held fixed instead of learned (oracle and control runs): the known motion of
     synthetic frames ('gt'), no motion ('identity'), or the phi saved in a res.pt."""
-    T, _, H, W = inputs.moving.shape
+    T = inputs.moving.shape[0]
+    H, W = inputs.moving.shape[2:]
     coord = generate_coord_tensor((H, W), config.device)
     if config.fixed_motion == 'identity':
         abs_phi = coord.expand(T - 1, -1, -1).contiguous()

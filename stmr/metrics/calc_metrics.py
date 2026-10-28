@@ -33,7 +33,9 @@ def calc_init_metrics(config: Namespace, eval_inputs) -> list[dict]:
     metrics = {}
     if is_complex:
         metrics = add_cmr_eval_metrics(init_recon, gt_im, metrics)
-    imgs_to_save = {'imgs/init_recon':prep_init_recon(init_recon, is_complex)}
+    if len(gt_im.shape) == 5:
+        init_rec = init_recon.clone()[:, :, init_recon.shape[2] // 2]
+    imgs_to_save = {'imgs/init_recon':prep_init_recon(init_rec, is_complex)}
     return metrics, imgs_to_save
 
 def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=False):
@@ -97,7 +99,7 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
 
-        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, reduce_dim=reduce)
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, reduce_dim=reduce, slice_ndx=fixed.shape[2]//2)
     else:
         imgs_to_save = None
 
@@ -118,7 +120,6 @@ def get_relevant_loss_names(config):
         ('logdetJ',  'log det(Dphi)',        config.lambda_logdetJ, True),
         ('grd',      'Vel gradient',         config.lambda_grd,  True),
         ('lap',      'Vel Laplacian',        config.lambda_lap,  True),
-        ('hyper_el', 'Hyper elasticity',     config.lambda_hel,  True),
         ('recon_reg', 'Reconstruction reg',  lambda_recon, is_cmr),
         ('mcdc',     'Motion comp DC',       config.lambda_mcdc, is_cmr),
         ('imdiff',   'Image space diff',     config.lambda_rl2,  True),

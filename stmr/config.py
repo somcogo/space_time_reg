@@ -31,7 +31,7 @@ class Config:
     dataset: str = "cmr_P001"
     time_points: int = 20
     start_frame: int = 0
-    slice_number: int = 0
+    slices: list[int] | None = None # which slices to take; if 0, then the first single slice is returned
     factor: int = 4
     mask: str = "st"
     random_mask: bool = False
@@ -41,6 +41,8 @@ class Config:
     #                        instead of the processed _norm file = it x a real scale per patient x
     #                        a per-frame sign; normalize_data removes the scale, the sign is invisible
     reverse_frames: bool = False  # load the frames in reverse time order (forward/backward motion check)
+    voxel_spacing: list[float] | None = None # in mm, with order (d, h, w).
+
 
     # --- known-motion test (stmr/data/known_motion.py; off while synth_flow is '') ---
     # The GT frames are replaced by frame 0 warped with a known motion, so the learned motion can
@@ -120,7 +122,6 @@ class Config:
     lambda_grad_phi: float = 1e-2  # pixel-unit (isotropic) ||Dphi - Id||, see losses.grad_phi_loss
     lambda_grd: float = 1.0
     lambda_lap: float = 1.0
-    lambda_hel: float = 1.0
     lambda_recon: float = 1.0
     lambda_rl2: float = 1.0
     lambda_mcdc: float = 0.0

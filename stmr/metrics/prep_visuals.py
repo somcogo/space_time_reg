@@ -13,24 +13,24 @@ from torchvision.utils import make_grid
 
 # TODO: refactor all the make_grid and ndarray -> torch.uint8 lines
 
-def add_loss_specific_imgs(imgs_to_save: dict, losses: dict, reduce_dim: bool) -> dict:
+def add_loss_specific_imgs(imgs_to_save: dict, losses: dict, reduce_dim: bool, slice_ndx: int) -> dict:
     for loss_type, loss_dict in losses.items():
         if loss_type == 'grad_phi':
-            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            loss = loss_dict['loss'][:, slice_ndx, ..., 1:] if reduce_dim else loss_dict['loss']
             grad_phi = prep_detJ_vis(loss)
             imgs_to_save['vel_J_det/grad_phi'] = grad_phi
         elif loss_type == 'detJ':
-            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            loss = loss_dict['loss'][:, slice_ndx, ..., 1:] if reduce_dim else loss_dict['loss']
             imgs_to_save['vel_J_det/detJ'] = prep_detJ_vis(loss)
         elif loss_type == 'logdetJ':
-            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            loss = loss_dict['loss'][:, slice_ndx, ..., 1:] if reduce_dim else loss_dict['loss']
             imgs_to_save['vel_J_det/logdetJ'] = prep_detJ_vis(loss)
         elif loss_type == 'grd':
-            loss = loss_dict['loss'][..., 0, :] if reduce_dim else loss_dict['loss']
+            loss = loss_dict['loss'][:, slice_ndx, ..., 1:] if reduce_dim else loss_dict['loss']
             grad_norm = prep_vel_grad_vis(loss)
             imgs_to_save['vel_grad_norm/grad_norm'] = grad_norm
         elif loss_type == 'lap':
-            loss = loss_dict['loss'][..., 0] if reduce_dim else loss_dict['loss']
+            loss = loss_dict['loss'][:, slice_ndx, ..., 1:] if reduce_dim else loss_dict['loss']
             lap_norm = prep_vel_lap_vis(loss)
             imgs_to_save['laplacian/laplacian_norm'] = lap_norm
 
