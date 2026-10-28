@@ -7,6 +7,7 @@
     python -m stmr.gridsearch launch --stage C --root grid_v1 --gpus ...
     python -m stmr.gridsearch launch --stage P --root patients_v1 --gpus ...
     python -m stmr.gridsearch launch --stage D --root diag_v1 --src patients_v1 --gpus ...
+    python -m stmr.gridsearch launch --stage R --root blowup_v1 --src patients_v1 --gpus ...
     python -m stmr.gridsearch launch --stage seeds --root grid_v1 --gpus ... [--top 3 --seeds 1,2]
     python -m stmr.gridsearch aggregate --root grid_v1
 """
@@ -25,13 +26,13 @@ def main(argv=None):
     pr.add_argument("--root", required=True)
     pr.add_argument("--gpu", type=int, default=0)
     la = sub.add_parser("launch")
-    la.add_argument("--stage", choices=["A", "A2", "B", "C", "P", "D", "seeds"], required=True)
+    la.add_argument("--stage", choices=["A", "A2", "B", "C", "P", "D", "R", "seeds"], required=True)
     la.add_argument("--root", required=True)
     la.add_argument("--gpus", default="0,1,2,3")
     la.add_argument("--per-gpu", type=int, default=1)
     la.add_argument("--top", type=int, default=3)
     la.add_argument("--seeds", default="1,2")
-    la.add_argument("--src", default="patients_v1", help="stage D: the root holding stage P")
+    la.add_argument("--src", default="patients_v1", help="stages D, R: the root holding stage P")
     la.add_argument("--dry-run", action="store_true")
     ag = sub.add_parser("aggregate")
     ag.add_argument("--root", required=True)
@@ -52,6 +53,8 @@ def main(argv=None):
             pts = sweep.grid_patients()
         elif a.stage == "D":
             pts = sweep.grid_diag(a.src)
+        elif a.stage == "R":
+            pts = sweep.grid_rerun(a.src)
         else:
             pts = sweep.grid_seeds(a.root, a.top, tuple(int(s) for s in a.seeds.split(",")))
         gpus = tuple(int(g) for g in a.gpus.split(",") if g != "")

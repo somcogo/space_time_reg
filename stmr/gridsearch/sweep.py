@@ -12,6 +12,8 @@
            changes nothing) and PATIENTS_RAW, which only exist as the challenge's raw files
     D      diagnosis of P's failures: the DIAG_N worst slices (blow-ups first) re-run with one
            change each (DIAG_VARIANTS), same seed and data as the P run
+    R      every blow-up of P re-run with exact(er) gradients, RERUN_VARIANTS (D found the 2-step
+           Euler adjoint at fault); all of one variant first
 
 Every run uses the adjoint: direct backprop OOMs a 44 GB A40 at the largest stage-B point
 (siren_dim 128, step 0.1), and the grid stays on one gradient method throughout. `probe` times
@@ -69,6 +71,7 @@ DIAG_N = 16
 DIAG_VARIANTS = {"bp": {"adjoint": False},  # exact gradients: is the 2-step Euler adjoint at fault?
                  "lr1e-4": {"lr": 1e-4},
                  "ss0.1": {"step_size": 0.1}}
+RERUN_VARIANTS = {v: DIAG_VARIANTS[v] for v in ("bp", "ss0.1")}  # bp first; ss0.1 as the fallback
 STEPS = [0.1, 0.5]
 DIMS = [64, 128]
 OMEGAS = [15, 30]
@@ -168,6 +171,18 @@ def grid_diag(src_root):
         base = {"dataset": r["dataset"], "slice_number": r["slice_number"], "seed": r["seed"],
                 "cmr_raw": r["cmr_raw"]}
         pts += [(f"{r['label']}_{v}", {**base, **ov}) for v, ov in DIAG_VARIANTS.items()]
+    return pts
+
+
+def grid_rerun(src_root):
+    """RERUN_VARIANTS of every stage-P blow-up in src_root, labelled as in stage D."""
+    rows = [r for r in collect(src_root) if r["stage"] == "P" and r["blowup"]]
+    pts = []
+    for v, ov in RERUN_VARIANTS.items():
+        for r in rows:
+            pts.append((f"{r['label']}_{v}",
+                        {"dataset": r["dataset"], "slice_number": r["slice_number"],
+                         "seed": r["seed"], "cmr_raw": r["cmr_raw"], **ov}))
     return pts
 
 
@@ -290,7 +305,7 @@ def collect(root):
     import torch
     rows = []
     base = os.path.join(LOG_ROOT, root)
-    for stage in ("A", "A2", "B", "C", "P", "D", "seeds"):
+    for stage in ("A", "A2", "B", "C", "P", "D", "R", "seeds"):
         sd = os.path.join(base, stage)
         if not os.path.isdir(sd):
             continue
