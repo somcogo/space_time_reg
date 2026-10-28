@@ -37,6 +37,9 @@ class Config:
     random_mask: bool = False
     template_frames: int = 0  # leading frames kept fully-sampled + recon frozen at GT (0 = off)
     normalize_data: bool = True  # divide k-space by the max GT magnitude over all loaded frames
+    cmr_raw: bool = False  # cmr_P*: load the challenge's own single-coil .mat (data/raw/cmrxrecon)
+    #                        instead of the processed _norm file = it x a real scale per patient x
+    #                        a per-frame sign; normalize_data removes the scale, the sign is invisible
     reverse_frames: bool = False  # load the frames in reverse time order (forward/backward motion check)
 
     # --- known-motion test (stmr/data/known_motion.py; off while synth_flow is '') ---
