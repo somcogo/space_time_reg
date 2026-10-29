@@ -15,7 +15,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from stmr.config import Config
-from stmr.data.data_load import prepare_data
+from stmr.data.data_load import fold_slices, prepare_data, unfold_slices
 from stmr.data.recon_init import init_using_nmAPG
 from stmr.metrics.init_logger import InitTBLogger
 from stmr.metrics.init_metrics import init_quality_metrics, init_scalar_metrics
@@ -35,15 +35,21 @@ def run_init(config: Config) -> dict:
     writer = SummaryWriter(os.path.join(config.log_path, "tensorboard"))
 
     data = prepare_data(config)
-    mask = data.kspace_mask.to(config.device)
+    # The init is a 2D solve per (frame, slice): fold the slices into the batch, exactly as
+    # prepare_inputs does, so this runner solves the same problem as the pipeline.
+    n_slices = data.fixed.shape[2]
+    fixed, gt_im = fold_slices(data.fixed), fold_slices(data.gt_im)
+    mask = fold_slices(data.kspace_mask).to(config.device)
     # nmAPG subsets the batch as frames converge, so the mask rides along inside y (see
     # prepare_inputs for the same packing).
-    packed = torch.cat([data.fixed, mask.to(data.fixed)], dim=1)
+    packed = torch.cat([fixed, mask.to(fixed)], dim=1)
 
-    cb = InitTBLogger(writer, data.gt_im, mask, data.fixed, config,
+    cb = InitTBLogger(writer, gt_im, mask, fixed, config,
                       log_every=config.log_cadence)
     t0 = time.time()
-    recon, _ = init_using_nmAPG(config, data.init, packed, data.full_forw,
+    # detached as in prepare_inputs: init is an nn.Parameter, and nmAPG's in-place iterate
+    # updates would otherwise grow an autograd graph every iteration.
+    recon, _ = init_using_nmAPG(config, fold_slices(data.init).detach(), packed, data.full_forw,
                                 data.full_adj, logger, callback=cb)
     wall = time.time() - t0
     logger.info(f"init solved in {wall:.1f}s over {len(cb.steps)} logged iterations")
@@ -55,18 +61,19 @@ def run_init(config: Config) -> dict:
                                                      "res": cb.history["conv/residual"][-1],
                                                      "L": cb.history["conv/L"][-1],
                                                      "n_active": cb.history["conv/n_active"][-1]},
-                                    data.fixed, mask)
-        final.update(init_quality_metrics(recon.detach(), data.gt_im))
+                                    fixed, mask)
+        final.update(init_quality_metrics(recon.detach(), gt_im))
 
+    # res.pt keeps the pipeline's [T, 2, D, H, W] layout.
     torch.save({
-        "recon": recon.detach().cpu(), "init": data.init.detach().cpu(),
+        "recon": unfold_slices(recon.detach(), n_slices).cpu(), "init": data.init.detach().cpu(),
         "gt_im": data.gt_im.detach().cpu(), "fixed": data.fixed.detach().cpu(),
-        "mask": mask.detach().cpu(),
+        "mask": data.kspace_mask.detach().cpu(),
         "history": cb.history, "steps": cb.steps, "final": final,
         "wall_time": wall, "config": config.to_dict(),
     }, os.path.join(config.log_path, "res.pt"))
 
-    make_init_figures(cb.history, cb.steps, recon.detach(), data.gt_im, data.fixed, mask,
+    make_init_figures(cb.history, cb.steps, recon.detach(), gt_im, fixed, mask,
                       os.path.join(config.log_path, "figs"))
     try:
         generate_tb_gifs(config.log_path, os.path.join(config.log_path, "gifs"), logger=logger)
