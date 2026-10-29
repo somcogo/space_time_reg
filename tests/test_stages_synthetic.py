@@ -29,9 +29,9 @@ from stmr.metrics.calc_metrics import get_relevant_loss_names
 from stmr.models.factory import get_func
 from stmr.registration import get_model_outputs
 from stmr.state import Inputs
-from stmr.utils.spatial_utils import generate_coord_tensor
+from stmr.utils.spatial_utils import generate_coord_tensor, get_phi_shape
 
-from _phantom import moving_phantom, phi_shape_of
+from _phantom import moving_phantom
 
 
 def _cpu_config(**over):
@@ -63,7 +63,7 @@ def _build(config, moving, forward):
     func = get_func(config.func_name, config.func_kwargs)
     fixed = forward(moving.detach())
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forward,
-                    phi_shape=phi_shape_of(moving))
+                    phi_shape=get_phi_shape(moving.shape[2:]))
     return func, inputs
 
 
@@ -86,7 +86,7 @@ def _optimize(config, func, inputs, steps, learn_recon):
 
 def _imdiff_residual(moving, config, func):
     """Base (identity) vs warped consecutive-frame magnitude MSE for the current motion."""
-    phi_shape = phi_shape_of(moving)
+    phi_shape = get_phi_shape(moving.shape[2:])
     coord = generate_coord_tensor(phi_shape[1:-1], "cpu")
     with torch.no_grad():
         mo = get_model_outputs(config, func, coord, phi_shape)

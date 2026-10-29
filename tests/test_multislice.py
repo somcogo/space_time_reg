@@ -8,7 +8,6 @@ from argparse import Namespace
 
 import pytest
 import torch
-from _phantom import phi_shape_of
 from torch import nn
 
 from stmr.config import Config, build_velocity_kwargs, parse_cli
@@ -22,7 +21,7 @@ from stmr.models.factory import get_func
 from stmr.registration import get_model_outputs
 from stmr.robustness.jacobian import detJ_from_phi
 from stmr.state import Inputs
-from stmr.utils.spatial_utils import generate_coord_tensor
+from stmr.utils.spatial_utils import generate_coord_tensor, get_phi_shape
 
 
 def test_list_fields_parse_from_yaml_and_cli(tmp_path):
@@ -71,6 +70,8 @@ def test_folded_init_matches_solving_each_slice_alone():
 
 
 def test_single_slice_motion_lives_on_the_in_plane_grid():
+    assert get_phi_shape((1, 8, 12)) == [-1, 8, 12, 2]
+    assert get_phi_shape((3, 8, 12)) == [-1, 3, 8, 12, 3]
     ident = generate_coord_tensor((8, 12), "cpu")
     assert ident.shape == (8 * 12, 2)
     detJ = detJ_from_phi(ident.unsqueeze(0), 1, 8, 12)
@@ -117,7 +118,7 @@ def test_motion_and_loss_backward_on_a_volume(n_slices):
     forw = FastmriFT()
     fixed = forw(moving.detach())
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw,
-                    phi_shape=phi_shape_of(moving))
+                    phi_shape=get_phi_shape(moving.shape[2:]))
 
     coord = generate_coord_tensor(inputs.phi_shape[1:-1], "cpu")
     coord.requires_grad = True

@@ -6,6 +6,7 @@ from torch import nn
 
 from stmr.config import Config
 from stmr.state import EvalInputs, Inputs
+from stmr.utils.spatial_utils import get_phi_shape
 
 from .data_utils import get_data, get_init, get_operators
 from .fft_utils import MaskedFT
@@ -141,8 +142,8 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
     recon = add_image_noise(recon.detach(), config.init_noise_sigma).detach()
     moving = nn.Parameter(recon.clone()).to(config.device)
 
-    phi_shape = [-1, *moving.shape[2:], len(moving.shape[2:])] if moving.shape[2] > 1 else [-1, *moving.shape[3:], len(moving.shape[3:])]
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw_subs, phi_shape=phi_shape)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw_subs,
+                    phi_shape=get_phi_shape(moving.shape[2:]))
     eval_inputs = EvalInputs(init_recon=recon, gt_im=gt_im, seg_moving=None, seg_fixed=None,
                              gt_phi=data.gt_phi)
     return inputs, eval_inputs

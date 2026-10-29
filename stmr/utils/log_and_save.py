@@ -21,6 +21,7 @@ def save_results(config, output: RegistrationResult, inputs: Inputs,
         'phi': abs_phi.detach().cpu(),
         'vel': rel_vel.detach().cpu() if rel_vel is not None else None,
         'coord_tensor': coords.detach().cpu(),
+        'phi_shape': inputs.phi_shape,  # [-1, H, W, 2] (one slice) or [-1, D, H, W, 3]
         'st_dict': st_dict,
         'time_stamps': time_stamps,
         'epoch': epoch,
