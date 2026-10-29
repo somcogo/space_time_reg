@@ -58,8 +58,8 @@ class DatasetSpec:
 
 
 def _cmr_load(config: argparse.Namespace) -> tuple:
-    gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:2,:1].permute(0, 4, 1, 2, 3)
     if config.dataset == 'cmr_test1':
+        gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:2,:1].permute(0, 4, 1, 2, 3)
         raw_kspace_data = torch.load(_cmr('training_p001_single_coil_acc_04_cine_sax_norm.pt'))[:2,:1].permute(0, 4, 1, 2, 3)
         kspace_mask = (raw_kspace_data[:2] != 0)
     elif config.dataset == 'cmr_test2':
@@ -67,11 +67,13 @@ def _cmr_load(config: argparse.Namespace) -> tuple:
         # ablation (stage S0-S2). Reload from the full file honoring slice/frame selection
         # so it can run at the same time_points as the real cmr datasets; the module-level
         # gt_kspace_data above is pinned to [:2, 0] (kept for cmr_test1).
+        gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:2,:1].permute(0, 4, 1, 2, 3)
         gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:, config.slices].permute(0, 4, 1, 2, 3)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
         kspace_mask = torch.ones_like(gt_kspace_data, dtype=bool)
         raw_kspace_data = gt_kspace_data
     elif config.dataset == 'cmr_test3':
+        gt_kspace_data = torch.load(_cmr('training_p001_single_coil_full_cine_sax_norm.pt'))[:2,:1].permute(0, 4, 1, 2, 3)
         kspace_mask = get_kspace_mask(config, gt_kspace_data, config.factor)
         raw_kspace_data = torch.zeros_like(gt_kspace_data)
         raw_kspace_data[kspace_mask] = gt_kspace_data[kspace_mask]

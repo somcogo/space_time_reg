@@ -3,11 +3,9 @@ import torch.nn.functional as F
 
 
 class GridSampleTransformer:
-    def __init__(self, abs_phi, img_shape):
-        self.squeeze_img = img_shape[0] == 1
-        if self.squeeze_img:
-            img_shape = img_shape[1:]
-        grid = abs_phi.reshape(abs_phi.shape[0], *img_shape, len(img_shape))
+    def __init__(self, abs_phi, phi_shape):
+        self.squeeze_img = len(phi_shape) == 4
+        grid = abs_phi.reshape(phi_shape)
         self.grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
 
     def apply(self, input_img, mode='bilinear'):
@@ -19,13 +17,14 @@ class GridSampleTransformer:
         return output_img
     
 class NeuralRepTransformer:
-    def __init__(self, abs_phi, img_shape, use_old_nrep):
+    def __init__(self, abs_phi, phi_shape, use_old_nrep):
         if use_old_nrep:
             self.nrep_applier = OldNeuralRepApplier(abs_phi)
         else:
             self.nrep_applier = NewNeuralRepApplier(abs_phi)
-        self.grid_applier = GridSampleTransformer(abs_phi, img_shape)
-        self.img_shape = img_shape
+        self.grid_applier = GridSampleTransformer(abs_phi, phi_shape)
+        # The nrep is a one-channel image sampled on the motion grid: [T-1, 1, *grid].
+        self.img_shape = [-1, 1, *phi_shape[1:-1]]
 
     def apply(self, input_img, input_is_seg=False):
         if input_is_seg:
@@ -33,6 +32,8 @@ class NeuralRepTransformer:
         else:
             out = self.nrep_applier.apply(input_img)
             out = out.reshape(self.img_shape)
+            if self.grid_applier.squeeze_img:
+                out = out.unsqueeze(2)  # put the slice axis back, as GridSampleTransformer does
         return out
 
 class OldNeuralRepApplier:
@@ -51,9 +52,9 @@ class NewNeuralRepApplier:
         model_out = nrep(torch.tensor([], device=self.input.device), self.input)
         return model_out.squeeze(2)
 
-def get_spatial_transformer(abs_phi, img_shape, config):
+def get_spatial_transformer(abs_phi, phi_shape, config):
     if config.use_nreps:
         use_old_nrep = config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec', 'syn_test']
-        return NeuralRepTransformer(abs_phi, img_shape, use_old_nrep)
+        return NeuralRepTransformer(abs_phi, phi_shape, use_old_nrep)
     else:
-        return GridSampleTransformer(abs_phi, img_shape)
+        return GridSampleTransformer(abs_phi, phi_shape)

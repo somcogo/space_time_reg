@@ -21,7 +21,7 @@ from stmr.utils.spatial_utils import generate_coord_tensor, get_relative_vel
 
 
 def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tensor,
-                      inputs: Inputs) -> ModelOutputs:
+                      phi_shape: list) -> ModelOutputs:
     time_points = torch.tensor([0., 1.], device=config.device)
     init_value = coord_tensor.expand((config.time_points - 1, -1, -1))
 
@@ -30,7 +30,7 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
     abs_phi = solve(func, init_value, time_points, method=config.solver, atol=config.atol,
                     rtol=config.rtol, options={'step_size': config.step_size})
     abs_phi = abs_phi[1]  # ignore abs_phi[0], which is just init_value anyway
-    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[2:], config)
+    ST = get_spatial_transformer(abs_phi, phi_shape, config)
     return ModelOutputs(rel_vel=rel_vel, abs_phi=abs_phi, transformer=ST)
 
 
@@ -111,6 +111,11 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     recon_regularizer = get_reg(config) if 'recon_reg' in losses_to_calc else None
     all_metrics = []
 
+    phi_shape = [-1, *moving.shape[2:], len(moving.shape[2:])] if moving.shape[2] > 1 else [-1, *moving.shape[3:], len(moving.shape[3:])]
+    coord_tensor = generate_coord_tensor(moving.shape[2:], config.device, phi_shape)
+    coord_tensor.requires_grad = True
+
+
     for epoch in range(1, config.epochs + 1):
         if config.motion_warmup > 0 and epoch in (1, config.motion_warmup + 1):
             in_warmup = epoch == 1
@@ -135,14 +140,12 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
                 logger.info(f'Set require_grad for recon to {moving.requires_grad} and for '
                             f'func to {param.requires_grad} at epoch {epoch}')
 
-        coord_tensor = generate_coord_tensor(moving.shape[2:], config.device)
-        coord_tensor.requires_grad = True
         log_epoch = epoch % config.log_cadence == 0
         optimizer.zero_grad()
 
         time_stamps[0, epoch - 1] = time.time()
         model_outputs = (fixed_outputs if fixed_outputs is not None
-                         else get_model_outputs(config, func, coord_tensor, inputs))
+                         else get_model_outputs(config, func, coord_tensor, phi_shape))
 
         if config.template_warp_recon:
             # recon_t = warp(template, phi_{0->t}); recon_0 = template. Differentiable in phi,
@@ -154,7 +157,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
 
         time_stamps[1, epoch - 1] = time.time()
         loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord_tensor,
-                                                  losses_to_calc, recon_regularizer)
+                                                  losses_to_calc, phi_shape, recon_regularizer)
 
         time_stamps[2, epoch - 1] = time.time()
         loss_sum.backward()
@@ -187,7 +190,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
             if metric_epoch:
                 extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
                 metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs,
-                                                          model_outputs, loss_outputs, extended_log)
+                                                          model_outputs, loss_outputs, phi_shape, extended_log)
                 log_metrics(config, metrics, writer, epoch, imgs_to_save)
                 writer.add_scalar('optim/velocity lr', velocity_lr, epoch)
                 # Reduce the per-pixel 'loss' maps to per-frame sums on CPU before archiving:

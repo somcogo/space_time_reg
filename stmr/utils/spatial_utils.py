@@ -3,8 +3,8 @@ import torch
 from torch import nn
 
 
-def generate_coord_tensor(dims, device, min_coord=-1, max_coord=1):
-    if dims[0] == 1:
+def generate_coord_tensor(dims, device, phi_shape, min_coord=-1, max_coord=1):
+    if len(phi_shape) == 4:
         dims = dims[1:]
     coordinate_tensor = [torch.linspace(min_coord, max_coord, dims[i]) for i in range(len(dims))]
     coordinate_tensor = torch.meshgrid(*coordinate_tensor, indexing='ij')

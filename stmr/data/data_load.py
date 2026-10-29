@@ -134,7 +134,7 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
                                     full_adj, logger, callback=callback)
     else:
         init_batched = nn.Parameter(init_batched)
-        forw_subs_batched = MaskedFT(kspace_mask_batched)
+        forw_subs_batched = MaskedFT(kspace_mask_batched).to(config.device)
         recon, _ = init_with_grad_desc(config, init_batched, fixed_batched, forw_subs_batched)
     recon = unfold_slices(recon, fixed.shape[2])
 

@@ -138,11 +138,7 @@ def add_gt_error(moving: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Te
 
     return metrics
 
-def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:
-    phi_shape = [-1] + list(moving.shape)[2:] + [len(moving.shape) - 2]
-    if phi_shape[1] == 1:
-        phi_shape.pop(1)
-        phi_shape[-1] = phi_shape[-1] - 1
+def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter, phi_shape: list) -> list[torch.Tensor]:
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape)

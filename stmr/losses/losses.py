@@ -9,24 +9,24 @@ from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
 from stmr.losses.sim_loss import get_sim_loss_fn
 from stmr.state import Inputs, LossOutputs, ModelOutputs
 
+# sim + recon_reg are the nmAPG init's energy, summed as there (so lambda_recon means the same
+# as lambda_init_recon). The motion terms are per-voxel means, so their lambdas don't change
+# with T, D or the resolution.
+SUMMED_LOSSES = ('sim', 'recon_reg')
+
 
 def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_tensor,
-                     losses, recon_regularizer=None):
+                     losses, phi_shape: list, recon_regularizer=None):
     # abs_phi, rel_vel: [T-1, N, C] on the motion grid (see state.py)
-    moving = inputs.moving
-    shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
-    if inputs.fixed.shape[2] == 1:
-        shape.pop(1)
-        shape[-1] = shape[-1] - 1
     loss_sum = 0.
     moved_imgs_imspace = None
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
-        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer)
+        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, phi_shape, recon_regularizer)
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
-        mean = l.sum()
+        mean = l.sum() if loss_name in SUMMED_LOSSES else l.mean()
         loss_dict['mean'] = mean.detach().cpu()
         loss_dict['loss'] = l.detach()
         loss_dict['time'] += t2 - t1
@@ -54,7 +54,6 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
 
 def similarity_loss(config, inputs, model_outputs):
     moving, forw = inputs.moving, inputs.forward
-    loss_fn = get_sim_loss_fn(config, moving)
 
     sim_domain = getattr(config, 'sim_domain', 'fourier')
     if sim_domain == 'image':

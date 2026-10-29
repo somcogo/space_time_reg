@@ -37,14 +37,14 @@ def calc_init_metrics(config: Namespace, eval_inputs) -> list[dict]:
     imgs_to_save = {'imgs/init_recon':prep_init_recon(init_rec, is_complex)}
     return metrics, imgs_to_save
 
-def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, model_outputs, loss_outputs, extended_log=False):
+def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, model_outputs, loss_outputs, phi_shape, extended_log=False):
     rel_vel, abs_phi, ST = model_outputs.rel_vel, model_outputs.abs_phi, model_outputs.transformer
     losses, moved_im = loss_outputs.losses, loss_outputs.moved_imspace
     fixed = inputs.fixed
     moving = inputs.moving.detach().cpu()
     init_recon, gt_im, seg_moving, seg_fixed = (eval_inputs.init_recon, eval_inputs.gt_im,
                                                 eval_inputs.seg_moving, eval_inputs.seg_fixed)
-    abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving)
+    abs_phi, rel_phi, rel_vel = reshape_phi_and_vel(abs_phi, rel_vel, moving, phi_shape)
 
     metrics = {}
     metrics = add_losses(losses, metrics)
@@ -56,7 +56,7 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
         metrics = add_vel_stats(rel_vel, metrics)
         metrics, pred_segs = add_dices(config, seg_fixed, seg_moving, ST, metrics)
 
-        reduce = fixed.shape[2] > 1
+        reduce = len(phi_shape) == 5
         slice_ndx = fixed.shape[2] // 2 # 0 if there is only one slice
         fixed, moved_im, moving, gt_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, moving, gt_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce, slice_ndx)
 
