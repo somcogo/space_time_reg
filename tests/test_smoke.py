@@ -22,7 +22,7 @@ def test_end_to_end_motion_and_loss_backward_on_cpu():
         func_name="groupsiren", siren_depth=2, siren_dim=16, solver="euler",
         step_size=0.5, loss="mse", use_nreps=False,
         lambda_st=1.0, lambda_grad_phi=1e-2, lambda_grd=0.0, lambda_lap=0.0,
-        lambda_hel=0.0, lambda_recon=0.0, lambda_rl2=1.0,
+        lambda_recon=0.0, lambda_rl2=1.0,
     ).finalize()
 
     h = w = 8

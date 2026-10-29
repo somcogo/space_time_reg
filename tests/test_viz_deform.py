@@ -74,7 +74,7 @@ def test_flows_by_time_uses_saved_phi_for_coarse():
     cfg = Config(time_points=3, device="cpu").finalize()
     d = {"phi": torch.randn(2, 16 * 16, 2) * 0.01}
 
-    times, phis = flows_by_time(d, cfg, 16, 16, substeps=1, device="cpu")
+    times, phis = flows_by_time(d, cfg, (16, 16), substeps=1, device="cpu")
 
     assert phis.shape == (2, 2, 16 * 16, 2)
     assert torch.allclose(phis[1], d["phi"])

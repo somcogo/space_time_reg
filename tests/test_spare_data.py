@@ -72,7 +72,7 @@ def test_dense_grid_partitions_measurements_by_bin():
 def test_get_data_and_get_operators_end_to_end():
     pytest.importorskip("torch_radon", reason="torch-radon not installed (see pyproject.toml)")
     config = types.SimpleNamespace(dataset="cbct_P1T01", time_points=10, start_frame=0,
-                                   slice_number=0, device="cuda")
+                                   slices=[0], device="cuda")
 
     raw, gt, mask = get_data(config)
     assert raw.shape == gt.shape == mask.shape
