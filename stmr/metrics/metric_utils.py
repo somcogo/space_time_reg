@@ -171,7 +171,7 @@ def reduce_dim(fixed: torch.Tensor, moved_im: torch.Tensor, moving: torch.Tensor
         imdiff_loss = losses['imdiff']['loss'][:, :, slice_ndx]
     else:
         imdiff_loss = None
-    return fixed, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss, imdiff_loss
+    return fixed, moved_im, moving, gt_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss, imdiff_loss
 
 # add_cmr_eval_metrics, psnr, ssim and nmse function implementations are based on the official CMRxRecon evaluation code https://github.com/CmrxRecon/CMRxRecon/blob/main/Evaluation/Evaluation.py
 def psnr(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:

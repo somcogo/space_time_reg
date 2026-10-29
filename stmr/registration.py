@@ -50,7 +50,7 @@ def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalIn
                              weights_only=False)['phi'][:T - 1]
     abs_phi = abs_phi.to(inputs.moving.dtype)
     # The metrics/visuals expect a velocity; for a fixed motion the displacement stands in.
-    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[1:], config)
+    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[2:], config)
     return ModelOutputs(rel_vel=abs_phi - coord, abs_phi=abs_phi, transformer=ST)
 
 

@@ -1,9 +1,9 @@
 """Motion-accuracy metrics for saved deformations, in pixels and per image region.
 
 ``phi`` is the pipeline's deformation [T-1, N, C] in normalised [-1, 1] coordinates, applied as
-a pull-back: warp(I_t, phi_t) ~ I_{t+1}. Its grid is ``motion_grid`` of the image's spatial shape:
-(H, W) with channels (row/y, col/x) for a single slice (the slice only moves in-plane), or
-(D, H, W) with channels (slice/z, y, x) for a multi-slice volume. Displacements u = phi - x are
+a pull-back: warp(I_t, phi_t) ~ I_{t+1}. Its grid is (H, W) with channels (row/y, col/x) for a
+single slice (spatial shape (1, H, W): the slice only moves in-plane), or (D, H, W) with channels
+(slice/z, y, x) for a multi-slice volume. Displacements u = phi - x are
 reported in pixels (and slices along z). Images may be [T, 2, H, W] or [T, 2, D, H, W].
 
 Residual reduction (how much warping lowers the frame-to-frame difference) is not a measure of
@@ -16,7 +16,7 @@ import torch
 
 from stmr.robustness.jacobian import detJ_from_phi
 from stmr.utils.spatial_transformer import GridSampleTransformer
-from stmr.utils.spatial_utils import generate_coord_tensor, motion_grid
+from stmr.utils.spatial_utils import generate_coord_tensor
 
 
 def magnitude(x: torch.Tensor) -> torch.Tensor:
@@ -40,7 +40,7 @@ def regions(gt_im: torch.Tensor) -> dict:
     """Masks on the motion grid: heart crop (the same box on every slice), tissue (mean magnitude
     > 10% of the max) and air (below 3% of the max in every frame, i.e. nothing to track)."""
     mag = magnitude(gt_im)
-    grid = motion_grid(mag.shape[1:])
+    grid = mag.shape[2:] if mag.shape[1] == 1 else mag.shape[1:]
     mag = mag.reshape(mag.shape[0], *grid)
     return {
         "crop": heart_crop(*grid[-2:], device=mag.device).expand(grid),
@@ -51,8 +51,9 @@ def regions(gt_im: torch.Tensor) -> dict:
 
 def displacement_px(phi: torch.Tensor, *shape: int) -> torch.Tensor:
     """[B, N, C] normalised deformation on the spatial image shape ``shape`` (H, W or D, H, W)
-    -> [B, *grid, C] displacement in pixels ((dy, dx), or (dz, dy, dx)), grid = motion_grid(shape)."""
-    grid = motion_grid(shape)
+    -> [B, *grid, C] displacement in pixels ((dy, dx), or (dz, dy, dx)); a single slice
+    (1, H, W) moves in-plane, so its grid is (H, W)."""
+    grid = shape[1:] if shape[0] == 1 else shape
     coord = generate_coord_tensor(grid, phi.device).to(phi.dtype)
     return ((phi - coord) * _span(grid, phi)).reshape(-1, *grid, len(grid))
 
@@ -79,7 +80,7 @@ def inverse_consistency(phi_fwd: torch.Tensor, phi_bwd: torch.Tensor, gt_im: tor
     fields give about the size of the motion. A large value shows at least one direction is wrong;
     a small one cannot rule out a bias both directions share."""
     T = gt_im.shape[0]
-    grid = motion_grid(gt_im.shape[2:])
+    grid = gt_im.shape[3:] if gt_im.shape[2] == 1 else gt_im.shape[2:]
     C = len(grid)
     coord = generate_coord_tensor(grid, phi_fwd.device).to(phi_fwd.dtype)
     span = _span(grid, phi_fwd)
@@ -87,7 +88,7 @@ def inverse_consistency(phi_fwd: torch.Tensor, phi_bwd: torch.Tensor, gt_im: tor
     for k in range(T - 1):
         j = T - 2 - k
         u_fwd = (phi_fwd[k] - coord).reshape(*grid, C).movedim(-1, 0)[None]            # [1, C, *grid]
-        u_fwd_at = GridSampleTransformer(phi_bwd[j:j + 1], (C, *grid)).apply(u_fwd)[0]  # u_fwd(phi_bwd(x))
+        u_fwd_at = GridSampleTransformer(phi_bwd[j:j + 1], grid).apply(u_fwd)[0]  # u_fwd(phi_bwd(x))
         u_bwd = (phi_bwd[j] - coord).reshape(*grid, C).movedim(-1, 0)
         errs.append(((u_bwd + u_fwd_at).movedim(0, -1) * span).norm(dim=-1))
     err = torch.stack(errs)                                                             # [T-1, *grid]

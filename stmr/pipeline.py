@@ -45,7 +45,6 @@ def run(config: Config):
 
     dims = 2 if inputs.fixed.shape[2] == 1 else 3
     config.func_kwargs = build_velocity_kwargs(config, dims)
-    config.voxel_spacing = torch.tensor(config.voxel_spacing, device=config.device)[3 - dims:]
 
     func = get_func(config.func_name, config.func_kwargs).to(config.device)
 

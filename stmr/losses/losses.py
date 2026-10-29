@@ -1,5 +1,4 @@
 import time
-from argparse import Namespace
 
 import fastmri
 import torch
@@ -41,7 +40,7 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
     dispatch = {
         'sim': lambda: similarity_loss(config, inputs, model_outputs),
         'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
-        'grad_phi': lambda: grad_phi_loss(config, model_outputs, coord_tensor, shape),
+        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, shape, config.voxel_spacing),
         'detJ': lambda: detJ_loss(model_outputs, coord_tensor, shape),
         'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, shape),
         'grd': lambda: vel_grad_loss(model_outputs, shape),
@@ -110,21 +109,21 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
     return loss, moved_im.detach().cpu()
 
-def grad_phi_loss(config: Namespace, model_outputs, coord_tensor: torch.Tensor, shape: list):
+def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, shape: list, spacing=None):
     # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
     # identity, i.e. penalizes the gradient of the displacement field phi - x. Measured in
     # physical units (see _pixel_phi_Jacobian) so the penalty is isotropic in mm, on
     # non-square images and across thick slices.
-    J = _pixel_phi_Jacobian(config, model_outputs, coord_tensor, shape)
+    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, shape, spacing)
     eye = torch.eye(J.shape[-1], device=J.device, dtype=J.dtype)
     loss = grad_phi_norm(J, eye)
     return loss, None
 
-def _pixel_phi_Jacobian(config: Namespace, model_outputs, coord_tensor: torch.Tensor, shape: list):
+def _pixel_phi_Jacobian(model_outputs, coord_tensor: torch.Tensor, shape: list, spacing=None):
     # phi and the grid live in [-1, 1] on every axis, so one normalized unit spans a different
     # number of voxels per axis ((N - 1) / 2), and voxels differ in size per axis
-    # (config.voxel_spacing, mm, (d, h, w), cut to the motion axes in pipeline.run: (h, w) for
-    # a single slice). Differencing them as-is weights each displacement component by 1 / its
+    # (spacing = config.voxel_spacing, mm, (d, h, w); its last len(grid) entries are used, so
+    # (h, w) for a single slice; None = isotropic pixels). Differencing them as-is weights each displacement component by 1 / its
     # span (2.5x more for rows than columns on 204x512, and a slice step of 8 mm would count
     # as much as a 1.5 mm in-plane step), and right-multiplying by inv(I) alone
     # (_relative_phi_Jacobian) only fixes stretches -- shears stay anisotropic. Rescaling both
@@ -133,8 +132,10 @@ def _pixel_phi_Jacobian(config: Namespace, model_outputs, coord_tensor: torch.Te
     # and exactly Id for phi = identity, including at the boundary. Only the ratio of the
     # spacings matters; the absolute scale cancels against inv(I).
     # shape: [-1, *grid, C], grid (H, W) with C = 2 for a single slice, (D, H, W) with C = 3.
-    span = torch.tensor([(n - 1) / 2 for n in shape[1:-1]], device=coord_tensor.device,
-                        dtype=coord_tensor.dtype) * config.voxel_spacing
+    grid = shape[1:-1]
+    spacing = [1.0] * len(grid) if spacing is None else spacing[-len(grid):]
+    span = torch.tensor([(n - 1) / 2 * s for n, s in zip(grid, spacing, strict=True)],
+                        device=coord_tensor.device, dtype=coord_tensor.dtype)
     phi_J = get_Jacobian(model_outputs.abs_phi * span, shape)
     I = get_Jacobian(coord_tensor * span, shape)
     return phi_J @ torch.linalg.inv(I)

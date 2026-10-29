@@ -8,10 +8,10 @@ from stmr.config import Config
 from stmr.state import EvalInputs, Inputs
 
 from .data_utils import get_data, get_init, get_operators
+from .fft_utils import MaskedFT
 from .known_motion import synthesize
 from .noise import add_image_noise, add_kspace_noise
 from .recon_init import init_using_nmAPG, init_with_grad_desc
-from .fft_utils import MaskedFT
 
 
 @dataclass

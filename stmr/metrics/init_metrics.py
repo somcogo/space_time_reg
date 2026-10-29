@@ -78,10 +78,9 @@ def init_quality_metrics(x: torch.Tensor, gt_im: torch.Tensor) -> dict:
     Expensive -- SSIM is a per-(frame, channel) skimage call -- so drive this on a cadence.
     """
     metrics: dict = {}
-    # The init runs on slices folded into the batch, [T*D, 2, H, W]; add_cmr_eval_metrics takes
-    # the pipeline's [T, 2, D, H, W], so score each folded item as a one-slice volume.
-    as_volume = (lambda t: t[:, :, None]) if x.dim() == 4 else (lambda t: t)
-    add_cmr_eval_metrics(as_volume(x.detach().cpu()), as_volume(gt_im.detach().cpu()), metrics)
+    # The init runs on slices folded into the batch, [T*D, 2, H, W]; add_cmr_eval_metrics scores
+    # 4D input as one slice per item.
+    add_cmr_eval_metrics(x.detach().cpu(), gt_im.detach().cpu(), metrics)
     gm, xm = _mag(gt_im), _mag(x)
     peak = gm.amax(dim=(-2, -1))
     mse = ((xm - gm) ** 2).mean(dim=(-2, -1))

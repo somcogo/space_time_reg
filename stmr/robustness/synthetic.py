@@ -43,7 +43,7 @@ def analytic_flow(H, W, amp, device):
     gy, gx = coord[:, 0], coord[:, 1]
     rel_gt = torch.stack([amp * torch.cos(3 * gx), amp * torch.sin(3 * gy)], dim=-1)
     aphi_gt = (coord + rel_gt).unsqueeze(0)                 # [1, N, 2]
-    target = GridSampleTransformer(aphi_gt, (1, H, W)).apply(img)
+    target = GridSampleTransformer(aphi_gt, (H, W)).apply(img)
     return img, target, rel_gt, aphi_gt
 
 
@@ -70,7 +70,7 @@ def fit_siren_to_flow(img, target, H, W, steps=300, lr=3e-4, seed=0,
     residuals = []
     for _ in range(steps):
         opt.zero_grad()
-        loss = (GridSampleTransformer(integrate(), (1, H, W)).apply(src) - target).pow(2).mean()
+        loss = (GridSampleTransformer(integrate(), (H, W)).apply(src) - target).pow(2).mean()
         loss.backward()
         opt.step()
         residuals.append(loss.item())

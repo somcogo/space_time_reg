@@ -56,7 +56,7 @@ EPOCHS_LONG = 4000
 DIAGONAL = [(3e4, 0.1), (1e5, 0.2), (3e5, 0.4)]  # the best (lambda_rl2, lambda_init_recon) of A
 # stage C; B: siren_dim 128 / step_size 0.1 bought nothing, so BEST keeps A's net and step
 BEST = {"lr": 2e-4, "lambda_rl2": 3e4, "lambda_grad_phi": 3.0, "lambda_init_recon": 0.1,
-        "step_size": 0.5, "siren_dim": 64, "siren_omega": 30}
+        "lambda_recon": 0.1, "step_size": 0.5, "siren_dim": 64, "siren_omega": 30}
 EPOCHS_C = [6000, 8000]
 OMEGAS_C = [45, 60]
 SEEDS_C = [1, 2]
@@ -92,7 +92,7 @@ def grid_a():
 def _point_a(lr, rl2, ratio, lir):
     return (_label_a(lr, rl2, ratio, lir),
             {"lr": lr, "lambda_rl2": rl2, "lambda_grad_phi": ratio * rl2,
-             "lambda_init_recon": lir})
+             "lambda_init_recon": lir, "lambda_recon": lir})  # the joint loss is the init's energy
 
 
 def grid_a2(root):
@@ -206,7 +206,8 @@ def grid_seeds(root, top=3, seeds=(1, 2)):
 def _overrides_of(row):
     keys = ["lr", "lambda_rl2", "lambda_grad_phi", "lambda_init_recon", "step_size",
             "siren_dim", "siren_omega", "epochs"]
-    return {k: row[k] for k in keys}
+    # lambda_recon follows lambda_init_recon (the joint loss is the init's energy)
+    return {**{k: row[k] for k in keys}, "lambda_recon": row["lambda_init_recon"]}
 
 
 def _best_per_balance(root, stages):

@@ -10,14 +10,14 @@ import torch
 
 from stmr.losses.losses import _relative_phi_Jacobian
 from stmr.state import ModelOutputs
-from stmr.utils.spatial_utils import generate_coord_tensor, motion_grid
+from stmr.utils.spatial_utils import generate_coord_tensor
 
 
 def detJ_from_phi(phi: torch.Tensor, *shape: int, device: str = "cpu") -> torch.Tensor:
     """Jacobian determinant of a saved deformation ``phi`` [B, N, C] on the spatial image shape
-    ``shape`` (H, W, or D, H, W) -> det map [B, *grid], grid = motion_grid(shape): a single slice
-    (1, H, W) moves in-plane, so its det map is [B, H, W]."""
-    grid = motion_grid(shape)
+    ``shape`` (H, W, or D, H, W) -> det map [B, *grid]: a single slice (1, H, W) moves
+    in-plane, so its grid is (H, W) and its det map [B, H, W]."""
+    grid = shape[1:] if shape[0] == 1 else shape
     with torch.no_grad():
         phi = phi.detach().to(device)
         coord = generate_coord_tensor(grid, device)

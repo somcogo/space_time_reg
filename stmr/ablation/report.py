@@ -36,7 +36,7 @@ def _frame_residual(moving: torch.Tensor, phi: torch.Tensor):
     abs_phi = phi.reshape(T - 1, -1, phi.shape[-1]) if phi.dim() > 3 else phi
     if abs_phi.shape[0] != T - 1 or abs_phi.shape[-1] != moving.dim() - 2:
         return float("nan"), float("nan")
-    ST = GridSampleTransformer(abs_phi, moving.shape[1:])
+    ST = GridSampleTransformer(abs_phi, moving.shape[2:])
     warped_mag = complex_abs(ST.apply(moving[:-1]).movedim(1, -1))
     mse = lambda a, b: (a - b).pow(2).mean().item()
     return mse(mag[:-1], mag[1:]), mse(warped_mag, mag[1:])

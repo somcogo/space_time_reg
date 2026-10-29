@@ -94,7 +94,7 @@ def flows_by_time(d, cfg, grid_shape, substeps, device):
     return times, phis
 
 
-def build_trajectory(source, phis, times, T, img_shape, start=0):
+def build_trajectory(source, phis, times, T, grid_shape, start=0):
     """Chain-warp the source frame forward through the interval flows.
 
     Within interval k, each sub-time flow phi_k^s starts from frame k's identity, so warping
@@ -107,14 +107,14 @@ def build_trajectory(source, phis, times, T, img_shape, start=0):
     for k in range(start, T - 1):
         for i in range(1, substeps + 1):
             phi = phis[i, k:k + 1]  # [1, H*W, 2]
-            warped = GridSampleTransformer(phi, img_shape).apply(img_k)
+            warped = GridSampleTransformer(phi, grid_shape).apply(img_k)
             frames.append(warped)
             labels.append(float(k + times[i].item()))
         img_k = frames[-1]  # reached frame k+1 (s=1)
     return frames, labels
 
 
-def build_stepwise_trajectory(gt_im, phis, times, T, img_shape, start=0):
+def build_stepwise_trajectory(gt_im, phis, times, T, grid_shape, start=0):
     """Warp each interval's OWN ground-truth source frame one step, instead of chaining.
 
     Sequence: GT_start, warp(GT_start, phi_start), warp(GT_{start+1}, phi_{start+1}), ...
@@ -128,7 +128,7 @@ def build_stepwise_trajectory(gt_im, phis, times, T, img_shape, start=0):
         src_k = gt_im[k:k + 1]  # the actual GT frame k, not the running warped image
         for i in range(1, substeps + 1):
             phi = phis[i, k:k + 1]
-            frames.append(GridSampleTransformer(phi, img_shape).apply(src_k))
+            frames.append(GridSampleTransformer(phi, grid_shape).apply(src_k))
             labels.append(float(k + times[i].item()))
     return frames, labels
 
@@ -277,16 +277,15 @@ def visualise(res_path, out_dir, substeps=1, source="gt", start=0, device="cpu",
         # middle slice (see to_mag).
         imgs, gt_im = imgs[:, :, 0], gt_im[:, :, 0]
     grid_shape = tuple(imgs.shape[2:])  # (H, W) or (D, H, W)
-    img_shape = imgs.shape[1:]  # [2, H, W] or [2, D, H, W]
 
     times, phis = flows_by_time(d, cfg, grid_shape, substeps, device)
     if mode == "stepwise":
         # Each frame is the actual source frame k warped once by phi_k (re-anchored to GT
         # every step; no accumulated drift).
-        frames, labels = build_stepwise_trajectory(imgs, phis, times, T, img_shape, start)
+        frames, labels = build_stepwise_trajectory(imgs, phis, times, T, grid_shape, start)
     else:
         frames, labels = build_trajectory(imgs[start:start + 1], phis, times, T,
-                                          img_shape, start)
+                                          grid_shape, start)
 
     grid_path = os.path.join(out_dir, "propagate_grid.png")
     if substeps == 1:
