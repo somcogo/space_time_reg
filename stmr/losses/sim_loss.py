@@ -8,7 +8,7 @@ def get_sim_loss_fn(config, imgs):
     if config.loss == 'mse':
         loss_fn = nn.MSELoss(reduction='none')
     elif config.loss == 'ngf':
-        if imgs.dim() == 4:
+        if imgs.shape[2] == 1:
             loss_fn = NormalizedGradientField2d(mm_spacing=1, eps=1e-6, reduction='none')
         else:
             loss_fn = NODEO_NCC()

@@ -58,7 +58,7 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
 
         reduce = fixed.shape[2] > 1
         slice_ndx = fixed.shape[2] // 2 # 0 if there is only one slice
-        fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce, slice_ndx)
+        fixed, moved_im, moving, gt_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, moving, gt_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce, slice_ndx)
 
         flow_col = prep_flow_vis(rel_phi)
         sim_grid, log_sim_grid = prep_sim_meas_vis(sim_loss)
@@ -112,15 +112,13 @@ def get_relevant_loss_names(config):
     # lambda. 'sim' is always kept: it is the data-fidelity term and its per-pixel map is
     # required by the metrics/visualisation path (reduce_dim, prep_sim_meas_vis).
     is_cmr = 'cmr' in config.dataset
-    # joint_objective='init' weights the regularizer as the init does.
-    lambda_recon = config.lambda_init_recon if config.joint_objective == 'init' else config.lambda_recon
     candidates = [
         ('grad_phi', 'Grad phi (Dphi - Id)', config.lambda_grad_phi, True),
         ('detJ',     'Det(Dphi) - 1',        config.lambda_detJ, True),
         ('logdetJ',  'log det(Dphi)',        config.lambda_logdetJ, True),
         ('grd',      'Vel gradient',         config.lambda_grd,  True),
         ('lap',      'Vel Laplacian',        config.lambda_lap,  True),
-        ('recon_reg', 'Reconstruction reg',  lambda_recon, is_cmr),
+        ('recon_reg', 'Reconstruction reg',  config.lambda_recon, is_cmr),
         ('mcdc',     'Motion comp DC',       config.lambda_mcdc, is_cmr),
         ('imdiff',   'Image space diff',     config.lambda_rl2,  True),
     ]

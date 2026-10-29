@@ -4,11 +4,19 @@ import torch.nn.functional as F
 
 class GridSampleTransformer:
     def __init__(self, abs_phi, img_shape):
-        grid = abs_phi.reshape(abs_phi.shape[0], *img_shape[1:], len(img_shape[1:]))
+        if img_shape[0] == 1:
+            img_shape = img_shape[1:]
+            self.squeeze_img = True
+        grid = abs_phi.reshape(abs_phi.shape[0], *img_shape, len(img_shape[1:]))
         self.grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
 
     def apply(self, input_img, mode='bilinear'):
-        return F.grid_sample(input_img, self.grid, align_corners=True, mode=mode)
+        if self.squeeze_img:
+            input_img = input_img.squeeze(2)
+        output_img = F.grid_sample(input_img, self.grid, align_corners=True, mode=mode)
+        if self.squeeze_img:
+            output_img = output_img.unsqueeze(2)
+        return output_img
     
 class NeuralRepTransformer:
     def __init__(self, abs_phi, img_shape, use_old_nrep):

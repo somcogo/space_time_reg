@@ -17,8 +17,8 @@ def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_
     # rel_vel: [T or 1, H*W, D]
     moving = inputs.moving
     shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
-    if shape[1] == 1:
-        shape = shape.squeeze(1)
+    if inputs.fixed.shape[2] == 1:
+        shape.pop(1)
         shape[-1] = shape[-1] - 1
     loss_sum = 0.
     moved_imgs_imspace = None

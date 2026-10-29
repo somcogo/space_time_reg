@@ -140,6 +140,9 @@ def add_gt_error(moving: torch.Tensor, gt_im: torch.Tensor, init_recon: torch.Te
 
 def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn.Parameter) -> list[torch.Tensor]:
     phi_shape = [-1] + list(moving.shape)[2:] + [len(moving.shape) - 2]
+    if phi_shape[1] == 1:
+        phi_shape.pop(1)
+        phi_shape[-1] = phi_shape[-1] - 1
     abs_phi = abs_phi.detach().cpu()
     coord_tensor = generate_coord_tensor(abs_phi.reshape(phi_shape).shape[1:-1], device='cpu')
     rel_phi = (abs_phi - coord_tensor).reshape(phi_shape)
@@ -186,6 +189,10 @@ def nmse(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
     return np.array(np.linalg.norm(gt - pred) ** 2 / np.linalg.norm(gt) ** 2)
 
 def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> list[np.ndarray]:
+    # backward compatibility with 2D runs
+    if len(pred_recon.shape) == 4:
+        pred_recon = pred_recon.unsqueeze(2)
+        gt_recon = gt_recon.unsqueeze(2)
     gt_recon = gt_recon.cpu().numpy()
     pred_recon = pred_recon.cpu().numpy()
     psnr_array = np.zeros(gt_recon.shape[:3])

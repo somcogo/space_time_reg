@@ -128,10 +128,6 @@ class Config:
     lambda_detJ: float = 0.0
     lambda_logdetJ: float = 0.0
     imdiff_warp_mag: bool = False  # warp magnitude (not complex) in the E3 image loss
-    joint_objective: str = "default"  # 'default': lambda_st * mean MSE + lambda_recon * mean_T reg(|x|)
-    #                                   'init': the nmAPG init's energy, summed over frames --
-    #                                   lambda_st * 0.5*sum|MFx - y|^2 + lambda_init_recon * reg
-    #                                   (on |x| or Re/Im as init_reg_abs), see recon_init
 
     # --- derived / internal (filled by finalize) ---
     schedule: list = field(default_factory=lambda: [1])

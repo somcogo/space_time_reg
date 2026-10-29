@@ -30,7 +30,7 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
     abs_phi = solve(func, init_value, time_points, method=config.solver, atol=config.atol,
                     rtol=config.rtol, options={'step_size': config.step_size})
     abs_phi = abs_phi[1]  # ignore abs_phi[0], which is just init_value anyway
-    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[1:], config)
+    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[2:], config)
     return ModelOutputs(rel_vel=rel_vel, abs_phi=abs_phi, transformer=ST)
 
 
@@ -107,9 +107,8 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
     # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
-    # epoch inside calculate_losses. joint_objective='init' uses the init's regularizer choice.
-    get_regularizer = get_reg if config.joint_objective == 'init' else get_recon_regularizer
-    recon_regularizer = get_regularizer(config) if 'recon_reg' in losses_to_calc else None
+    # epoch inside calculate_losses.
+    recon_regularizer = get_reg(config) if 'recon_reg' in losses_to_calc else None
     all_metrics = []
 
     for epoch in range(1, config.epochs + 1):
