@@ -149,24 +149,23 @@ def reshape_phi_and_vel(abs_phi: torch.Tensor, rel_vel: torch.Tensor, moving: nn
         rel_vel = (rel_vel.detach().cpu()).reshape(vel_shape)
     return abs_phi, rel_phi, rel_vel
 
-def reduce_dim(fixed: torch.Tensor, moved_im: torch.Tensor, rel_phi: torch.Tensor, rel_vel: torch.Tensor, seg_fix: torch.Tensor, pred_segs: torch.Tensor, abs_phi: torch.Tensor, losses: dict, reduce: bool) -> list[torch.Tensor]:
-    slice_ndx = fixed.shape[2] // 2
+def reduce_dim(fixed: torch.Tensor, moved_im: torch.Tensor, moving: torch.Tensor, gt_im: torch.Tensor, rel_phi: torch.Tensor, rel_vel: torch.Tensor, seg_fix: torch.Tensor, pred_segs: torch.Tensor, abs_phi: torch.Tensor, losses: dict, reduce: bool, slice_ndx: int) -> list[torch.Tensor]:
+    fixed = fixed[:, :, slice_ndx]
+    moving = moving[:, :, slice_ndx]
+    gt_im = gt_im[:, :, slice_ndx]
+    if seg_fix is not None:
+        seg_fix = seg_fix[:, :, slice_ndx]
+        pred_segs = pred_segs[:, :, slice_ndx]
+    if moved_im is not None:
+        moved_im = moved_im[:, :, slice_ndx]
     if reduce:
-        fixed = fixed[:, :, slice_ndx]
-        # moved_im is None when the image-space temporal loss (imdiff) is disabled
-        # (lambda_rl2 == 0); nothing produced a warped image that epoch.
-        if moved_im is not None:
-            moved_im = moved_im[:, :, slice_ndx]
         rel_phi = rel_phi[:, slice_ndx, :, :, 1:]
         abs_phi = abs_phi[:, slice_ndx, :, :, 1:]
         if rel_vel is not None:
             rel_vel = rel_vel[:, slice_ndx, :, :, 1:]
-        if seg_fix is not None:
-            seg_fix = seg_fix[:, :, slice_ndx]
-            pred_segs = pred_segs[:, :, slice_ndx]
-    sim_loss = losses['sim']['loss'][:, :, slice_ndx] if reduce else losses['sim']['loss']
+    sim_loss = losses['sim']['loss'][:, :, slice_ndx]
     if 'imdiff' in losses.keys():
-        imdiff_loss = losses['imdiff']['loss'][:, :, slice_ndx] if reduce else losses['imdiff']['loss']
+        imdiff_loss = losses['imdiff']['loss'][:, :, slice_ndx]
     else:
         imdiff_loss = None
     return fixed, moved_im, rel_phi, rel_vel, seg_fix, pred_segs, abs_phi, sim_loss, imdiff_loss
@@ -189,9 +188,9 @@ def nmse(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
 def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> list[np.ndarray]:
     gt_recon = gt_recon.cpu().numpy()
     pred_recon = pred_recon.cpu().numpy()
-    psnr_array = np.zeros((gt_recon.shape[0], gt_recon.shape[1]))
-    ssim_array = np.zeros((gt_recon.shape[0], gt_recon.shape[1]))
-    nmse_array = np.zeros((gt_recon.shape[0], gt_recon.shape[1]))
+    psnr_array = np.zeros(gt_recon.shape[:3])
+    ssim_array = np.zeros(gt_recon.shape[:3])
+    nmse_array = np.zeros(gt_recon.shape[:3])
     for t in range(gt_recon.shape[0]):
         for c in range(gt_recon.shape[1]):
             for d in range(gt_recon.shape[2]):
@@ -199,9 +198,9 @@ def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> l
                 # No per-image self-normalization: pred/pred.max() would hide global scale
                 # errors and let a single bright artifact pixel shift the score. psnr/ssim/nmse
                 # already use gt.max() as the data range, as in the official CMRxRecon eval.
-                psnr_array[t, c] = psnr(gt, pred)
-                ssim_array[t, c] = ssim(gt, pred)
-                nmse_array[t, c] = nmse(gt, pred)
+                psnr_array[t, c, d] = psnr(gt, pred)
+                ssim_array[t, c, d] = ssim(gt, pred)
+                nmse_array[t, c, d] = nmse(gt, pred)
     return psnr_array, ssim_array, nmse_array
 
 def add_cmr_eval_metrics(moving: torch.Tensor, gt_im: torch.Tensor, metrics: dict) -> dict:

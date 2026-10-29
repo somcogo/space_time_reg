@@ -33,8 +33,7 @@ def calc_init_metrics(config: Namespace, eval_inputs) -> list[dict]:
     metrics = {}
     if is_complex:
         metrics = add_cmr_eval_metrics(init_recon, gt_im, metrics)
-    if len(gt_im.shape) == 5:
-        init_rec = init_recon.clone()[:, :, init_recon.shape[2] // 2]
+    init_rec = init_recon[:, :, init_recon.shape[2] // 2]
     imgs_to_save = {'imgs/init_recon':prep_init_recon(init_rec, is_complex)}
     return metrics, imgs_to_save
 
@@ -57,8 +56,9 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
         metrics = add_vel_stats(rel_vel, metrics)
         metrics, pred_segs = add_dices(config, seg_fixed, seg_moving, ST, metrics)
 
-        reduce = len(fixed.shape) == 5
-        fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce)
+        reduce = fixed.shape[2] > 1
+        slice_ndx = fixed.shape[2] // 2 # 0 if there is only one slice
+        fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, sim_loss, imdiff_loss = reduce_dim(fixed, moved_im, rel_phi, rel_vel, seg_fixed, pred_segs, abs_phi, losses, reduce, slice_ndx)
 
         flow_col = prep_flow_vis(rel_phi)
         sim_grid, log_sim_grid = prep_sim_meas_vis(sim_loss)
@@ -99,7 +99,7 @@ def calculate_metrics(config: Namespace, func: nn.Module, inputs, eval_inputs, m
             imgs_to_save['segmentations/seg_last'] = seg_last
             imgs_to_save['segmentations/seg_all'] = seg_all
 
-        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, reduce_dim=reduce, slice_ndx=fixed.shape[2]//2)
+        imgs_to_save = add_loss_specific_imgs(imgs_to_save, losses, reduce_dim=reduce, slice_ndx=slice_ndx)
     else:
         imgs_to_save = None
 
