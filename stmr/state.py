@@ -23,6 +23,7 @@ class Inputs:
     moving_inr: object | None     # neural-representation image (None for cmr)
     fixed: torch.Tensor           # measured k-space [T, 2, D, H, W], zero-filled
     forward: nn.Module            # forward operator (exposes .mask when masked)
+    phi_shape: list               # shape of deformation [T, H, W, 2] if D=1 else [T, D, H, W, 3]
 
 
 @dataclass

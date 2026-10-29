@@ -38,7 +38,7 @@ def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalIn
     """Motion held fixed instead of learned (oracle and control runs): the known motion of
     synthetic frames ('gt'), no motion ('identity'), or the phi saved in a res.pt."""
     T = inputs.moving.shape[0]
-    coord = generate_coord_tensor(inputs.moving.shape[2:], config.device)
+    coord = generate_coord_tensor(inputs.moving.shape[2:], config.device, inputs.phi_shape)
     if config.fixed_motion == 'identity':
         abs_phi = coord.expand(T - 1, -1, -1).contiguous()
     elif config.fixed_motion == 'gt':
@@ -50,7 +50,7 @@ def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalIn
                              weights_only=False)['phi'][:T - 1]
     abs_phi = abs_phi.to(inputs.moving.dtype)
     # The metrics/visuals expect a velocity; for a fixed motion the displacement stands in.
-    ST = get_spatial_transformer(abs_phi, inputs.moving.shape[2:], config)
+    ST = get_spatial_transformer(abs_phi, inputs.phi_shape, config)
     return ModelOutputs(rel_vel=abs_phi - coord, abs_phi=abs_phi, transformer=ST)
 
 
@@ -87,6 +87,8 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
 
     moving.requires_grad_(config.learn_recon)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
+    
+    coord_tensor = generate_coord_tensor(moving.shape[2:], config.device, inputs.phi_shape)
 
     # Fixed motion: built once and reused every epoch; the motion net gets no gradient.
     fixed_outputs = None
@@ -110,10 +112,6 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     # epoch inside calculate_losses.
     recon_regularizer = get_reg(config) if 'recon_reg' in losses_to_calc else None
     all_metrics = []
-
-    phi_shape = [-1, *moving.shape[2:], len(moving.shape[2:])] if moving.shape[2] > 1 else [-1, *moving.shape[3:], len(moving.shape[3:])]
-    coord_tensor = generate_coord_tensor(moving.shape[2:], config.device, phi_shape)
-    coord_tensor.requires_grad = True
 
 
     for epoch in range(1, config.epochs + 1):
@@ -145,7 +143,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
 
         time_stamps[0, epoch - 1] = time.time()
         model_outputs = (fixed_outputs if fixed_outputs is not None
-                         else get_model_outputs(config, func, coord_tensor, phi_shape))
+                         else get_model_outputs(config, func, coord_tensor, inputs.phi_shape))
 
         if config.template_warp_recon:
             # recon_t = warp(template, phi_{0->t}); recon_0 = template. Differentiable in phi,
@@ -157,7 +155,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
 
         time_stamps[1, epoch - 1] = time.time()
         loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord_tensor,
-                                                  losses_to_calc, phi_shape, recon_regularizer)
+                                                  losses_to_calc, recon_regularizer)
 
         time_stamps[2, epoch - 1] = time.time()
         loss_sum.backward()
@@ -190,7 +188,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
             if metric_epoch:
                 extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
                 metrics, imgs_to_save = calculate_metrics(config, func, inputs, eval_inputs,
-                                                          model_outputs, loss_outputs, phi_shape, extended_log)
+                                                          model_outputs, loss_outputs, extended_log)
                 log_metrics(config, metrics, writer, epoch, imgs_to_save)
                 writer.add_scalar('optim/velocity lr', velocity_lr, epoch)
                 # Reduce the per-pixel 'loss' maps to per-frame sums on CPU before archiving:

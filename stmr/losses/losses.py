@@ -6,7 +6,6 @@ import torch
 from stmr.data.data_utils import complex_abs, get_dataset_capabilities
 from stmr.data.fft_utils import fft2c_new, ifft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
-from stmr.losses.sim_loss import get_sim_loss_fn
 from stmr.state import Inputs, LossOutputs, ModelOutputs
 
 # sim + recon_reg are the nmAPG init's energy, summed as there (so lambda_recon means the same
@@ -16,13 +15,13 @@ SUMMED_LOSSES = ('sim', 'recon_reg')
 
 
 def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_tensor,
-                     losses, phi_shape: list, recon_regularizer=None):
+                     losses, recon_regularizer=None):
     # abs_phi, rel_vel: [T-1, N, C] on the motion grid (see state.py)
     loss_sum = 0.
     moved_imgs_imspace = None
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
-        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, phi_shape, recon_regularizer)
+        l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, recon_regularizer)
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
@@ -34,17 +33,17 @@ def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_
 
     return loss_sum, LossOutputs(losses=losses, moved_imspace=moved_imgs_imspace)
 
-def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer=None):
+def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, recon_regularizer=None):
     # Each entry adapts a single-loss function to the uniform call context. Replaces the
     # previous if/elif ladder; new losses register a lambda here.
     dispatch = {
-        'sim': lambda: similarity_loss(config, inputs, model_outputs),
+        'sim': lambda: similarity_loss(config, inputs),
         'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
-        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, shape, config.voxel_spacing),
-        'detJ': lambda: detJ_loss(model_outputs, coord_tensor, shape),
-        'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, shape),
-        'grd': lambda: vel_grad_loss(model_outputs, shape),
-        'lap': lambda: vel_lap_loss(model_outputs, shape),
+        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, inputs, config.voxel_spacing),
+        'detJ': lambda: detJ_loss(model_outputs, coord_tensor, inputs),
+        'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, inputs),
+        'grd': lambda: vel_grad_loss(model_outputs, inputs),
+        'lap': lambda: vel_lap_loss(model_outputs, inputs),
         'recon_reg': lambda: compute_recon_reg_loss(config, inputs, recon_regularizer),
         'mcdc': lambda: motion_comp_dc_loss(config, inputs, model_outputs),
     }
@@ -52,7 +51,7 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, sha
         raise ValueError(f"Unknown loss {loss_name!r}; registered: {sorted(dispatch)}")
     return dispatch[loss_name]()
 
-def similarity_loss(config, inputs, model_outputs):
+def similarity_loss(config, inputs):
     moving, forw = inputs.moving, inputs.forward
 
     sim_domain = getattr(config, 'sim_domain', 'fourier')
@@ -108,12 +107,12 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
     return loss, moved_im.detach().cpu()
 
-def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, shape: list, spacing=None):
+def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, inputs: Inputs, spacing=None):
     # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
     # identity, i.e. penalizes the gradient of the displacement field phi - x. Measured in
     # physical units (see _pixel_phi_Jacobian) so the penalty is isotropic in mm, on
     # non-square images and across thick slices.
-    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, shape, spacing)
+    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, inputs.phi_shape, spacing)
     eye = torch.eye(J.shape[-1], device=J.device, dtype=J.dtype)
     loss = grad_phi_norm(J, eye)
     return loss, None
@@ -149,32 +148,32 @@ def _relative_phi_Jacobian(model_outputs, coord_tensor, shape):
     I = get_Jacobian(coord_tensor, shape)
     return phi_J @ torch.linalg.inv(I)
 
-def detJ_loss(model_outputs, coord_tensor, shape):
+def detJ_loss(model_outputs, coord_tensor, inputs):
     # (det(D phi) - 1)^2: penalizes local volume change of the deformation away from 1
     # (volume-preserving). Squared so over- and under-expansion both push the loss up and
     # the term stays non-negative (an unsquared det - 1 would be minimized by driving det
     # to -inf).
-    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, shape))
+    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, inputs.phi_shape))
     loss = (detJ - 1) ** 2
     return loss, None
 
-def log_detJ_loss(model_outputs, coord_tensor, shape, eps=1e-6):
+def log_detJ_loss(model_outputs, coord_tensor, inputs, eps=1e-6):
     # log(det(D phi))^2: symmetric under det -> 1/det (unlike (det-1)^2), so compression and
     # expansion by the same factor are penalized equally. Squared for the same reason as
     # detJ_loss above. det is clamped away from 0 to avoid log(<=0) under a fold.
-    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, shape))
+    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, inputs.phi_shape))
     loss = torch.log(detJ.clamp_min(eps)) ** 2
     return loss, None
 
-def vel_grad_loss(model_outputs, shape):
+def vel_grad_loss(model_outputs, inputs):
     rel_vel = model_outputs.rel_vel
-    J = get_Jacobian(rel_vel, shape)
+    J = get_Jacobian(rel_vel, inputs.phi_shape)
     loss = torch.linalg.vector_norm(J, dim=-1)
     return loss, None
 
-def vel_lap_loss(model_outputs, shape):
+def vel_lap_loss(model_outputs, inputs):
     rel_vel = model_outputs.rel_vel
-    lap = get_Laplacian(rel_vel, shape)
+    lap = get_Laplacian(rel_vel, inputs.phi_shape)
     loss = torch.linalg.vector_norm(lap, dim=-1)
     return loss, None
 

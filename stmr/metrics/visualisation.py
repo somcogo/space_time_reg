@@ -22,7 +22,8 @@ def prep_vis_summary_pdf(config: Namespace,
                          final_recon: torch.Tensor,
                          abs_phi: torch.Tensor,
                          rel_vel: torch.Tensor,
-                         all_metrics: list):
+                         all_metrics: list,
+                         phi_shape: list):
     pdf_dir_path = os.path.join(config.log_path, 'pdfs')
     os.makedirs(pdf_dir_path, exist_ok=True)
     img_pdf_path = os.path.join(pdf_dir_path, 'images.pdf')
@@ -36,7 +37,7 @@ def prep_vis_summary_pdf(config: Namespace,
     gt, init, final = norm_arrays(gt, init, final)
     abs_phi = prep_phi(abs_phi, gt)
     rel_vel = prep_vel(rel_vel, gt)
-    coord_tensor = generate_coord_tensor(abs_phi.shape[1:-1], 'cpu').numpy().reshape(abs_phi.shape[1:])
+    coord_tensor = generate_coord_tensor(abs_phi.shape[1:-1], 'cpu', phi_shape).numpy().reshape(abs_phi.shape[1:])
     rel_phi = abs_phi - coord_tensor
 
     losses, debug_losses, epochs = prep_metrics(all_metrics)

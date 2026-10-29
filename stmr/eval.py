@@ -22,7 +22,7 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger,
         # inputs.moving is the live recon parameter, mutated by the final optimizer step
         # after the best snapshot was taken. Evaluate the best-epoch recon instead, so the
         # reported metrics describe the same state as model_outputs/res.pt.
-        best_inputs = Inputs(moving, inputs.moving_inr, inputs.fixed, inputs.forward)
+        best_inputs = Inputs(moving, inputs.moving_inr, inputs.fixed, inputs.forward, inputs.phi_shape)
         metrics, imgs_to_save = calculate_metrics(config, None, best_inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
         slice_ndx = moving.shape[2] // 2
@@ -32,7 +32,7 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger,
         gt_im = gt_im[:, :, slice_ndx]
         init_recon = init_recon[:, :, slice_ndx]
         moving = moving[:, :, slice_ndx]
-        prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics)
+        prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics, inputs.phi_shape)
 
     logger.info('-------------------------------------------------')
     logger.info(f'Time spent (sec) over {config.epochs} iterations')
