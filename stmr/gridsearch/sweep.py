@@ -141,13 +141,13 @@ def grid_patients():
             raw = p in PATIENTS_RAW
             for sl in range(n[p]):
                 pts.append((f"P{p}_s{sl}_seed{sd}" + ("_raw" if raw else ""),
-                            {"dataset": f"cmr_P{p}", "slice_number": sl, "seed": sd,
+                            {"dataset": f"cmr_P{p}", "slices": [sl], "seed": sd,
                              "cmr_raw": raw}))
         if sd == SEEDS_P[0]:
             for p in PATIENTS_PROC:  # the raw check, on the mid slice
                 sl = n[p] // 2
                 pts.append((f"P{p}_s{sl}_seed{sd}_raw",
-                            {"dataset": f"cmr_P{p}", "slice_number": sl, "seed": sd,
+                            {"dataset": f"cmr_P{p}", "slices": [sl], "seed": sd,
                              "cmr_raw": True}))
     return pts
 
@@ -168,20 +168,29 @@ def grid_diag(src_root):
             cases.append(r)
     pts = []
     for r in cases:
-        base = {"dataset": r["dataset"], "slice_number": r["slice_number"], "seed": r["seed"],
+        base = {"dataset": r["dataset"], "slices": [r["slice_number"]], "seed": r["seed"],
                 "cmr_raw": r["cmr_raw"]}
         pts += [(f"{r['label']}_{v}", {**base, **ov}) for v, ov in DIAG_VARIANTS.items()]
     return pts
 
 
 def grid_rerun(src_root):
-    """RERUN_VARIANTS of every stage-P blow-up in src_root, labelled as in stage D."""
-    rows = [r for r in collect(src_root) if r["stage"] == "P" and r["blowup"]]
+    """RERUN_VARIANTS of every stage-P blow-up in src_root, labelled as in stage D. Reads the
+    aggregate's summary.csv when it has the blow-up flags (re-collecting P takes ~15 min)."""
+    path = os.path.join(LOG_ROOT, src_root, "summary.csv")
+    with open(path) as fh:
+        cached = list(csv.DictReader(fh))
+    if cached and "blowup" in cached[0]:
+        rows = [{**r, "slice_number": int(r["slice_number"]), "seed": int(r["seed"]),
+                 "cmr_raw": r["cmr_raw"] == "True"}
+                for r in cached if r["stage"] == "P" and r["blowup"] == "True"]
+    else:
+        rows = [r for r in collect(src_root) if r["stage"] == "P" and r["blowup"]]
     pts = []
     for v, ov in RERUN_VARIANTS.items():
         for r in rows:
             pts.append((f"{r['label']}_{v}",
-                        {"dataset": r["dataset"], "slice_number": r["slice_number"],
+                        {"dataset": r["dataset"], "slices": [r["slice_number"]],
                          "seed": r["seed"], "cmr_raw": r["cmr_raw"], **ov}))
     return pts
 
@@ -225,15 +234,30 @@ def _cli(overrides, exp, device):
             f"exp_name={exp}", f"device={device}", *sets]
 
 
+def idle_gpus():
+    """GPUs with no compute process of anyone on them."""
+    def query(q):
+        out = subprocess.run(["nvidia-smi", f"--query-{q}", "--format=csv,noheader"],
+                             capture_output=True, text=True).stdout
+        return [[x.strip() for x in line.split(",")] for line in out.splitlines() if line.strip()]
+    index = {bus.lower(): int(i) for i, bus in query("gpu=index,pci.bus_id")}
+    busy = {index[bus.lower()] for bus, in query("compute-apps=gpu_bus_id")}
+    return sorted(set(index.values()) - busy)
+
+
 def launch(pts, root, stage, gpus, per_gpu=1, dry_run=False):
+    """gpus: GPU indices, or "auto": one run on every GPU that has no compute process of anyone,
+    re-checked as runs finish, so GPUs other users free up are picked up (per_gpu is ignored)."""
     exp_base = os.path.join(LOG_ROOT.removeprefix("log/"), root, stage)
     todo = [(lb, ov) for lb, ov in pts
             if not os.path.exists(os.path.join("log", exp_base, lb, "res.pt"))]
     print(f"stage {stage}: {len(pts)} points, {len(pts) - len(todo)} already done", flush=True)
-    slots = [g for g in gpus for _ in range(per_gpu)]
+    auto = gpus == "auto"
+    slots = [] if auto else [g for g in gpus for _ in range(per_gpu)]
     if dry_run:
         for i, (lb, ov) in enumerate(todo):
-            print(" ".join(_cli(ov, f"{exp_base}/{lb}", f"cuda:{slots[i % len(slots)]}")))
+            gpu = "auto" if auto else slots[i % len(slots)]
+            print(" ".join(_cli(ov, f"{exp_base}/{lb}", f"cuda:{gpu}")))
         return {}
     pending, running, free, results = list(todo), {}, list(range(len(slots))), {}
     retried, cooling = set(), {}  # cooling: slot -> time it may take runs again
@@ -252,7 +276,14 @@ def launch(pts, root, stage, gpus, per_gpu=1, dry_run=False):
         for s, until in list(cooling.items()):
             if time.time() >= until:
                 del cooling[s]
-                free.append(s)
+                if not auto:
+                    free.append(s)
+        if auto and pending:  # a slot per idle GPU that none of our runs holds (or rests on)
+            ours = {slots[s] for s in list(running) + list(cooling)}
+            for g in idle_gpus():
+                if g not in ours:
+                    slots.append(g)
+                    free.append(len(slots) - 1)
         while pending and free:
             start(pending.pop(0), free.pop(0))
         time.sleep(10)
@@ -273,8 +304,10 @@ def launch(pts, root, stage, gpus, per_gpu=1, dry_run=False):
             if rc != 0 and time.time() - t0 < FAST_FAIL_S:
                 cooling[s] = time.time() + COOLDOWN_S
                 print(f"[rest ] cuda:{slots[s]} for {COOLDOWN_S // 60} min", flush=True)
-            else:
+            elif not auto:  # auto: the GPU comes back via idle_gpus() if nobody else took it
                 free.append(s)
+        if auto:
+            free.clear()
     return results
 
 
@@ -301,6 +334,15 @@ def _eval_psnr(moving, gt_im):
     return add_cmr_eval_metrics(moving, gt_im, {})
 
 
+def _slice_of(cfg):
+    """The slice a run used. The sweeps are per slice; runs from before the multi-slice
+    refactor saved it as slice_number, newer ones as a one-element slices list."""
+    if "slice_number" in cfg:
+        return cfg["slice_number"]
+    slices = cfg["slices"]
+    return slices[0] if len(slices) == 1 else tuple(slices)
+
+
 def collect(root):
     import torch
     rows = []
@@ -323,8 +365,8 @@ def collect(root):
             total = [m["losses/total_loss"] for m in curve]
             i_min = min(range(len(total)), key=total.__getitem__)
             rows.append({
-                "stage": stage, "label": lb,
-                **{k: cfg.get(k) for k in ("dataset", "slice_number", "cmr_raw", "lr",
+                "stage": stage, "label": lb, "slice_number": _slice_of(cfg),
+                **{k: cfg.get(k) for k in ("dataset", "cmr_raw", "lr",
                                            "lambda_rl2", "lambda_grad_phi", "lambda_init_recon",
                                            "step_size", "siren_dim", "siren_omega", "seed",
                                            "epochs", "adjoint")},

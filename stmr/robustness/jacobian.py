@@ -10,17 +10,20 @@ import torch
 
 from stmr.losses.losses import _relative_phi_Jacobian
 from stmr.state import ModelOutputs
-from stmr.utils.spatial_utils import generate_coord_tensor
+from stmr.utils.spatial_utils import generate_coord_tensor, motion_grid
 
 
-def detJ_from_phi(phi: torch.Tensor, H: int, W: int, device: str = "cpu") -> torch.Tensor:
-    """Jacobian determinant of a saved deformation ``phi`` [B, H*W, 2] -> det map [B, H, W]."""
+def detJ_from_phi(phi: torch.Tensor, *shape: int, device: str = "cpu") -> torch.Tensor:
+    """Jacobian determinant of a saved deformation ``phi`` [B, N, C] on the spatial image shape
+    ``shape`` (H, W, or D, H, W) -> det map [B, *grid], grid = motion_grid(shape): a single slice
+    (1, H, W) moves in-plane, so its det map is [B, H, W]."""
+    grid = motion_grid(shape)
     with torch.no_grad():
         phi = phi.detach().to(device)
-        coord = generate_coord_tensor((H, W), device)
+        coord = generate_coord_tensor(grid, device)
         mo = ModelOutputs(rel_vel=None, abs_phi=phi, transformer=None)
-        J = _relative_phi_Jacobian(mo, coord, shape=[-1, H, W, 2])  # [B, H, W, 2, 2]
-        return torch.linalg.det(J)                                  # [B, H, W]
+        J = _relative_phi_Jacobian(mo, coord, shape=[-1, *grid, len(grid)])  # [B, *grid, C, C]
+        return torch.linalg.det(J)                                           # [B, *grid]
 
 
 def foldover_fraction(detJ: torch.Tensor) -> float:

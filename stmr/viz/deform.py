@@ -47,7 +47,9 @@ from stmr.utils.spatial_utils import generate_coord_tensor  # noqa: E402
 
 def to_mag(img4: torch.Tensor) -> np.ndarray:
     """[B, 2, H, W] complex -> [B, H, W] magnitude, or [B, 1, H, W] real -> [B, H, W]
-    (e.g. CBCT), as a numpy array."""
+    (e.g. CBCT), as a numpy array. A volume [B, C, D, H, W] is shown by its middle slice."""
+    if img4.dim() == 5:
+        img4 = img4[:, :, img4.shape[2] // 2]
     if img4.shape[1] == 2:
         return complex_abs(img4.movedim(1, -1)).cpu().numpy()
     return img4.squeeze(1).cpu().numpy()
@@ -60,19 +62,20 @@ def load_run(res_path: str, device: str = "cpu"):
     return d, cfg
 
 
-def rebuild_func(cfg: Config, d: dict, device: str):
+def rebuild_func(cfg: Config, d: dict, device: str, dims: int = 2):
     """Reconstruct the velocity net from the saved weights."""
-    func = get_func(cfg.func_name, build_velocity_kwargs(cfg, dims=2)).to(device)
+    func = get_func(cfg.func_name, build_velocity_kwargs(cfg, dims=dims)).to(device)
     func.load_state_dict(d["st_dict"])
     func.eval()
     return func
 
 
-def flows_by_time(d, cfg, H, W, substeps, device):
-    """Return (times [n], phis [n, T-1, H*W, 2]) where phis[i, k] is interval k's flow at
-    sub-time times[i]. substeps==1 reuses the saved best-epoch phi (no net rebuild); >1
+def flows_by_time(d, cfg, grid_shape, substeps, device):
+    """Return (times [n], phis [n, T-1, N, len(grid_shape)]) where phis[i, k] is interval k's
+    flow at sub-time times[i], on the motion grid ``grid_shape`` ((H, W), or (D, H, W) for a
+    multi-slice run). substeps==1 reuses the saved best-epoch phi (no net rebuild); >1
     re-integrates the ODE on the finer grid."""
-    coord = generate_coord_tensor((H, W), device)
+    coord = generate_coord_tensor(grid_shape, device)
     if substeps == 1:
         # times [0, 1]; index 0 is identity (unused by the trajectory builder), index 1 is
         # the saved full-interval deformation.
@@ -81,7 +84,7 @@ def flows_by_time(d, cfg, H, W, substeps, device):
         ident = coord.expand_as(phi)
         return times, torch.stack([ident, phi], dim=0)
 
-    func = rebuild_func(cfg, d, device)
+    func = rebuild_func(cfg, d, device, dims=len(grid_shape))
     times = torch.linspace(0.0, 1.0, substeps + 1, device=device)
     init = coord.expand((cfg.time_points - 1, -1, -1)).contiguous()
     opts = {"step_size": cfg.step_size} if cfg.step_size else None
@@ -219,14 +222,19 @@ def save_gif(frames, out_path, fps=6):
     imageio.mimsave(out_path, list(uint8), fps=fps, loop=0)
 
 
-def plot_displacement(phi_full, gt_im, H, W, start, out_path, mag=5.0):
+def plot_displacement(phi_full, gt_im, grid_shape, start, out_path, mag=5.0):
     """Per-interval displacement field: magnitude heatmap + (magnified) quiver arrows.
 
-    phi_full: [T-1, H*W, 2] full-interval deformations (sampling coordinates). The
-    displacement phi - identity is in normalised [-1, 1] units; converted to pixels for the
-    quiver. Arrow lengths are multiplied by ``mag`` for visibility (noted in the title)."""
-    coord = generate_coord_tensor((H, W), phi_full.device)
-    disp = (phi_full - coord).reshape(-1, H, W, 2).cpu().numpy()  # [T-1, H, W, (dy,dx)]
+    phi_full: [T-1, N, len(grid_shape)] full-interval deformations (sampling coordinates) on
+    ``grid_shape``. The displacement phi - identity is in normalised [-1, 1] units; converted to
+    pixels for the quiver. On a (D, H, W) grid the middle slice's in-plane displacement is shown.
+    Arrow lengths are multiplied by ``mag`` for visibility (noted in the title)."""
+    coord = generate_coord_tensor(grid_shape, phi_full.device)
+    disp = (phi_full - coord).reshape(-1, *grid_shape, len(grid_shape))
+    if len(grid_shape) == 3:  # (dz, dy, dx) on (D, H, W) -> the middle slice's (dy, dx)
+        disp = disp[:, grid_shape[0] // 2, ..., 1:]
+    H, W = grid_shape[-2:]
+    disp = disp.cpu().numpy()  # [T-1, H, W, (dy,dx)]
     T1 = disp.shape[0]
     gt = to_mag(gt_im)
     vmax = float(gt.max())
@@ -262,10 +270,16 @@ def visualise(res_path, out_dir, substeps=1, source="gt", start=0, device="cpu",
     T = cfg.time_points
     src_key = "gt_im" if source == "gt" else "moving"
     imgs = d[src_key].to(device)
-    _, _, H, W = imgs.shape
-    img_shape = imgs.shape[1:]  # [2, H, W]
+    gt_im = d["gt_im"].to(device)
+    if imgs.dim() == 5 and imgs.shape[2] == 1:
+        # A single slice only moves in-plane: its phi lives on the (H, W) grid, so drop the
+        # slice axis and use the 2D path. A multi-slice run is warped in 3D and shown by its
+        # middle slice (see to_mag).
+        imgs, gt_im = imgs[:, :, 0], gt_im[:, :, 0]
+    grid_shape = tuple(imgs.shape[2:])  # (H, W) or (D, H, W)
+    img_shape = imgs.shape[1:]  # [2, H, W] or [2, D, H, W]
 
-    times, phis = flows_by_time(d, cfg, H, W, substeps, device)
+    times, phis = flows_by_time(d, cfg, grid_shape, substeps, device)
     if mode == "stepwise":
         # Each frame is the actual source frame k warped once by phi_k (re-anchored to GT
         # every step; no accumulated drift).
@@ -276,7 +290,7 @@ def visualise(res_path, out_dir, substeps=1, source="gt", start=0, device="cpu",
 
     grid_path = os.path.join(out_dir, "propagate_grid.png")
     if substeps == 1:
-        plot_coarse_grid(frames, labels, d["gt_im"].to(device), start, grid_path)
+        plot_coarse_grid(frames, labels, gt_im, start, grid_path)
     else:
         plot_contact_sheet(frames, labels, grid_path)
 
@@ -284,11 +298,11 @@ def visualise(res_path, out_dir, substeps=1, source="gt", start=0, device="cpu",
     save_gif(frames, gif_path)
 
     quiver_path = os.path.join(out_dir, "displacement_quiver.png")
-    plot_displacement(phis[-1], d["gt_im"].to(device), H, W, start, quiver_path, quiver_mag)
+    plot_displacement(phis[-1], gt_im, grid_shape, start, quiver_path, quiver_mag)
 
     # Console summary: how well each propagated frame matches its GT target.
     warped = np.concatenate([to_mag(f) for f in frames], axis=0)
-    gt = to_mag(d["gt_im"].to(device))
+    gt = to_mag(gt_im)
     print(f"Loaded {res_path}: T={T}, source={source} frame {start}, "
           f"substeps={substeps}, mode={mode}")
     print(f"Built {len(frames)} frames over global time {labels[0]:.2f}..{labels[-1]:.2f} "

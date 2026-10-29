@@ -24,13 +24,17 @@ def _frame_residual(moving: torch.Tensor, phi: torch.Tensor):
 
     base = MSE(|I_t|, |I_{t+1}|) without motion; warp = MSE(|warp(I_t)|, |I_{t+1}|). Mirrors
     motion_findings/verify_4_motion_bug_audit.py. Returns (nan, nan) if phi can't be aligned.
+    moving is [T, 2, H, W] or [T, 2, D, H, W]; a single slice (D = 1) moves in-plane, so its phi
+    lives on the (H, W) grid and the slice axis is dropped.
     """
-    T, C, H, W = moving.shape
+    T = moving.shape[0]
     if T < 2:
         return float("nan"), float("nan")
-    mag = complex_abs(moving.movedim(1, -1))  # [T, H, W]
-    abs_phi = phi.reshape(T - 1, H * W, 2) if phi.dim() == 4 else phi
-    if abs_phi.shape[0] != T - 1:
+    if moving.dim() == 5 and moving.shape[2] == 1:
+        moving = moving[:, :, 0]
+    mag = complex_abs(moving.movedim(1, -1))  # [T, *S]
+    abs_phi = phi.reshape(T - 1, -1, phi.shape[-1]) if phi.dim() > 3 else phi
+    if abs_phi.shape[0] != T - 1 or abs_phi.shape[-1] != moving.dim() - 2:
         return float("nan"), float("nan")
     ST = GridSampleTransformer(abs_phi, moving.shape[1:])
     warped_mag = complex_abs(ST.apply(moving[:-1]).movedim(1, -1))
@@ -53,7 +57,7 @@ def extract_row(spec, res_path: str, outdir: str | None = None) -> dict:
     m0 = add_cmr_eval_metrics(init, gt, {})
     base, warp = _frame_residual(moving, phi)
 
-    motion = fold_stats(phi, *gt.shape[-2:])
+    motion = fold_stats(phi, *gt.shape[2:])
     if d.get("gt_phi") is not None:
         motion.update(endpoint_error(phi, d["gt_phi"], gt))
     partner = getattr(spec, "reverse_of", None)

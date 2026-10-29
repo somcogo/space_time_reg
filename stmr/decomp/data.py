@@ -18,10 +18,11 @@ def load_gt(p: DecompParams):
     adjoint); the init reconstruction it also builds is discarded — we register fixed GT.
     """
     cfg = Config(dataset=p.dataset, time_points=p.time_points,
-                 slice_number=p.slice_number, start_frame=p.start_frame,
+                 slices=[p.slice_number], start_frame=p.start_frame,
                  device=p.device).finalize()
     _, eval_inputs = prepare_inputs(cfg, get_logger())
-    gt_im = eval_inputs.gt_im.to(p.device)                          # [T, 2, H, W]
+    # The pipeline loads [T, 2, D, H, W]; the decomposition works on its one slice.
+    gt_im = eval_inputs.gt_im[:, :, 0].to(p.device)                 # [T, 2, H, W]
     mag = fastmri.complex_abs(gt_im.movedim(1, -1)).unsqueeze(1)    # [T, 1, H, W]
     # Normalise magnitudes to unit peak so the data MSE is O(1e-4) rather than O(1e-7).
     # The regularity losses (grad_phi/log_detJ) act on the flow, not the image, so this makes

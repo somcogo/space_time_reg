@@ -169,8 +169,8 @@ def make_figures(res: dict, out_dir: str):
     os.makedirs(out_dir, exist_ok=True)
     H, W = res["H"], res["W"]
     gt, coord = res["gt_im"], res["coord"]
-    plot_displacement(res["abs_phi1"], gt, H, W, 0, os.path.join(out_dir, "phi1_displacement.png"))
-    plot_displacement(res["abs_phi2"], gt, H, W, 0,
+    plot_displacement(res["abs_phi1"], gt, (H, W), 0, os.path.join(out_dir, "phi1_displacement.png"))
+    plot_displacement(res["abs_phi2"], gt, (H, W), 0,
                       os.path.join(out_dir, "phi2_residual_displacement.png"))
     _plot_direction(res["abs_phi1"], coord, H, W, os.path.join(out_dir, "phi1_direction.png"), "phi1")
     _plot_direction(res["abs_phi2"], coord, H, W,

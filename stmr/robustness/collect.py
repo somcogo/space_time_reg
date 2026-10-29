@@ -73,6 +73,12 @@ class RunRecord:
 def _record_from_res(scene, axis, key, run_dir) -> RunRecord:
     d, _ = load_run(os.path.join(run_dir, "res.pt"), device="cpu")
     phi, gt = d["phi"], d["gt_im"]
+    if gt.dim() == 5:
+        # The robustness analysis is per slice (2D maps and figures); a single slice moves
+        # in-plane, so its phi already lives on the (H, W) grid.
+        if gt.shape[2] != 1:
+            raise ValueError(f"robustness analysis is per slice; this run has {gt.shape[2]} slices")
+        gt = gt[:, :, 0]
     T, _, H, W = gt.shape
     base, warp = _frame_residual(d["moving"], phi)
     ratio = warp / base if base else float("nan")

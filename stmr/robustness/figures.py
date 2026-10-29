@@ -60,7 +60,7 @@ def plot_detJ(phi, gt_im, H, W, out_path, start=0):
 def plot_run_displacement(phi, gt_im, H, W, out_path, start=0):
     """Thin wrapper around the existing displacement+quiver figure."""
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    plot_displacement(phi, gt_im, H, W, start, out_path)
+    plot_displacement(phi, gt_im, (H, W), start, out_path)
 
 
 # ---------- cross run ----------
