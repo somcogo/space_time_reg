@@ -13,8 +13,7 @@ from stmr.state import Inputs, LossOutputs, ModelOutputs
 
 def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_tensor,
                      losses, recon_regularizer=None):
-    # abs_phi: [T, H*W, D]
-    # rel_vel: [T or 1, H*W, D]
+    # abs_phi, rel_vel: [T-1, N, C] on the motion grid (see state.py)
     moving = inputs.moving
     shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
     if inputs.fixed.shape[2] == 1:
@@ -114,20 +113,26 @@ def im_space_l2_loss(config, inputs, model_outputs):
 def grad_phi_loss(config: Namespace, model_outputs, coord_tensor: torch.Tensor, shape: list):
     # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
     # identity, i.e. penalizes the gradient of the displacement field phi - x. Measured in
-    # pixel units (see _pixel_phi_Jacobian) so the penalty is isotropic on non-square images.
+    # physical units (see _pixel_phi_Jacobian) so the penalty is isotropic in mm, on
+    # non-square images and across thick slices.
     J = _pixel_phi_Jacobian(config, model_outputs, coord_tensor, shape)
     eye = torch.eye(J.shape[-1], device=J.device, dtype=J.dtype)
     loss = grad_phi_norm(J, eye)
     return loss, None
 
 def _pixel_phi_Jacobian(config: Namespace, model_outputs, coord_tensor: torch.Tensor, shape: list):
-    # phi and the grid live in [-1, 1] on every axis, so on a non-square image one normalized
-    # unit spans a different number of pixels per axis ((N - 1) / 2). Differencing them as-is
-    # weights each displacement component by 1 / that span (2.5x more for rows than columns
-    # on 204x512), and right-multiplying by inv(I) alone (_relative_phi_Jacobian) only fixes
-    # stretches -- shears stay anisotropic. Rescaling both to pixels first, then normalizing
-    # by the identity's own finite-difference Jacobian, gives the Jacobian in pixel units:
-    # rotation-invariant, and exactly Id for phi = identity, including at the boundary.
+    # phi and the grid live in [-1, 1] on every axis, so one normalized unit spans a different
+    # number of voxels per axis ((N - 1) / 2), and voxels differ in size per axis
+    # (config.voxel_spacing, mm, (d, h, w), cut to the motion axes in pipeline.run: (h, w) for
+    # a single slice). Differencing them as-is weights each displacement component by 1 / its
+    # span (2.5x more for rows than columns on 204x512, and a slice step of 8 mm would count
+    # as much as a 1.5 mm in-plane step), and right-multiplying by inv(I) alone
+    # (_relative_phi_Jacobian) only fixes stretches -- shears stay anisotropic. Rescaling both
+    # to mm first (span in voxels x spacing), then normalizing by the identity's own
+    # finite-difference Jacobian, gives the Jacobian in physical units: rotation-invariant,
+    # and exactly Id for phi = identity, including at the boundary. Only the ratio of the
+    # spacings matters; the absolute scale cancels against inv(I).
+    # shape: [-1, *grid, C], grid (H, W) with C = 2 for a single slice, (D, H, W) with C = 3.
     span = torch.tensor([(n - 1) / 2 for n in shape[1:-1]], device=coord_tensor.device,
                         dtype=coord_tensor.dtype) * config.voxel_spacing
     phi_J = get_Jacobian(model_outputs.abs_phi * span, shape)

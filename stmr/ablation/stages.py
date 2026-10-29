@@ -195,7 +195,7 @@ _UNDERSAMPLING = dict(dataset="cmr_P001")
 
 # + learned reg: turn on the pretrained CRR prior as a joint-optimisation regularizer.
 _LEARNED_REG = dict(
-    lambda_recon=1e-1, reg="learned", reg_variant="crr",
+    lambda_recon=0.2, reg="learned", reg_variant="crr",  # = _NMAPG_INIT's lambda_init_recon
     reg_alpha=1.0, recon_scale=3.55,
 )
 

@@ -1,7 +1,7 @@
 # Full pipeline on CMRxRecon P001, static (time-constant) mask + WCRR denoiser.
 # Ported from the old bash_script.sh (soft_con / tuned_kt_dc_wcrr); the k-t mask it used
 # is replaced by the time-constant 'st' mask.
-# The joint loop optimizes the nmAPG init's own energy (joint_objective: init) plus the motion
+# The joint loop optimizes the nmAPG init's own energy plus the motion
 # terms; recon_lr from the 2026-10 sweeps (log/cmr/soft_con_init_fix/initobj_*). lr, lambdas,
 # net and epochs from the 2026-10-23 grid (log/cmr/grid/grid_v1, stmr/gridsearch; ranked on
 # cropped PSNR): 26.94 +- 0.03 dB cropped over 3 seeds, +0.72 dB over the init.
@@ -69,7 +69,7 @@ lambda_st: 1.0
 lambda_grad_phi: 3.0  # isotropic pixel-unit grad_phi; 1e-4 * lambda_rl2 (grid: 3e-5..1e-4 best)
 lambda_grd: 0
 lambda_lap: 0
-lambda_recon: 1.0e-1  # unused with joint_objective: init (lambda_init_recon weights the reg)
+lambda_recon: 1.0e-1  # = lambda_init_recon, so the joint loop optimizes the init's energy
 lambda_rl2: 3.0e+4  # imdiff is a per-pixel mean; 1e5 with lambda_init_recon 0.2 is close behind
 
 log_cadence: 50

@@ -31,7 +31,7 @@ class Config:
     dataset: str = "cmr_P001"
     time_points: int = 20
     start_frame: int = 0
-    slices: list[int] = [0] # which slices to take
+    slices: list[int] = field(default_factory=lambda: [0])  # which slices to take
     factor: int = 4
     mask: str = "st"
     random_mask: bool = False
@@ -122,7 +122,7 @@ class Config:
     lambda_grad_phi: float = 1e-2  # pixel-unit (isotropic) ||Dphi - Id||, see losses.grad_phi_loss
     lambda_grd: float = 1.0
     lambda_lap: float = 1.0
-    lambda_recon: float = 1.0
+    lambda_recon: float = 0.2  # kept equal to lambda_init_recon: the joint loss is the init's energy
     lambda_rl2: float = 1.0
     lambda_mcdc: float = 0.0
     lambda_detJ: float = 0.0

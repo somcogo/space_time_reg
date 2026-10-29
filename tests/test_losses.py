@@ -117,11 +117,11 @@ def test_data_fidelity_zero_when_recon_matches_measurements():
 
 
 @pytest.mark.parametrize("init_reg_abs", [True, False])
-def test_init_joint_objective_is_the_init_energy(init_reg_abs):
-    # joint_objective='init' must be exactly the nmAPG init's energy (summed over frames), with
-    # the gradient the init's analytic path uses.
-    config = Config(device="cpu", dataset="cmr_P001", time_points=2, joint_objective="init",
-                    reg_variant="wcrr", recon_scale=3.0, lambda_init_recon=0.05,
+def test_joint_recon_loss_is_the_init_energy(init_reg_abs):
+    # With lambda_recon = lambda_init_recon, sim + recon_reg must be exactly the nmAPG init's
+    # energy (summed over frames), with the gradient the init's analytic path uses.
+    config = Config(device="cpu", dataset="cmr_P001", time_points=2,
+                    reg_variant="wcrr", recon_scale=3.0, lambda_init_recon=0.05, lambda_recon=0.05,
                     init_reg_abs=init_reg_abs, init_grad="analytic").finalize()
     g = torch.Generator().manual_seed(0)
     x = 0.05 * torch.randn(2, 2, 32, 48, generator=g)
