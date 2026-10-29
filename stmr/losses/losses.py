@@ -17,20 +17,18 @@ def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_
     # rel_vel: [T or 1, H*W, D]
     moving = inputs.moving
     shape = [-1] + list(moving.shape[2:]) + [len(moving.shape) - 2]
+    if shape[1] == 1:
+        shape = shape.squeeze(1)
+        shape[-1] = shape[-1] - 1
     loss_sum = 0.
     moved_imgs_imspace = None
-    if config.joint_objective not in ('default', 'init'):
-        raise ValueError(f"Unknown joint_objective {config.joint_objective!r}; use 'default' or 'init'")
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
         l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, shape, recon_regularizer)
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
-        # joint_objective='init' reproduces the init's energy, which sums (not averages) over
-        # frames and k-space entries.
-        init_term = config.joint_objective == 'init' and loss_name in ('sim', 'recon_reg')
-        mean = l.sum() if init_term else l.mean()
+        mean = l.sum()
         loss_dict['mean'] = mean.detach().cpu()
         loss_dict['loss'] = l.detach()
         loss_dict['time'] += t2 - t1
@@ -61,36 +59,21 @@ def similarity_loss(config, inputs, model_outputs):
     loss_fn = get_sim_loss_fn(config, moving)
 
     sim_domain = getattr(config, 'sim_domain', 'fourier')
-    if getattr(config, 'joint_objective', 'default') == 'init':
-        # The init's data term (recon_init.complex_l2), kept per entry for the sim-energy
-        # visuals; calculate_losses sums it. forw is the masked FT and fixed is zero-filled.
-        loss = 0.5 * (forw(moving) - inputs.fixed) ** 2
-    elif sim_domain == 'image':
-        # Image-space data consistency: compare the recon directly to the IFFT of the
-        # measured k-space. On fully-sampled data this is identical (value AND gradient) to
-        # the Fourier-space MSE below, because the FFT is unitary (Parseval). Running one
-        # stage each way is a check that the FFT/IFFT data-consistency path is correct.
+    if sim_domain == 'image':
         target = ifft2c_new(inputs.fixed.movedim(1, -1)).movedim(-1, 1)
-        loss = loss_fn(target, moving)
+        loss = 0.5 * (moving - target) ** 2
     elif sim_domain == 'image_mag':
-        # Phase-insensitive image-space DC: compare the |magnitude| images of the recon and
-        # the IFFT of the measured k-space. eps-guarded sqrt (not complex_abs) for safe grads.
         target = ifft2c_new(inputs.fixed.movedim(1, -1)).movedim(-1, 1)
         tm = (target.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |target| [T,1,H,W]
         mm = (moving.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |recon|  [T,1,H,W]
-        loss = loss_fn(tm, mm)
+        loss = 0.5 * (mm - tm) ** 2
     elif sim_domain == 'fourier_mag':
-        # Phase-insensitive Fourier DC: compare the |magnitude| of the (masked) k-space on
-        # both sides, discarding k-space phase. Used by the template-warp experiment so the
-        # flow need not match the temporally-incoherent image phase. eps-guarded sqrt (not
-        # complex_abs) so the masked-out zeros don't produce NaN gradients from d(sqrt)/d0.
         recon_kspace = forw(moving)
         rm = (recon_kspace.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |k-space| [T,1,H,W]
         fm = (inputs.fixed.pow(2).sum(1, keepdim=True) + 1e-12).sqrt()   # |target|  [T,1,H,W]
-        loss = loss_fn(fm, rm)
+        loss = 0.5 * (rm - fm) ** 2
     else:
-        recon_kspace = forw(moving)
-        loss = loss_fn(inputs.fixed, recon_kspace)
+        loss = 0.5 * (forw(moving) - inputs.fixed) ** 2
 
     return loss, None
 
@@ -225,8 +208,3 @@ def compute_recon_reg_loss(config, inputs, recon_regularizer):
 
 def grad_phi_norm(J, I):
     return torch.linalg.matrix_norm(J - I, dim=(-2, -1), ord='fro')
-
-def get_phi_Jacobian(abs_phi, coord_tensor, shape):
-    rel_phi = abs_phi - coord_tensor
-    phi_J = get_Jacobian(rel_phi, shape)
-    return phi_J

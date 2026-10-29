@@ -25,14 +25,13 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger,
         best_inputs = Inputs(moving, inputs.moving_inr, inputs.fixed, inputs.forward)
         metrics, imgs_to_save = calculate_metrics(config, None, best_inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
         log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
-        if len(inputs.fixed.shape) == 5:
+        if inputs.fixed.shape[2] == 1:
             slice_ndx = moving.shape[2] // 2
             gt_im = gt_im[:, :, slice_ndx]
             init_recon = init_recon[:, :, slice_ndx]
             moving = moving[:, :, slice_ndx]
-            abs_phi = abs_phi[:, slice_ndx, :, :, 1:]
-            rel_vel = rel_vel[:, slice_ndx, :, :, 1:]
-            best_inputs.fixed = best_inputs.fixed[:, :, slice_ndx]
+            abs_phi = abs_phi.reshape([-1, *moving.shape[2:], 3])[:, slice_ndx, :, :, 1:].view((abs_phi.shape[0], -1, 2))
+            rel_vel = rel_vel.reshape([-1, *moving.shape[2:], 3])[:, slice_ndx, :, :, 1:].view((rel_vel.shape[0], -1, 2))
         prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics)
 
     logger.info('-------------------------------------------------')

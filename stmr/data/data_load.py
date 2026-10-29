@@ -11,6 +11,7 @@ from .data_utils import get_data, get_init, get_operators
 from .known_motion import synthesize
 from .noise import add_image_noise, add_kspace_noise
 from .recon_init import init_using_nmAPG, init_with_grad_desc
+from .fft_utils import MaskedFT
 
 
 @dataclass
@@ -32,6 +33,17 @@ class PreparedData:
     gt_im: torch.Tensor
     init: nn.Parameter
     gt_phi: torch.Tensor | None = None  # the known motion, when the frames are synthetic (synth_flow)
+
+
+def fold_slices(x: torch.Tensor) -> torch.Tensor:
+    """[T, C, D, H, W] -> [T*D, C, H, W]: every (frame, slice) becomes its own 2D batch item, for
+    the per-frame 2D init (nmAPG with the 2D WCRR prior). Inverse: unfold_slices."""
+    return x.movedim(2, 1).flatten(0, 1)
+
+
+def unfold_slices(x: torch.Tensor, n_slices: int) -> torch.Tensor:
+    """[T*D, C, H, W] -> [T, C, D, H, W], the inverse of fold_slices."""
+    return x.unflatten(0, (-1, n_slices)).movedim(1, 2).contiguous()
 
 
 def prepare_data(config: Config) -> PreparedData:
@@ -64,8 +76,13 @@ def prepare_data(config: Config) -> PreparedData:
     if getattr(config, 'synth_flow', ''):
         if not config.dataset.startswith('cmr'):
             raise ValueError("synth_flow builds the frames with the FFT; only cmr datasets are supported")
-        frames, gt_phi = synthesize(config, full_adj(gt_kspace_data))
-        gt_kspace_data = full_forw(frames)
+        gt_frames = full_adj(gt_kspace_data)
+        if gt_frames.shape[2] != 1:
+            raise ValueError(f"synth_flow builds a 2D known motion and needs a single slice; "
+                             f"got {gt_frames.shape[2]} (slices={config.slices})")
+        # The known motion lives on the slice's (H, W) grid: phi [T-1, H*W, 2].
+        frames, gt_phi = synthesize(config, gt_frames[:, :, 0])
+        gt_kspace_data = full_forw(frames.unsqueeze(2))
         raw_kspace_data = torch.where(kspace_mask, gt_kspace_data, torch.zeros_like(gt_kspace_data))
 
     # fixed keeps the full k-space shape, zero-filled at unmeasured entries. This supports
@@ -93,10 +110,10 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
     full_forw, full_adj, forw_subs, forw_subs_adj = data.full_forw, data.full_adj, data.forw_subs, data.forw_subs_adj
     fixed, gt_im, init = data.fixed, data.gt_im, data.init
 
-    init_batched = init.movedim(2, 1).flatten(0, 1)
-    fixed_batched = fixed.movedim(2, 1).flatten(0, 1)
-    kspace_mask_batched = kspace_mask.movedim(2, 1).flatten(0, 1)
-    gt_im_batched = gt_im.movedim(2, 1).flatten(0, 1)
+    init_batched = fold_slices(init)
+    fixed_batched = fold_slices(fixed)
+    kspace_mask_batched = fold_slices(kspace_mask)
+    gt_im_batched = fold_slices(gt_im)
     if config.init_skip:
         recon = init_batched.detach()
     elif config.use_nmapg:
@@ -116,8 +133,10 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
         recon, _ = init_using_nmAPG(config, init_batched.detach(), packed_measurements, full_forw,
                                     full_adj, logger, callback=callback)
     else:
-        recon, _ = init_with_grad_desc(config, init_batched, fixed_batched, forw_subs)
-    recon = recon.unflatten(dim=0, sizes=(fixed.shape[0], fixed.shape[2])).movedim(1, 2).contiguous()
+        init_batched = nn.Parameter(init_batched)
+        forw_subs_batched = MaskedFT(kspace_mask_batched)
+        recon, _ = init_with_grad_desc(config, init_batched, fixed_batched, forw_subs_batched)
+    recon = unfold_slices(recon, fixed.shape[2])
 
     recon = add_image_noise(recon.detach(), config.init_noise_sigma).detach()
     moving = nn.Parameter(recon.clone()).to(config.device)
