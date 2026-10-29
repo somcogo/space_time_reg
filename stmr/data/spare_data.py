@@ -114,7 +114,7 @@ def get_data(config: argparse.Namespace) -> tuple[torch.Tensor, torch.Tensor, to
     full_dir = os.path.join(scan_dir, "Proj_Full")
 
     det_size = 512
-    row = det_size // 2 + config.slice_number
+    row = det_size // 2 + config.slices[0]
     n_bins = config.time_points
 
     raw_angles, src_iso, src_det = _parse_geometry(raw_dir)

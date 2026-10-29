@@ -100,7 +100,7 @@ def main(argv=None) -> None:
                        help="frames per stage (default 6; the data has 12 available)")
     p_run.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
                        help="extra global Config overrides applied to every stage, "
-                            "e.g. --set start_frame=0 slice_number=0")
+                            "e.g. --set start_frame=0 slices=0")
     p_run.add_argument("--outdir", default=None, help="default: log/ablation/ladder<N>_<timestamp>")
     p_run.set_defaults(func=cmd_run)
 

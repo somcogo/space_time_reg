@@ -31,7 +31,7 @@ class Config:
     dataset: str = "cmr_P001"
     time_points: int = 20
     start_frame: int = 0
-    slices: list[int] | None = None # which slices to take; if 0, then the first single slice is returned
+    slices: list[int] = [0] # which slices to take
     factor: int = 4
     mask: str = "st"
     random_mask: bool = False
@@ -213,8 +213,19 @@ def parse_cli(argv=None) -> Config:
         if key not in Config.field_names():
             raise ValueError(f"Unknown override key: {key!r}")
         current = getattr(config, key)
-        setattr(config, key, _coerce(raw, current))
+        ann = {f.name: f.type for f in fields(Config)}[key]
+        setattr(config, key, _coerce(raw, current, ann))
     return config.finalize()
+
+
+def _coerce_list(value, elem):
+    """A typed list field from YAML ([8, 1.5, 1.5]), a scalar (3 -> [3]) or a CLI string
+    ("8,1.5,1.5" or "[8, 1.5, 1.5]")."""
+    if isinstance(value, str):
+        value = [v for v in value.strip("[]() ").split(",") if v.strip()]
+    elif not isinstance(value, (list, tuple)):
+        value = [value]
+    return [int(float(v)) if elem is int else elem(v) for v in value]
 
 
 def _coerce_to_type(value, type_annotation):
@@ -225,6 +236,11 @@ def _coerce_to_type(value, type_annotation):
         # declared type, so optional fields can be set back to their "keep pretrained"
         # sentinel without tripping float(None).
         return None
+    # Checked before the scalar types: "list[int] | None" also contains "int".
+    if "list[int]" in ann:
+        return _coerce_list(value, int)
+    if "list[float]" in ann:
+        return _coerce_list(value, float)
     if "bool" in ann:
         if isinstance(value, str):
             return value.lower() in ("1", "true", "yes")
@@ -236,8 +252,13 @@ def _coerce_to_type(value, type_annotation):
     return value
 
 
-def _coerce(raw: str, current):
-    """Coerce a string override to the type of the current field value."""
+def _coerce(raw: str, current, type_annotation=""):
+    """Coerce a string override to the type of the current field value (typed list fields go
+    by their annotation, since their current value may be the None sentinel)."""
+    if "list[" in str(type_annotation):
+        if raw.lower() in ("none", "null", ""):
+            return None
+        return _coerce_to_type(raw, type_annotation)
     if isinstance(current, bool):
         return raw.lower() in ("1", "true", "yes")
     if isinstance(current, int) and not isinstance(current, bool):

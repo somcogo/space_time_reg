@@ -28,7 +28,7 @@ def main(argv=None):
     la = sub.add_parser("launch")
     la.add_argument("--stage", choices=["A", "A2", "B", "C", "P", "D", "R", "seeds"], required=True)
     la.add_argument("--root", required=True)
-    la.add_argument("--gpus", default="0,1,2,3")
+    la.add_argument("--gpus", default="0,1,2,3", help='indices, or "auto": every idle GPU')
     la.add_argument("--per-gpu", type=int, default=1)
     la.add_argument("--top", type=int, default=3)
     la.add_argument("--seeds", default="1,2")
@@ -57,7 +57,7 @@ def main(argv=None):
             pts = sweep.grid_rerun(a.src)
         else:
             pts = sweep.grid_seeds(a.root, a.top, tuple(int(s) for s in a.seeds.split(",")))
-        gpus = tuple(int(g) for g in a.gpus.split(",") if g != "")
+        gpus = "auto" if a.gpus == "auto" else tuple(int(g) for g in a.gpus.split(",") if g)
         sweep.launch(pts, a.root, a.stage, gpus, a.per_gpu, a.dry_run)
         if not a.dry_run:
             sweep.aggregate(a.root)

@@ -13,7 +13,7 @@ seed: 0
 # data / mask
 time_points: 12
 start_frame: 0
-slice_number: 0
+slices: [0]
 factor: 4
 mask: st
 normalize_data: true
@@ -70,7 +70,6 @@ lambda_st: 1.0
 lambda_grad_phi: 3.0  # isotropic pixel-unit grad_phi; 1e-4 * lambda_rl2 (grid: 3e-5..1e-4 best)
 lambda_grd: 0
 lambda_lap: 0
-lambda_hel: 0
 lambda_recon: 1.0e-1  # unused with joint_objective: init (lambda_init_recon weights the reg)
 lambda_rl2: 3.0e+4  # imdiff is a per-pixel mean; 1e5 with lambda_init_recon 0.2 is close behind
 
