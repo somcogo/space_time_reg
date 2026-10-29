@@ -29,7 +29,7 @@ def test_end_to_end_motion_and_loss_backward_on_cpu():
     config.func_kwargs = build_velocity_kwargs(config, dims=2)
     func = get_func(config.func_name, config.func_kwargs)
 
-    moving = nn.Parameter(torch.randn(config.time_points, 2, h, w))
+    moving = nn.Parameter(torch.randn(config.time_points, 2, 1, h, w))  # one slice, D = 1
     forw = FastmriFT()
     fixed = forw(moving.detach())
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)

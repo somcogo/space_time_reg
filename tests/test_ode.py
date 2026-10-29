@@ -24,7 +24,7 @@ def _config():
 
 
 def _inputs(h=8, w=8):
-    moving = torch.zeros(3, 2, h, w)  # only .shape[1:] is used by the transformer
+    moving = torch.zeros(3, 2, 1, h, w)  # only .shape[2:] is used by the transformer
     return Inputs(moving=moving, moving_inr=None, fixed=None, forward=None)
 
 

@@ -37,7 +37,7 @@ def test_synthesized_frames_follow_the_known_motion():
     assert phi.shape == (2, 24 * 40, 2)
     assert torch.equal(frames[0], gt[0])
     for k in range(2):  # frame_{k+1} = warp(frame_k, phi_k): phi is the exact frame-to-frame motion
-        warped = GridSampleTransformer(phi[k:k + 1], gt.shape[1:]).apply(frames[k:k + 1])
+        warped = GridSampleTransformer(phi[k:k + 1], gt.shape[2:]).apply(frames[k:k + 1])
         assert torch.allclose(frames[k + 1:k + 2], warped, atol=1e-6)
 
 

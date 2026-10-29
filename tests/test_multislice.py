@@ -21,7 +21,7 @@ from stmr.models.factory import get_func
 from stmr.registration import get_model_outputs
 from stmr.robustness.jacobian import detJ_from_phi
 from stmr.state import Inputs
-from stmr.utils.spatial_utils import generate_coord_tensor, motion_grid
+from stmr.utils.spatial_utils import generate_coord_tensor
 
 
 def test_list_fields_parse_from_yaml_and_cli(tmp_path):
@@ -70,8 +70,6 @@ def test_folded_init_matches_solving_each_slice_alone():
 
 
 def test_single_slice_motion_lives_on_the_in_plane_grid():
-    assert motion_grid((1, 8, 12)) == (8, 12)
-    assert motion_grid((3, 8, 12)) == (3, 8, 12)
     ident = generate_coord_tensor((1, 8, 12), "cpu")
     assert ident.shape == (8 * 12, 2)
     detJ = detJ_from_phi(ident.unsqueeze(0), 1, 8, 12)
@@ -111,7 +109,6 @@ def test_motion_and_loss_backward_on_a_volume(n_slices):
     # As pipeline.run: a single slice moves in-plane only.
     dims = 2 if n_slices == 1 else 3
     config.func_kwargs = build_velocity_kwargs(config, dims)
-    config.voxel_spacing = torch.tensor(config.voxel_spacing)[3 - dims:]
     func = get_func(config.func_name, config.func_kwargs)
 
     h = w = 8

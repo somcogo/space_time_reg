@@ -20,7 +20,7 @@ def test_identity_flow_leaves_source_unchanged():
     phis = _identity_phis(2, T, 16, 16)
     times = torch.tensor([0.0, 1.0])
 
-    frames, labels = build_trajectory(src, phis, times, T, img_shape=(2, 16, 16), start=0)
+    frames, labels = build_trajectory(src, phis, times, T, grid_shape=(16, 16), start=0)
 
     assert labels == [0.0, 1.0, 2.0]          # source + one image per interval
     assert len(frames) == T
@@ -41,7 +41,7 @@ def test_nonzero_flow_moves_the_image():
                         (coord + shift).expand(T - 1, -1, -1)]).contiguous()
     times = torch.tensor([0.0, 1.0])
 
-    frames, _ = build_trajectory(src, phis, times, T, img_shape=(2, 32, 32), start=0)
+    frames, _ = build_trajectory(src, phis, times, T, grid_shape=(32, 32), start=0)
 
     d1 = (frames[1] - src).abs().sum().item()
     d2 = (frames[2] - src).abs().sum().item()
@@ -58,7 +58,7 @@ def test_stepwise_warps_each_gt_frame_once():
     phis = _identity_phis(2, T, 16, 16)
     times = torch.tensor([0.0, 1.0])
 
-    frames, labels = build_stepwise_trajectory(gt, phis, times, T, (2, 16, 16), start=0)
+    frames, labels = build_stepwise_trajectory(gt, phis, times, T, (16, 16), start=0)
 
     assert labels == [0.0, 1.0, 2.0, 3.0]
     assert len(frames) == T

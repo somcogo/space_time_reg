@@ -53,6 +53,11 @@ def _psnr(pred, gt):
     return (10 * torch.log10(g.max() ** 2 / mse)).item()
 
 
+def _volume(T, H, W, shift_px):
+    """The phantom as the pipeline's single-slice volume [T, 2, 1, H, W]."""
+    return moving_phantom(T=T, H=H, W=W, shift_px=shift_px)[0].unsqueeze(2)
+
+
 def _build(config, moving, forward):
     config.func_kwargs = build_velocity_kwargs(config, dims=2)
     func = get_func(config.func_name, config.func_kwargs)
@@ -96,7 +101,7 @@ def test_S0_registration_recovers_shift():
     frame-to-frame residual well below identity (the S0 pass criterion)."""
     torch.manual_seed(0)
     config = _cpu_config(time_points=3, lambda_st=0.0, lambda_rl2=1.0)
-    moving_gt, _shift = moving_phantom(T=3, H=32, W=32, shift_px=2.0)
+    moving_gt = _volume(T=3, H=32, W=32, shift_px=2.0)
     moving = nn.Parameter(moving_gt.clone())
 
     func, inputs = _build(config, moving, FastmriFT())
@@ -116,7 +121,7 @@ def _drift_after_optim(lambda_rl2, steps=40):
     """Start the recon at GT, optimize jointly under fully-sampled DC, return PSNR vs GT."""
     torch.manual_seed(0)
     config = _cpu_config(time_points=3, lambda_st=1.0, lambda_rl2=lambda_rl2, learn_recon=True)
-    moving_gt, _ = moving_phantom(T=3, H=32, W=32, shift_px=2.0)
+    moving_gt = _volume(T=3, H=32, W=32, shift_px=2.0)
     moving = nn.Parameter(moving_gt.clone())
     func, inputs = _build(config, moving, FastmriFT())
     _optimize(config, func, inputs, steps=steps, learn_recon=True)
@@ -174,7 +179,7 @@ def test_S4_masked_gt_init_bounded_drift():
     H = W = 64
     config = _cpu_config(time_points=3, lambda_st=1.0, lambda_rl2=1.0,
                          learn_recon=True)
-    moving_gt, _ = moving_phantom(T=3, H=H, W=W, shift_px=2.0)
+    moving_gt = _volume(T=3, H=H, W=W, shift_px=2.0)
     moving = nn.Parameter(moving_gt.clone())
 
     mask = generate_standard_mask(moving_gt.shape, factor=2)

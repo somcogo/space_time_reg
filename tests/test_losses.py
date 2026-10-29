@@ -27,8 +27,8 @@ def _identity_model_outputs(config, h=8, w=8, moving=None):
     coord = generate_coord_tensor((h, w), "cpu")
     abs_phi = coord.expand((config.time_points - 1, -1, -1)).contiguous()
     if moving is None:
-        moving = torch.zeros(config.time_points, 2, h, w)
-    st = get_spatial_transformer(abs_phi, moving.shape[1:], config)
+        moving = torch.zeros(config.time_points, 2, 1, h, w)
+    st = get_spatial_transformer(abs_phi, moving.shape[2:], config)
     return coord, ModelOutputs(rel_vel=None, abs_phi=abs_phi, transformer=st)
 
 
@@ -97,8 +97,8 @@ def test_log_detJ_is_zero_for_identity_deformation():
 def test_imdiff_is_zero_when_frames_match_and_transform_identity():
     config = _config()
     h = w = 8
-    frame = torch.randn(1, 2, h, w)
-    moving = frame.repeat(config.time_points, 1, 1, 1)  # identical frames
+    frame = torch.randn(1, 2, 1, h, w)
+    moving = frame.repeat(config.time_points, 1, 1, 1, 1)  # identical frames
     _, model_outputs = _identity_model_outputs(config, h, w, moving)
     inputs = Inputs(moving=moving, moving_inr=None, fixed=None, forward=None)
     loss, _ = im_space_l2_loss(config, inputs, model_outputs)
@@ -108,7 +108,7 @@ def test_imdiff_is_zero_when_frames_match_and_transform_identity():
 def test_data_fidelity_zero_when_recon_matches_measurements():
     config = _config()
     h = w = 8
-    moving = torch.randn(config.time_points, 2, h, w)
+    moving = torch.randn(config.time_points, 2, 1, h, w)
     forw = FastmriFT()
     fixed = forw(moving)  # measurements consistent with the recon
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
@@ -124,13 +124,14 @@ def test_joint_recon_loss_is_the_init_energy(init_reg_abs):
                     reg_variant="wcrr", recon_scale=3.0, lambda_init_recon=0.05, lambda_recon=0.05,
                     init_reg_abs=init_reg_abs, init_grad="analytic").finalize()
     g = torch.Generator().manual_seed(0)
-    x = 0.05 * torch.randn(2, 2, 32, 48, generator=g)
-    mask = torch.zeros(2, 2, 32, 48)
-    mask[:, :, ::3] = 1
-    kdata = mask * FastmriFT()(0.05 * torch.randn(2, 2, 32, 48, generator=g))
+    x = 0.05 * torch.randn(2, 2, 1, 32, 48, generator=g)  # one slice, D = 1
+    mask = torch.zeros(2, 2, 1, 32, 48)
+    mask[..., ::3, :] = 1
+    kdata = mask * FastmriFT()(0.05 * torch.randn(2, 2, 1, 32, 48, generator=g))
     reg = get_reg(config)
     *_, energy_and_grad = get_functions(config, reg, FastmriFT(), FastmriIFT())
-    energy, grad = energy_and_grad(x, torch.cat([kdata, mask], dim=1))
+    # the init solves each slice as a 2D batch item
+    energy, grad = energy_and_grad(x[:, :, 0], torch.cat([kdata, mask], dim=1)[:, :, 0])
 
     moving = x.clone().requires_grad_(True)
     inputs = Inputs(moving=moving, moving_inr=None, fixed=kdata, forward=MaskedFT(mask))
@@ -138,13 +139,13 @@ def test_joint_recon_loss_is_the_init_energy(init_reg_abs):
     loss_sum, _ = calculate_losses(config, inputs, None, None, losses, reg)
     loss_sum.backward()
     assert torch.allclose(loss_sum.detach(), energy.sum(), rtol=1e-6)
-    assert (moving.grad - grad).norm() / grad.norm() < 1e-4
+    assert (moving.grad[:, :, 0] - grad).norm() / grad.norm() < 1e-4
 
 
 def test_use_nreps_without_inr_raises_clear_error():
     config = Config(device="cpu", dataset="cmr_P001", use_nreps=True, time_points=3).finalize()
     h = w = 8
     _, model_outputs = _identity_model_outputs(config, h, w)
-    inputs = Inputs(moving=torch.zeros(3, 2, h, w), moving_inr=None, fixed=None, forward=None)
+    inputs = Inputs(moving=torch.zeros(3, 2, 1, h, w), moving_inr=None, fixed=None, forward=None)
     with pytest.raises(ValueError, match="use_nreps"):
         im_space_l2_loss(config, inputs, model_outputs)
