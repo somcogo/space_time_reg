@@ -37,7 +37,7 @@ def test_synthesized_frames_follow_the_known_motion():
     assert phi.shape == (2, 24 * 40, 2)
     assert torch.equal(frames[0], gt[0])
     for k in range(2):  # frame_{k+1} = warp(frame_k, phi_k): phi is the exact frame-to-frame motion
-        warped = GridSampleTransformer(phi[k:k + 1], gt.shape[2:]).apply(frames[k:k + 1])
+        warped = GridSampleTransformer(phi[k:k + 1], [-1, *gt.shape[2:], 2]).apply(frames[k:k + 1])
         assert torch.allclose(frames[k + 1:k + 2], warped, atol=1e-6)
 
 
@@ -120,7 +120,8 @@ def test_fixed_motion_outputs():
 
     gt = _frames()
     _, phi = synthesize(_cfg(), gt)
-    inputs = Inputs(moving=gt.clone(), moving_inr=None, fixed=None, forward=None)
+    inputs = Inputs(moving=gt.clone(), moving_inr=None, fixed=None, forward=None,
+                    phi_shape=[-1, 24, 40, 2])
     known = EvalInputs(init_recon=gt, gt_im=gt, seg_moving=None, seg_fixed=None, gt_phi=phi)
     coord = generate_coord_tensor((24, 40), "cpu")
 

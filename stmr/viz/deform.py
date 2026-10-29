@@ -107,7 +107,7 @@ def build_trajectory(source, phis, times, T, grid_shape, start=0):
     for k in range(start, T - 1):
         for i in range(1, substeps + 1):
             phi = phis[i, k:k + 1]  # [1, H*W, 2]
-            warped = GridSampleTransformer(phi, grid_shape).apply(img_k)
+            warped = GridSampleTransformer(phi, [-1, *grid_shape, len(grid_shape)]).apply(img_k)
             frames.append(warped)
             labels.append(float(k + times[i].item()))
         img_k = frames[-1]  # reached frame k+1 (s=1)
@@ -128,7 +128,7 @@ def build_stepwise_trajectory(gt_im, phis, times, T, grid_shape, start=0):
         src_k = gt_im[k:k + 1]  # the actual GT frame k, not the running warped image
         for i in range(1, substeps + 1):
             phi = phis[i, k:k + 1]
-            frames.append(GridSampleTransformer(phi, grid_shape).apply(src_k))
+            frames.append(GridSampleTransformer(phi, [-1, *grid_shape, len(grid_shape)]).apply(src_k))
             labels.append(float(k + times[i].item()))
     return frames, labels
 

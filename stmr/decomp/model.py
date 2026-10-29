@@ -39,7 +39,7 @@ def make_integrator(net, coord, groups, solver, step_size):
 
 def warp(abs_phi, src, H, W):
     """Warp src [groups, C, H, W] by the deformation abs_phi [groups, H*W, 2]."""
-    return GridSampleTransformer(abs_phi, (H, W)).apply(src)
+    return GridSampleTransformer(abs_phi, [-1, H, W, 2]).apply(src)
 
 
 def compose_fields(abs_phi1, abs_phi2, H, W):

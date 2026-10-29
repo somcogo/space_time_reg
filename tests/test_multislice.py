@@ -8,6 +8,7 @@ from argparse import Namespace
 
 import pytest
 import torch
+from _phantom import phi_shape_of
 from torch import nn
 
 from stmr.config import Config, build_velocity_kwargs, parse_cli
@@ -70,7 +71,7 @@ def test_folded_init_matches_solving_each_slice_alone():
 
 
 def test_single_slice_motion_lives_on_the_in_plane_grid():
-    ident = generate_coord_tensor((1, 8, 12), "cpu")
+    ident = generate_coord_tensor((8, 12), "cpu")
     assert ident.shape == (8 * 12, 2)
     detJ = detJ_from_phi(ident.unsqueeze(0), 1, 8, 12)
     assert detJ.shape == (1, 8, 12)
@@ -115,13 +116,14 @@ def test_motion_and_loss_backward_on_a_volume(n_slices):
     moving = nn.Parameter(torch.randn(config.time_points, 2, n_slices, h, w))
     forw = FastmriFT()
     fixed = forw(moving.detach())
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw,
+                    phi_shape=phi_shape_of(moving))
 
-    coord = generate_coord_tensor(moving.shape[2:], "cpu")
+    coord = generate_coord_tensor(inputs.phi_shape[1:-1], "cpu")
     coord.requires_grad = True
 
     losses = get_relevant_loss_names(config)
-    model_outputs = get_model_outputs(config, func, coord, inputs)
+    model_outputs = get_model_outputs(config, func, coord, inputs.phi_shape)
     assert model_outputs.abs_phi.shape == (config.time_points - 1, n_slices * h * w if dims == 3 else h * w, dims)
     loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord, losses, None)
 

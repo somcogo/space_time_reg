@@ -28,7 +28,7 @@ def _identity_model_outputs(config, h=8, w=8, moving=None):
     abs_phi = coord.expand((config.time_points - 1, -1, -1)).contiguous()
     if moving is None:
         moving = torch.zeros(config.time_points, 2, 1, h, w)
-    st = get_spatial_transformer(abs_phi, moving.shape[2:], config)
+    st = get_spatial_transformer(abs_phi, [-1, h, w, 2], config)
     return coord, ModelOutputs(rel_vel=None, abs_phi=abs_phi, transformer=st)
 
 
@@ -100,7 +100,7 @@ def test_imdiff_is_zero_when_frames_match_and_transform_identity():
     frame = torch.randn(1, 2, 1, h, w)
     moving = frame.repeat(config.time_points, 1, 1, 1, 1)  # identical frames
     _, model_outputs = _identity_model_outputs(config, h, w, moving)
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=None, forward=None)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=None, forward=None, phi_shape=[-1, h, w, 2])
     loss, _ = im_space_l2_loss(config, inputs, model_outputs)
     assert loss.abs().max() < 1e-4
 
@@ -111,8 +111,8 @@ def test_data_fidelity_zero_when_recon_matches_measurements():
     moving = torch.randn(config.time_points, 2, 1, h, w)
     forw = FastmriFT()
     fixed = forw(moving)  # measurements consistent with the recon
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
-    loss, _ = similarity_loss(config, inputs, None)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw, phi_shape=[-1, h, w, 2])
+    loss, _ = similarity_loss(config, inputs)
     assert loss.abs().max() < 1e-5
 
 
@@ -134,7 +134,8 @@ def test_joint_recon_loss_is_the_init_energy(init_reg_abs):
     energy, grad = energy_and_grad(x[:, :, 0], torch.cat([kdata, mask], dim=1)[:, :, 0])
 
     moving = x.clone().requires_grad_(True)
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=kdata, forward=MaskedFT(mask))
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=kdata, forward=MaskedFT(mask),
+                    phi_shape=[-1, 32, 48, 2])
     losses = {k: v for k, v in get_relevant_loss_names(config).items() if k in ("sim", "recon_reg")}
     loss_sum, _ = calculate_losses(config, inputs, None, None, losses, reg)
     loss_sum.backward()
@@ -146,6 +147,7 @@ def test_use_nreps_without_inr_raises_clear_error():
     config = Config(device="cpu", dataset="cmr_P001", use_nreps=True, time_points=3).finalize()
     h = w = 8
     _, model_outputs = _identity_model_outputs(config, h, w)
-    inputs = Inputs(moving=torch.zeros(3, 2, 1, h, w), moving_inr=None, fixed=None, forward=None)
+    inputs = Inputs(moving=torch.zeros(3, 2, 1, h, w), moving_inr=None, fixed=None, forward=None,
+                    phi_shape=[-1, h, w, 2])
     with pytest.raises(ValueError, match="use_nreps"):
         im_space_l2_loss(config, inputs, model_outputs)

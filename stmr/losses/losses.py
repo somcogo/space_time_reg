@@ -39,11 +39,11 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, rec
     dispatch = {
         'sim': lambda: similarity_loss(config, inputs),
         'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
-        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, inputs, config.voxel_spacing),
-        'detJ': lambda: detJ_loss(model_outputs, coord_tensor, inputs),
-        'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, inputs),
-        'grd': lambda: vel_grad_loss(model_outputs, inputs),
-        'lap': lambda: vel_lap_loss(model_outputs, inputs),
+        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, inputs.phi_shape, config.voxel_spacing),
+        'detJ': lambda: detJ_loss(model_outputs, coord_tensor, inputs.phi_shape),
+        'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, inputs.phi_shape),
+        'grd': lambda: vel_grad_loss(model_outputs, inputs.phi_shape),
+        'lap': lambda: vel_lap_loss(model_outputs, inputs.phi_shape),
         'recon_reg': lambda: compute_recon_reg_loss(config, inputs, recon_regularizer),
         'mcdc': lambda: motion_comp_dc_loss(config, inputs, model_outputs),
     }
@@ -107,12 +107,12 @@ def im_space_l2_loss(config, inputs, model_outputs):
 
     return loss, moved_im.detach().cpu()
 
-def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, inputs: Inputs, spacing=None):
+def grad_phi_loss(model_outputs, coord_tensor: torch.Tensor, shape: list, spacing=None):
     # ||Dphi - Id||_fro: penalizes the deformation's Jacobian for departing from the
     # identity, i.e. penalizes the gradient of the displacement field phi - x. Measured in
     # physical units (see _pixel_phi_Jacobian) so the penalty is isotropic in mm, on
     # non-square images and across thick slices.
-    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, inputs.phi_shape, spacing)
+    J = _pixel_phi_Jacobian(model_outputs, coord_tensor, shape, spacing)
     eye = torch.eye(J.shape[-1], device=J.device, dtype=J.dtype)
     loss = grad_phi_norm(J, eye)
     return loss, None
@@ -148,32 +148,32 @@ def _relative_phi_Jacobian(model_outputs, coord_tensor, shape):
     I = get_Jacobian(coord_tensor, shape)
     return phi_J @ torch.linalg.inv(I)
 
-def detJ_loss(model_outputs, coord_tensor, inputs):
+def detJ_loss(model_outputs, coord_tensor, shape):
     # (det(D phi) - 1)^2: penalizes local volume change of the deformation away from 1
     # (volume-preserving). Squared so over- and under-expansion both push the loss up and
     # the term stays non-negative (an unsquared det - 1 would be minimized by driving det
     # to -inf).
-    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, inputs.phi_shape))
+    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, shape))
     loss = (detJ - 1) ** 2
     return loss, None
 
-def log_detJ_loss(model_outputs, coord_tensor, inputs, eps=1e-6):
+def log_detJ_loss(model_outputs, coord_tensor, shape, eps=1e-6):
     # log(det(D phi))^2: symmetric under det -> 1/det (unlike (det-1)^2), so compression and
     # expansion by the same factor are penalized equally. Squared for the same reason as
     # detJ_loss above. det is clamped away from 0 to avoid log(<=0) under a fold.
-    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, inputs.phi_shape))
+    detJ = torch.linalg.det(_relative_phi_Jacobian(model_outputs, coord_tensor, shape))
     loss = torch.log(detJ.clamp_min(eps)) ** 2
     return loss, None
 
-def vel_grad_loss(model_outputs, inputs):
+def vel_grad_loss(model_outputs, shape):
     rel_vel = model_outputs.rel_vel
-    J = get_Jacobian(rel_vel, inputs.phi_shape)
+    J = get_Jacobian(rel_vel, shape)
     loss = torch.linalg.vector_norm(J, dim=-1)
     return loss, None
 
-def vel_lap_loss(model_outputs, inputs):
+def vel_lap_loss(model_outputs, shape):
     rel_vel = model_outputs.rel_vel
-    lap = get_Laplacian(rel_vel, inputs.phi_shape)
+    lap = get_Laplacian(rel_vel, shape)
     loss = torch.linalg.vector_norm(lap, dim=-1)
     return loss, None
 

@@ -32,13 +32,13 @@ def test_end_to_end_motion_and_loss_backward_on_cpu():
     moving = nn.Parameter(torch.randn(config.time_points, 2, 1, h, w))  # one slice, D = 1
     forw = FastmriFT()
     fixed = forw(moving.detach())
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw, phi_shape=[-1, h, w, 2])
 
     coord = generate_coord_tensor((h, w), "cpu")
     coord.requires_grad = True
 
     losses = get_relevant_loss_names(config)
-    model_outputs = get_model_outputs(config, func, coord, inputs)
+    model_outputs = get_model_outputs(config, func, coord, inputs.phi_shape)
     loss_sum, loss_outputs = calculate_losses(config, inputs, model_outputs, coord, losses, None)
 
     assert torch.isfinite(loss_sum)

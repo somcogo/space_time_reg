@@ -88,7 +88,7 @@ def inverse_consistency(phi_fwd: torch.Tensor, phi_bwd: torch.Tensor, gt_im: tor
     for k in range(T - 1):
         j = T - 2 - k
         u_fwd = (phi_fwd[k] - coord).reshape(*grid, C).movedim(-1, 0)[None]            # [1, C, *grid]
-        u_fwd_at = GridSampleTransformer(phi_bwd[j:j + 1], grid).apply(u_fwd)[0]  # u_fwd(phi_bwd(x))
+        u_fwd_at = GridSampleTransformer(phi_bwd[j:j + 1], [-1, *grid, C]).apply(u_fwd)[0]  # u_fwd(phi_bwd(x))
         u_bwd = (phi_bwd[j] - coord).reshape(*grid, C).movedim(-1, 0)
         errs.append(((u_bwd + u_fwd_at).movedim(0, -1) * span).norm(dim=-1))
     err = torch.stack(errs)                                                             # [T-1, *grid]

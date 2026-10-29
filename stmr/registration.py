@@ -12,7 +12,6 @@ from stmr.config import Config
 from stmr.data.data_utils import get_dataset_capabilities
 from stmr.data.recon_init import get_reg
 from stmr.losses.losses import calculate_losses
-from stmr.losses.recon_reg import get_recon_regularizer
 from stmr.metrics.calc_metrics import calculate_metrics, get_relevant_loss_names
 from stmr.state import EvalInputs, Inputs, LossOutputs, ModelOutputs, RegistrationResult
 from stmr.utils.logging import log_metrics
@@ -38,7 +37,7 @@ def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalIn
     """Motion held fixed instead of learned (oracle and control runs): the known motion of
     synthetic frames ('gt'), no motion ('identity'), or the phi saved in a res.pt."""
     T = inputs.moving.shape[0]
-    coord = generate_coord_tensor(inputs.moving.shape[2:], config.device, inputs.phi_shape)
+    coord = generate_coord_tensor(inputs.phi_shape[1:-1], config.device)
     if config.fixed_motion == 'identity':
         abs_phi = coord.expand(T - 1, -1, -1).contiguous()
     elif config.fixed_motion == 'gt':
@@ -88,7 +87,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     moving.requires_grad_(config.learn_recon)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
     
-    coord_tensor = generate_coord_tensor(moving.shape[2:], config.device, inputs.phi_shape)
+    coord_tensor = generate_coord_tensor(inputs.phi_shape[1:-1], config.device)
 
     # Fixed motion: built once and reused every epoch; the motion net gets no gradient.
     fixed_outputs = None

@@ -31,7 +31,7 @@ from stmr.registration import get_model_outputs
 from stmr.state import Inputs
 from stmr.utils.spatial_utils import generate_coord_tensor
 
-from _phantom import moving_phantom
+from _phantom import moving_phantom, phi_shape_of
 
 
 def _cpu_config(**over):
@@ -62,7 +62,8 @@ def _build(config, moving, forward):
     config.func_kwargs = build_velocity_kwargs(config, dims=2)
     func = get_func(config.func_name, config.func_kwargs)
     fixed = forward(moving.detach())
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forward)
+    inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forward,
+                    phi_shape=phi_shape_of(moving))
     return func, inputs
 
 
@@ -73,10 +74,10 @@ def _optimize(config, func, inputs, steps, learn_recon):
     inputs.moving.requires_grad_(learn_recon)
     losses = get_relevant_loss_names(config)
     for _ in range(steps):
-        coord = generate_coord_tensor(inputs.moving.shape[2:], "cpu")
+        coord = generate_coord_tensor(inputs.phi_shape[1:-1], "cpu")
         coord.requires_grad = True
         opt.zero_grad()
-        model_outputs = get_model_outputs(config, func, coord, inputs)
+        model_outputs = get_model_outputs(config, func, coord, inputs.phi_shape)
         loss_sum, _ = calculate_losses(config, inputs, model_outputs, coord, losses, None)
         loss_sum.backward()
         opt.step()
@@ -85,10 +86,10 @@ def _optimize(config, func, inputs, steps, learn_recon):
 
 def _imdiff_residual(moving, config, func):
     """Base (identity) vs warped consecutive-frame magnitude MSE for the current motion."""
-    coord = generate_coord_tensor(moving.shape[2:], "cpu")
-    inputs = Inputs(moving=moving, moving_inr=None, fixed=None, forward=None)
+    phi_shape = phi_shape_of(moving)
+    coord = generate_coord_tensor(phi_shape[1:-1], "cpu")
     with torch.no_grad():
-        mo = get_model_outputs(config, func, coord, inputs)
+        mo = get_model_outputs(config, func, coord, phi_shape)
         mag = complex_abs(moving.movedim(1, -1))
         warped = complex_abs(mo.transformer.apply(moving[:-1]).movedim(1, -1))
     base = (mag[:-1] - mag[1:]).pow(2).mean().item()
@@ -161,8 +162,9 @@ def test_fft_sim_equals_image_sim():
     def sim_loss(sim_domain):
         cfg = _cpu_config(time_points=3, lambda_st=1.0, lambda_rl2=0.0, sim_domain=sim_domain)
         moving = nn.Parameter(perturbed.clone())
-        inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw)
-        loss = similarity_loss(cfg, inputs, None)[0].mean()
+        inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw,
+                        phi_shape=[-1, 16, 16, 2])
+        loss = similarity_loss(cfg, inputs)[0].mean()
         loss.backward()
         return loss.item(), moving.grad.clone()
 

@@ -45,9 +45,8 @@ for run in runs:
         abs_phi = phi.reshape(T-1, H*W, 2) if phi.dim() == 4 else phi
         if abs_phi.shape[0] != T-1:
             continue
-        # 2D runs: one slice [T-1, C, 1, H, W], which the transformer moves in-plane
         ST = GridSampleTransformer(abs_phi, [-1, H, W, 2])
-        warped_mag = complex_abs(ST.apply(moving[:-1].unsqueeze(2))[:, :, 0].movedim(1, -1))
+        warped_mag = complex_abs(ST.apply(moving[:-1]).movedim(1, -1))
         mse = lambda a, b: (a-b).pow(2).mean().item()
         base, warp = mse(mag[:-1], mag[1:]), mse(warped_mag, mag[1:])
         tag = os.path.basename(os.path.dirname(run))
@@ -67,7 +66,7 @@ H = W = 64
 ys, xs = torch.meshgrid(torch.linspace(-1, 1, H), torch.linspace(-1, 1, W), indexing='ij')
 img = (torch.exp(-((xs)**2+(ys)**2)/0.2) + 0.5*torch.exp(-((xs-0.3)**2+(ys+0.2)**2)/0.02))[None, None].to(dev)
 gx, gy = xs.to(dev), ys.to(dev)
-coord = generate_coord_tensor((1, H, W), dev, [-1, H, W, 2])
+coord = generate_coord_tensor((H, W), dev)
 t01 = torch.tensor([0., 1.], device=dev)
 for px in [1.0, 3.0, 6.0]:
     amp = px/(W/2)
@@ -79,7 +78,7 @@ for px in [1.0, 3.0, 6.0]:
     for _ in range(300):
         opt.zero_grad()
         aphi = odeint(net, coord.unsqueeze(0), t01, method='euler', options={'step_size': 0.1})[1]
-        loss = (GridSampleTransformer(aphi, [-1, H, W, 2]).apply(img.unsqueeze(2))[:, :, 0] - target).pow(2).mean()
+        loss = (GridSampleTransformer(aphi, [-1, H, W, 2]).apply(img) - target).pow(2).mean()
         loss.backward(); opt.step()
     print(f"  known {px:.0f}px deformation: residual {init:.2e} -> {loss.item():.2e}  "
           f"({100*(init-loss.item())/init:.0f}% reduced, {'RECOVERED' if loss.item()<0.1*init else 'FAILED'})")

@@ -4,15 +4,16 @@ import torch.nn.functional as F
 
 class GridSampleTransformer:
     def __init__(self, abs_phi, phi_shape):
-        self.squeeze_img = len(phi_shape) == 4
+        self.in_2d = len(phi_shape) == 4
         grid = abs_phi.reshape(phi_shape)
         self.grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
 
     def apply(self, input_img, mode='bilinear'):
-        if self.squeeze_img:
+        squeeze = self.in_2d and input_img.dim() == 5
+        if squeeze:
             input_img = input_img.squeeze(2)
         output_img = F.grid_sample(input_img, self.grid, align_corners=True, mode=mode)
-        if self.squeeze_img:
+        if squeeze:
             output_img = output_img.unsqueeze(2)
         return output_img
     

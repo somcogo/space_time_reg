@@ -43,7 +43,7 @@ def run(config: Config):
     init_metrics, init_imgs = calc_init_metrics(config, eval_inputs=eval_inputs)
     log_metrics(config, init_metrics, writer, 0, init_imgs, True)
 
-    dims = 2 if inputs.fixed.shape[2] == 1 else 3
+    dims = len(inputs.phi_shape) - 2
     config.func_kwargs = build_velocity_kwargs(config, dims)
 
     func = get_func(config.func_name, config.func_kwargs).to(config.device)

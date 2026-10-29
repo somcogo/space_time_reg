@@ -3,7 +3,6 @@ from torch import nn
 
 from stmr.config import Config
 from stmr.registration import get_model_outputs
-from stmr.state import Inputs
 from stmr.utils.spatial_utils import generate_coord_tensor
 
 
@@ -23,9 +22,7 @@ def _config():
                   step_size=0.1, use_nreps=False).finalize()
 
 
-def _inputs(h=8, w=8):
-    moving = torch.zeros(3, 2, 1, h, w)  # only .shape[2:] is used by the transformer
-    return Inputs(moving=moving, moving_inr=None, fixed=None, forward=None)
+PHI_SHAPE = [-1, 8, 8, 2]  # one 8x8 slice
 
 
 def test_zero_velocity_flow_is_identity():
@@ -33,7 +30,7 @@ def test_zero_velocity_flow_is_identity():
     coord = generate_coord_tensor((8, 8), "cpu")
     coord.requires_grad = True
     func = _ConstVelocity([0.0, 0.0])
-    abs_phi = get_model_outputs(config, func, coord, _inputs()).abs_phi
+    abs_phi = get_model_outputs(config, func, coord, PHI_SHAPE).abs_phi
     # flow of a zero field leaves the identity grid unchanged
     expected = coord.expand((config.time_points - 1, -1, -1))
     assert torch.allclose(abs_phi, expected, atol=1e-5)
@@ -45,6 +42,6 @@ def test_constant_velocity_translates_grid():
     coord.requires_grad = True
     shift = [0.1, -0.2]
     func = _ConstVelocity(shift)
-    abs_phi = get_model_outputs(config, func, coord, _inputs()).abs_phi
+    abs_phi = get_model_outputs(config, func, coord, PHI_SHAPE).abs_phi
     expected = coord.expand((config.time_points - 1, -1, -1)) + torch.tensor(shift)
     assert torch.allclose(abs_phi, expected, atol=1e-5)

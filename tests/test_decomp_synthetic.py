@@ -19,7 +19,7 @@ def test_two_stage_decomposition_cpu():
     big = torch.stack([0.15 * torch.cos(2 * coord[:, 1]), 0.15 * torch.sin(2 * coord[:, 0])], -1)
     small = torch.stack([0.02 * torch.cos(9 * coord[:, 1]), 0.02 * torch.sin(9 * coord[:, 0])], -1)
     aphi = (coord + big + small).unsqueeze(0)                    # [1, N, 2]
-    tgt = GridSampleTransformer(aphi, (H, W)).apply(src)
+    tgt = GridSampleTransformer(aphi, [-1, H, W, 2]).apply(src)
 
     out = run_two_stage_core(src, tgt, H, W, layers1=[2, 32, 32, 2], layers2=[2, 64, 64, 2],
                              steps1=150, steps2=150, lr=1e-3, step_size=0.2, device="cpu",

@@ -71,7 +71,7 @@ def synthesize(config, gt_im: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]
     phi = known_flow(config, T, H, W, gt_im.device).to(gt_im.dtype)
 
     def warp(img, k):
-        return GridSampleTransformer(phi[k:k + 1], (H, W)).apply(img)
+        return GridSampleTransformer(phi[k:k + 1], [-1, H, W, 2]).apply(img)
 
     frames = [gt_im[:1]]
     for k in range(T - 1):
