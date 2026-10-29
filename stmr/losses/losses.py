@@ -8,10 +8,11 @@ from stmr.data.fft_utils import fft2c_new, ifft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
 from stmr.state import Inputs, LossOutputs, ModelOutputs
 
-# sim + recon_reg are the nmAPG init's energy, summed as there (so lambda_recon means the same
-# as lambda_init_recon). The motion terms are per-voxel means, so their lambdas don't change
-# with T, D or the resolution.
-SUMMED_LOSSES = ('sim', 'recon_reg')
+# sim + recon_reg are the nmAPG init's energy: summed over the pixels of each 2D (frame, slice)
+# image as there (so lambda_recon means the same in the init and here), then averaged over the
+# T*D images. The motion terms are per-voxel means. Either way the balance between the terms,
+# and so the lambdas, doesn't change with T or D.
+PER_IMAGE_LOSSES = ('sim', 'recon_reg')
 
 
 def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_tensor,
@@ -19,13 +20,14 @@ def calculate_losses(config, inputs: Inputs, model_outputs: ModelOutputs, coord_
     # abs_phi, rel_vel: [T-1, N, C] on the motion grid (see state.py)
     loss_sum = 0.
     moved_imgs_imspace = None
+    n_images = inputs.moving.shape[0] * inputs.moving.shape[2]  # T * D
     for loss_name, loss_dict in losses.items():
         t1 = time.time()
         l, m_image = calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, recon_regularizer)
         t2 = time.time()
 
         moved_imgs_imspace = m_image if m_image is not None else moved_imgs_imspace
-        mean = l.sum() if loss_name in SUMMED_LOSSES else l.mean()
+        mean = l.sum() / n_images if loss_name in PER_IMAGE_LOSSES else l.mean()
         loss_dict['mean'] = mean.detach().cpu()
         loss_dict['loss'] = l.detach()
         loss_dict['time'] += t2 - t1

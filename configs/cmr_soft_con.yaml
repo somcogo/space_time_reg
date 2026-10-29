@@ -18,7 +18,6 @@ use_nmapg: true
 recon_epochs: 150
 init_lr: 1.0e-2
 init_loss: l2
-lambda_init_recon: 2.0e-2
 
 # reconstruction regularizer
 reg: learned
@@ -50,12 +49,11 @@ motion_warmup: 0
 use_nreps: false
 
 # losses
-loss: mse
 lambda_st: 1.0
 lambda_grad_phi: 1.0e-2  # isotropic pixel-unit grad_phi, swept value (S0 BASE); was 1e-3 with the old anisotropic loss
 lambda_grd: 0
 lambda_lap: 0
-lambda_recon: 2.0e-2  # = lambda_init_recon
+lambda_recon: 2.0e-2  # the prior's weight in the nmAPG init and the joint loop
 lambda_rl2: 1.0e+2
 
 log_cadence: 50

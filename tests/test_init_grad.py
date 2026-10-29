@@ -13,7 +13,7 @@ from stmr.data.recon_init import get_functions, get_reg
 
 def _config(**kw):
     base = dict(device="cpu", reg="learned", reg_variant="wcrr", reg_alpha=1.0, recon_scale=3.0,
-                lambda_init_recon=0.05, lambda_st=1.0, init_loss="l2", init_reg_abs=False,
+                lambda_recon=0.05, lambda_st=1.0, init_loss="l2", init_reg_abs=False,
                 detach_grads=True, init_grad="autograd")
     return Namespace(**{**base, **kw})
 

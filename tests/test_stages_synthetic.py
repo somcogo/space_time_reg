@@ -38,7 +38,7 @@ def _cpu_config(**over):
     base = dict(
         device="cpu", dataset="cmr_P001", func_name="groupsiren",
         siren_depth=2, siren_dim=16, solver="euler", step_size=0.5,
-        loss="mse", use_nreps=False,
+        use_nreps=False,
         lambda_grad_phi=1e-2, lambda_grd=0.0, lambda_lap=0.0,
         lambda_recon=0.0, lambda_mcdc=0.0,
     )

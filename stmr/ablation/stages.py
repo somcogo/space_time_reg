@@ -67,7 +67,6 @@ BASE = dict(
     weight_decay=0.0,
     interval=0,
     motion_warmup=0,
-    loss="mse",
     lambda_grad_phi=1e-2,  # isotropic pixel-unit grad_phi; picked by known-truth sweep (~ old anisotropic 1.0)
     lambda_grd=0.0,
     lambda_lap=0.0,
@@ -176,17 +175,19 @@ _FT = dict(sim_domain="fourier")
 # + real nmAPG init: replace the GT init with the actual nmAPG-based initial reconstruction
 # pathway used by the real pipeline (still runs whatever dataset/domain is active so far).
 #
-# The regularizer fields (reg/reg_variant/reg_alpha/recon_scale) are set here too, even
-# though this block doesn't turn lambda_recon on: nmAPG always needs *some* regularizer for
-# its internal energy (see stmr/data/recon_init.py get_reg), and recon_epochs/init_lr/
-# lambda_init_recon above were tuned assuming the pretrained CRR prior at this scale (they
-# match configs/cmr_soft_con.yaml). Without this, a ladder that reaches _NMAPG_INIT before
-# _LEARNED_REG (ladder 1) falls back to the bare Config defaults (reg_variant='crr',
-# recon_scale=0.1) -- a stale, uncalibrated regularizer -- and nmAPG produces a badly
-# under/over-regularized init unrelated to whatever the stage is actually trying to isolate.
+# The regularizer fields (reg/reg_variant/reg_alpha/recon_scale/lambda_recon) are set here too:
+# nmAPG always needs *some* regularizer for its internal energy (see stmr/data/recon_init.py
+# get_reg), and recon_epochs/init_lr/lambda_recon above were tuned assuming the pretrained CRR
+# prior at this scale (they match configs/cmr_soft_con.yaml). lambda_recon weights the prior in
+# the joint loop too, so from this block on the prior is on there as well (in ladder 1 that
+# makes S5's _LEARNED_REG a no-op on top of S4). Without the reg fields, a ladder that reaches
+# _NMAPG_INIT before _LEARNED_REG (ladder 1) falls back to the bare Config defaults
+# (reg_variant='crr', recon_scale=0.1) -- a stale, uncalibrated regularizer -- and nmAPG
+# produces a badly under/over-regularized init unrelated to whatever the stage is actually
+# trying to isolate.
 _NMAPG_INIT = dict(
     init="adj", init_skip=False, use_nmapg=True, recon_epochs=300,
-    init_lr=1e-2, init_loss="l2", lambda_init_recon=0.2,
+    init_lr=1e-2, init_loss="l2", lambda_recon=0.2,
     reg="learned", reg_variant="crr", reg_alpha=1.0, recon_scale=3.55,
 )
 
@@ -195,7 +196,7 @@ _UNDERSAMPLING = dict(dataset="cmr_P001")
 
 # + learned reg: turn on the pretrained CRR prior as a joint-optimisation regularizer.
 _LEARNED_REG = dict(
-    lambda_recon=0.2, reg="learned", reg_variant="crr",  # = _NMAPG_INIT's lambda_init_recon
+    lambda_recon=0.2, reg="learned", reg_variant="crr",  # = _NMAPG_INIT's
     reg_alpha=1.0, recon_scale=3.55,
 )
 

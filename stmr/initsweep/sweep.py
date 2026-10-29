@@ -4,7 +4,7 @@ Each grid point is one full init solve (`python -m stmr.initsweep run`) into
 log/initsweep/<root>/<label>/. `aggregate` reads each run's res.pt into a table plus the
 summary and L-curve figures. Mirrors stmr/decomp/sweep.py.
 
-The grid is (lambda_init_recon x recon_scale) so adding the scale axis later is just passing
+The grid is (lambda_recon x recon_scale) so adding the scale axis later is just passing
 more values -- with a single scale it collapses to the 1D lambda sweep.
 """
 
@@ -32,7 +32,7 @@ def build_grid(lambdas=None, scales=None):
 
 def _cli(lam, scale, label, gpu, root, extra):
     exp = f"{root}/{label}"
-    sets = [f"lambda_init_recon={lam}"]
+    sets = [f"lambda_recon={lam}"]
     if scale is not None:
         sets.append(f"recon_scale={scale}")
     sets.extend(extra or [])
@@ -92,7 +92,8 @@ def aggregate(root="lambda_sweep", out=None):
         d = torch.load(rp, map_location="cpu", weights_only=False)
         cfg, fin = d["config"], d["final"]
         rows.append({
-            "label": lb, "lambda_init_recon": cfg["lambda_init_recon"],
+            # runs from before lambda_init_recon was merged into lambda_recon saved the former
+            "label": lb, "lambda_recon": cfg.get("lambda_init_recon", cfg.get("lambda_recon")),
             "recon_scale": cfg["recon_scale"], "iters": len(d["steps"]),
             "wall_time": d.get("wall_time", float("nan")),
             "psnr": fin["cmr evals all/full psnr"], "ssim": fin["cmr evals all/full ssim"],
@@ -105,14 +106,14 @@ def aggregate(root="lambda_sweep", out=None):
         })
     if not rows:
         print("no completed runs found"); return rows
-    rows.sort(key=lambda r: (r["recon_scale"], r["lambda_init_recon"]))
+    rows.sort(key=lambda r: (r["recon_scale"], r["lambda_recon"]))
 
     cols = list(rows[0])
     with open(os.path.join(out, "sweep.csv"), "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
         w.writeheader(); w.writerows(rows)
 
-    lam = np.array([r["lambda_init_recon"] for r in rows])
+    lam = np.array([r["lambda_recon"] for r in rows])
     # log-x needs lambda>0; the 0 control is drawn separately as a horizontal reference
     pos = lam > 0
     zero = ~pos
@@ -130,7 +131,7 @@ def aggregate(root="lambda_sweep", out=None):
             ax.axhline(v[zero][0], color="#D55E00", ls="--",
                        label=f"lambda=0 (no reg): {v[zero][0]:.4g}")
             ax.legend(fontsize=7)
-        ax.set_xscale("log"); ax.set_xlabel("lambda_init_recon"); ax.set_ylabel(ttl)
+        ax.set_xscale("log"); ax.set_xlabel("lambda_recon"); ax.set_ylabel(ttl)
         ax.grid(alpha=.3); ax.set_title(ttl, fontsize=9)
     fig.suptitle("init reg sweep", fontsize=12)
     fig.savefig(os.path.join(out, "sweep_summary.png"), dpi=120); plt.close(fig)
@@ -144,7 +145,7 @@ def aggregate(root="lambda_sweep", out=None):
     ax.plot(df[ok], rg[ok], "o-", color="#0072B2")
     for r, x, y, k in zip(rows, df, rg, ok):
         if k:
-            ax.annotate(f"{r['lambda_init_recon']:g}", (x, y), fontsize=7,
+            ax.annotate(f"{r['lambda_recon']:g}", (x, y), fontsize=7,
                         textcoords="offset points", xytext=(4, 4))
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel("data fit (weighted)"); ax.set_ylabel("reg energy (weighted)")

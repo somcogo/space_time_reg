@@ -29,5 +29,4 @@ def test_finalize_normalises_coupled_fields():
 def test_soft_con_yaml_parses():
     config = Config.from_yaml("configs/cmr_soft_con.yaml").finalize()
     assert config.func_name == "groupsiren"
-    assert config.loss == "mse"
     assert config.lambda_rl2 == pytest.approx(1e2)

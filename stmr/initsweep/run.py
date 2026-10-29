@@ -31,7 +31,7 @@ def run_init(config: Config) -> dict:
     os.makedirs(config.log_path, exist_ok=True)
     logger = get_logger(config.log_level)
     logger.info(f"init run: {config.exp_name} "
-                f"(lambda_init_recon={config.lambda_init_recon}, recon_scale={config.recon_scale})")
+                f"(lambda_recon={config.lambda_recon}, recon_scale={config.recon_scale})")
     writer = SummaryWriter(os.path.join(config.log_path, "tensorboard"))
 
     data = prepare_data(config)
@@ -80,7 +80,7 @@ def run_init(config: Config) -> dict:
     except Exception:
         logger.exception("tb gif generation failed (non-fatal)")
 
-    row = {"exp_name": config.exp_name, "lambda_init_recon": config.lambda_init_recon,
+    row = {"exp_name": config.exp_name, "lambda_recon": config.lambda_recon,
            "recon_scale": config.recon_scale, "iters": len(cb.steps), "wall_time": wall}
     row.update({k: float(v) for k, v in final.items()})
     return row

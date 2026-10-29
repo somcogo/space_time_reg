@@ -20,7 +20,7 @@ C = dict(
     patient="002", slice=3, start_frame=0, T=12,   # data
     factor=4,                                     # mask: 24 centre rows + every factor-th row
     variant="crr",                               # 'crr' (weak_cvx 0) | 'wcrr' (weak_cvx 1)
-    lam=0.2,                                       # lambda_init_recon
+    lam=0.2,                                       # lambda_recon
     scale=3.55,                                    # recon_scale (overrides pretrained s)
     alpha=1.0,                                    # reg_alpha   (overrides pretrained alpha)
     abs_reg=False,                                 # init_reg_abs: regularise |x| (True) or re/im

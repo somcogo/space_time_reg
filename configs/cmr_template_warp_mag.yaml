@@ -51,7 +51,6 @@ motion_warmup: 0
 use_nreps: false
 
 # losses: phase-insensitive |k-space| data consistency + motion regularity only
-loss: mse
 sim_domain: fourier_mag
 lambda_st: 1.0
 lambda_grad_phi: 1.1e-5  # = old anisotropic 1e-3 (the isotropic pixel-unit loss is ~90x larger on 204x512)

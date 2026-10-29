@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from stmr.config import Config
+from stmr.data.data_load import fold_slices, unfold_slices
 from stmr.data.fft_utils import FastmriFT, FastmriIFT, MaskedFT
 from stmr.data.recon_init import get_functions, get_reg
 from stmr.losses.losses import (
@@ -15,11 +16,11 @@ from stmr.losses.losses import (
 from stmr.metrics.calc_metrics import get_relevant_loss_names
 from stmr.state import Inputs, ModelOutputs
 from stmr.utils.spatial_transformer import get_spatial_transformer
-from stmr.utils.spatial_utils import generate_coord_tensor
+from stmr.utils.spatial_utils import generate_coord_tensor, get_phi_shape
 
 
 def _config():
-    return Config(device="cpu", dataset="cmr_P001", loss="mse", use_nreps=False,
+    return Config(device="cpu", dataset="cmr_P001", use_nreps=False,
                   time_points=3).finalize()
 
 
@@ -117,30 +118,33 @@ def test_data_fidelity_zero_when_recon_matches_measurements():
 
 
 @pytest.mark.parametrize("init_reg_abs", [True, False])
-def test_joint_recon_loss_is_the_init_energy(init_reg_abs):
-    # With lambda_recon = lambda_init_recon, sim + recon_reg must be exactly the nmAPG init's
-    # energy (summed over frames), with the gradient the init's analytic path uses.
+@pytest.mark.parametrize("n_slices", [1, 3])
+def test_joint_recon_loss_is_the_init_energy(init_reg_abs, n_slices):
+    # sim + recon_reg must be exactly the nmAPG init's energy (per 2D image) averaged over the
+    # T * D images, with the gradient the init's analytic path uses.
     config = Config(device="cpu", dataset="cmr_P001", time_points=2,
-                    reg_variant="wcrr", recon_scale=3.0, lambda_init_recon=0.05, lambda_recon=0.05,
+                    reg_variant="wcrr", recon_scale=3.0, lambda_recon=0.05,
                     init_reg_abs=init_reg_abs, init_grad="analytic").finalize()
     g = torch.Generator().manual_seed(0)
-    x = 0.05 * torch.randn(2, 2, 1, 32, 48, generator=g)  # one slice, D = 1
-    mask = torch.zeros(2, 2, 1, 32, 48)
+    shape = (2, 2, n_slices, 32, 48)
+    x = 0.05 * torch.randn(*shape, generator=g)
+    mask = torch.zeros(*shape)
     mask[..., ::3, :] = 1
-    kdata = mask * FastmriFT()(0.05 * torch.randn(2, 2, 1, 32, 48, generator=g))
+    kdata = mask * FastmriFT()(0.05 * torch.randn(*shape, generator=g))
     reg = get_reg(config)
     *_, energy_and_grad = get_functions(config, reg, FastmriFT(), FastmriIFT())
-    # the init solves each slice as a 2D batch item
-    energy, grad = energy_and_grad(x[:, :, 0], torch.cat([kdata, mask], dim=1)[:, :, 0])
+    # the init solves each (frame, slice) as a 2D batch item
+    energy, grad = energy_and_grad(fold_slices(x), fold_slices(torch.cat([kdata, mask], dim=1)))
 
     moving = x.clone().requires_grad_(True)
     inputs = Inputs(moving=moving, moving_inr=None, fixed=kdata, forward=MaskedFT(mask),
-                    phi_shape=[-1, 32, 48, 2])
+                    phi_shape=get_phi_shape(shape[2:]))
     losses = {k: v for k, v in get_relevant_loss_names(config).items() if k in ("sim", "recon_reg")}
     loss_sum, _ = calculate_losses(config, inputs, None, None, losses, reg)
     loss_sum.backward()
-    assert torch.allclose(loss_sum.detach(), energy.sum(), rtol=1e-6)
-    assert (moving.grad[:, :, 0] - grad).norm() / grad.norm() < 1e-4
+    assert torch.allclose(loss_sum.detach(), energy.mean(), rtol=1e-6)
+    expected_grad = unfold_slices(grad, n_slices) / energy.numel()
+    assert (moving.grad - expected_grad).norm() / expected_grad.norm() < 1e-4
 
 
 def test_use_nreps_without_inr_raises_clear_error():

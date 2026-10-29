@@ -20,7 +20,7 @@ def test_end_to_end_motion_and_loss_backward_on_cpu():
     config = Config(
         device="cpu", dataset="cmr_P001", time_points=3,
         func_name="groupsiren", siren_depth=2, siren_dim=16, solver="euler",
-        step_size=0.5, loss="mse", use_nreps=False,
+        step_size=0.5, use_nreps=False,
         lambda_st=1.0, lambda_grad_phi=1e-2, lambda_grd=0.0, lambda_lap=0.0,
         lambda_recon=0.0, lambda_rl2=1.0,
     ).finalize()

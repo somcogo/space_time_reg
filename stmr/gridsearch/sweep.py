@@ -1,7 +1,7 @@
 """Hyperparameter grid on the full pipeline (configs/cmr_working_init.yaml), in stages.
 
-    A      lr x lambda_rl2 x (lambda_grad_phi / lambda_rl2) x lambda_init_recon
-    A2     A's extension: lambda_rl2 and lambda_init_recon trade off along a diagonal (only the
+    A      lr x lambda_rl2 x (lambda_grad_phi / lambda_rl2) x lambda_recon
+    A2     A's extension: lambda_rl2 and lambda_recon trade off along a diagonal (only the
            balance matters), so extend it down, a lower grad_phi ratio, and 4000 epochs
     B      one run per DIAGONAL balance (its best of A+A2) x step_size x siren_dim x siren_omega
     seeds  the top-k of A+A2+B re-run with more seeds
@@ -22,6 +22,11 @@ the largest config. Runs go to log/cmr/grid/<root>/<stage>/<label>/ as
 re-launching a stage resumes it. Ranked by the best cropped (heart-region) PSNR over the metric
 epochs; the cropped PSNR of the best-loss checkpoint (what res.pt holds) is reported alongside
 as the validation number. Full-image PSNRs are kept as secondary columns.
+
+The grids below were run with the joint loop's init energy summed over the 12 frames; it is now
+averaged over frames x slices, so their lambda_rl2 and lambda_grad_phi are 12x what the same
+balance needs today (configs/cmr_working_init.yaml holds BEST rescaled). Rerun as they are, the
+stages are not the runs they describe.
 """
 
 from __future__ import annotations
@@ -48,15 +53,15 @@ GP_RATIOS = [3e-5, 1e-4, 3e-4]  # lambda_grad_phi = ratio * lambda_rl2 (base: 1e
 LIRS = [0.1, 0.2, 0.4]
 # stage A2 (lr makes no difference in A; fixed at the best run's)
 LR_A2 = 2e-4
-DIAG_EXT = [(1e4, 0.05), (1e4, 0.1), (3e4, 0.05)]  # (lambda_rl2, lambda_init_recon)
+DIAG_EXT = [(1e4, 0.05), (1e4, 0.1), (3e4, 0.05)]  # (lambda_rl2, lambda_recon)
 GP_RATIOS_EXT = [3e-5, 1e-4]
 GP_RATIO_LOW = 1e-5
 EPOCHS_LONG = 4000
 # stage B
-DIAGONAL = [(3e4, 0.1), (1e5, 0.2), (3e5, 0.4)]  # the best (lambda_rl2, lambda_init_recon) of A
+DIAGONAL = [(3e4, 0.1), (1e5, 0.2), (3e5, 0.4)]  # the best (lambda_rl2, lambda_recon) of A
 # stage C; B: siren_dim 128 / step_size 0.1 bought nothing, so BEST keeps A's net and step
-BEST = {"lr": 2e-4, "lambda_rl2": 3e4, "lambda_grad_phi": 3.0, "lambda_init_recon": 0.1,
-        "lambda_recon": 0.1, "step_size": 0.5, "siren_dim": 64, "siren_omega": 30}
+BEST = {"lr": 2e-4, "lambda_rl2": 3e4, "lambda_grad_phi": 3.0, "lambda_recon": 0.1,
+        "step_size": 0.5, "siren_dim": 64, "siren_omega": 30}
 EPOCHS_C = [6000, 8000]
 OMEGAS_C = [45, 60]
 SEEDS_C = [1, 2]
@@ -92,7 +97,7 @@ def grid_a():
 def _point_a(lr, rl2, ratio, lir):
     return (_label_a(lr, rl2, ratio, lir),
             {"lr": lr, "lambda_rl2": rl2, "lambda_grad_phi": ratio * rl2,
-             "lambda_init_recon": lir, "lambda_recon": lir})  # the joint loss is the init's energy
+             "lambda_recon": lir})
 
 
 def grid_a2(root):
@@ -204,20 +209,19 @@ def grid_seeds(root, top=3, seeds=(1, 2)):
 
 
 def _overrides_of(row):
-    keys = ["lr", "lambda_rl2", "lambda_grad_phi", "lambda_init_recon", "step_size",
+    keys = ["lr", "lambda_rl2", "lambda_grad_phi", "lambda_recon", "step_size",
             "siren_dim", "siren_omega", "epochs"]
-    # lambda_recon follows lambda_init_recon (the joint loss is the init's energy)
-    return {**{k: row[k] for k in keys}, "lambda_recon": row["lambda_init_recon"]}
+    return {k: row[k] for k in keys}
 
 
 def _best_per_balance(root, stages):
-    """For each DIAGONAL (lambda_rl2, lambda_init_recon), its best run at the base epochs."""
+    """For each DIAGONAL (lambda_rl2, lambda_recon), its best run at the base epochs."""
     rows = [r for r in collect(root) if r["stage"] in stages and r["epochs"] == 2000]
     best = []
     for rl2, lir in DIAGONAL:
-        match = [r for r in rows if r["lambda_rl2"] == rl2 and r["lambda_init_recon"] == lir]
+        match = [r for r in rows if r["lambda_rl2"] == rl2 and r["lambda_recon"] == lir]
         if not match:
-            raise SystemExit(f"no finished run with lambda_rl2={rl2}, lambda_init_recon={lir}")
+            raise SystemExit(f"no finished run with lambda_rl2={rl2}, lambda_recon={lir}")
         best.append(max(match, key=lambda r: r["best_crop"]))
     return best
 
@@ -344,6 +348,13 @@ def _slice_of(cfg):
     return slices[0] if len(slices) == 1 else tuple(slices)
 
 
+def _lambda_recon_of(cfg):
+    """The prior's weight a run used. Runs from before lambda_init_recon was merged into
+    lambda_recon weighted it by lambda_init_recon, in the init and (as the init's energy) the
+    joint loop alike."""
+    return cfg["lambda_init_recon"] if "lambda_init_recon" in cfg else cfg["lambda_recon"]
+
+
 def collect(root):
     import torch
     rows = []
@@ -367,8 +378,9 @@ def collect(root):
             i_min = min(range(len(total)), key=total.__getitem__)
             rows.append({
                 "stage": stage, "label": lb, "slice_number": _slice_of(cfg),
+                "lambda_recon": _lambda_recon_of(cfg),
                 **{k: cfg.get(k) for k in ("dataset", "cmr_raw", "lr",
-                                           "lambda_rl2", "lambda_grad_phi", "lambda_init_recon",
+                                           "lambda_rl2", "lambda_grad_phi",
                                            "step_size", "siren_dim", "siren_omega", "seed",
                                            "epochs", "adjoint")},
                 "best_crop": best[CROP], "best_crop_epoch": best["epoch"],

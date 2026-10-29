@@ -65,7 +65,6 @@ class Config:
     tol: float = 0.0  # nmAPG stop on relative change; 0 = always run recon_epochs iterations
     L_init: float = 1.0  # nmAPG's initial Lipschitz estimate (first step = 1/L_init); independent of lambda_st
     detach_grads: bool = True
-    lambda_init_recon: float = 0.2
     kspace_noise_sigma: float = 0.0  # robustness: relative noise on measured k-space (0=off)
     init_noise_sigma: float = 0.0    # robustness: relative noise on the init recon (0=off)
 
@@ -113,7 +112,6 @@ class Config:
     float64: bool = False    # run the whole pipeline in double precision (data + model + losses)
 
     # --- losses ---
-    loss: str = "mse"  # F3: MSE for k-space data fidelity
     sim_domain: str = "fourier"  # 'fourier' (k-space DC), 'image' (image-space DC; equal to
     #                              fourier on fully-sampled data by Parseval, FFT unitary),
     #                              'fourier_mag' (|masked k-space| DC -- phase-insensitive), or
@@ -122,7 +120,7 @@ class Config:
     lambda_grad_phi: float = 1e-2  # pixel-unit (isotropic) ||Dphi - Id||, see losses.grad_phi_loss
     lambda_grd: float = 1.0
     lambda_lap: float = 1.0
-    lambda_recon: float = 0.2  # kept equal to lambda_init_recon: the joint loss is the init's energy
+    lambda_recon: float = 0.2  # the image prior's weight, in the nmAPG init and the joint loop alike
     lambda_rl2: float = 1.0
     lambda_mcdc: float = 0.0
     lambda_detJ: float = 0.0
@@ -173,6 +171,11 @@ class Config:
             self.step_size = None
         if self.interval == 0:
             self.interval = self.epochs
+        # Several slices move in 3D, and the motion regularizer weighs the slice axis by its real
+        # spacing (losses._pixel_phi_Jacobian), so it has to be set on purpose.
+        if len(self.slices) > 1 and (self.voxel_spacing is None or len(self.voxel_spacing) != 3):
+            raise ValueError(f"slices={self.slices} needs voxel_spacing as [d, h, w] in mm, "
+                             f"got {self.voxel_spacing}")
         return self
 
     def to_dict(self):

@@ -1,6 +1,6 @@
 """CLI for the init-only experiments.
 
-    python -m stmr.initsweep run --exp-name NAME --device cuda:N [--set lambda_init_recon=0.05 ...]
+    python -m stmr.initsweep run --exp-name NAME --device cuda:N [--set lambda_recon=0.05 ...]
     python -m stmr.initsweep sweep --root lambda_sweep --gpus 0,1,2,3 [--dry-run]
     python -m stmr.initsweep aggregate --root lambda_sweep
 
@@ -71,7 +71,7 @@ def main(argv=None):
     r.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE")
     r.set_defaults(func=cmd_run)
 
-    s = sub.add_parser("sweep", help="sweep lambda_init_recon (x recon_scale) across GPUs")
+    s = sub.add_parser("sweep", help="sweep lambda_recon (x recon_scale) across GPUs")
     s.add_argument("--root", default="lambda_sweep")
     s.add_argument("--gpus", default="0,1,2,3")
     s.add_argument("--lambdas", default=None, help="comma-separated; default: the built-in grid")

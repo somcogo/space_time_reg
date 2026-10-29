@@ -5,6 +5,11 @@ import torch.nn.functional as F
 class GridSampleTransformer:
     def __init__(self, abs_phi, phi_shape):
         self.in_2d = len(phi_shape) == 4
+        # Samples outside the image: in-plane that is air, so zeros. A volume's first and last
+        # slices are cut through tissue, and zeros there would darken the whole slice under any
+        # through-plane motion out of the stack; 'border' repeats the edge slice instead (and is
+        # ~zeros at the in-plane edges, which are air).
+        self.padding_mode = 'zeros' if self.in_2d else 'border'
         grid = abs_phi.reshape(phi_shape)
         self.grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
 
@@ -12,7 +17,8 @@ class GridSampleTransformer:
         squeeze = self.in_2d and input_img.dim() == 5
         if squeeze:
             input_img = input_img.squeeze(2)
-        output_img = F.grid_sample(input_img, self.grid, align_corners=True, mode=mode)
+        output_img = F.grid_sample(input_img, self.grid, align_corners=True, mode=mode,
+                                   padding_mode=self.padding_mode)
         if squeeze:
             output_img = output_img.unsqueeze(2)
         return output_img
@@ -33,7 +39,7 @@ class NeuralRepTransformer:
         else:
             out = self.nrep_applier.apply(input_img)
             out = out.reshape(self.img_shape)
-            if self.grid_applier.squeeze_img:
+            if self.grid_applier.in_2d:
                 out = out.unsqueeze(2)  # put the slice axis back, as GridSampleTransformer does
         return out
 

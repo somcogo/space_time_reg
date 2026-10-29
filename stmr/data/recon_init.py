@@ -95,11 +95,11 @@ def log_magnitude(val: torch.Tensor, y_in: torch.Tensor, forw: nn.Module, config
 
 def reg_on_abs(config: argparse.Namespace, val: torch.Tensor, regularizer: nn.Module) -> torch.Tensor:
     val_abs = complex_abs(val)
-    reg = config.lambda_init_recon * regularizer.g(val_abs)
+    reg = config.lambda_recon * regularizer.g(val_abs)
     return reg.reshape(-1)
 
 def reg_without_abs(config: argparse.Namespace, val: torch.Tensor, regularizer: nn.Module) -> torch.Tensor:
-    reg = config.lambda_init_recon * regularizer.g(
+    reg = config.lambda_recon * regularizer.g(
         val.flatten(0,1).unsqueeze(1)
     ).reshape(val.shape[0], -1).sum(1)
     return reg.reshape(-1)
@@ -147,14 +147,14 @@ def get_functions(config: argparse.Namespace, regularizer: nn.Module, forw: nn.M
             if config.init_reg_abs:
                 val_abs = complex_abs(val)
                 reg, reg_grad = regularizer.grad(val_abs, get_energy=True)
-                reg = config.lambda_init_recon * reg
+                reg = config.lambda_recon * reg
                 reg_grad = reg_grad * val / val_abs  # chain rule through complex_abs (including its eps)
             else:
                 reg, reg_grad = regularizer.grad(val.flatten(0,1).unsqueeze(1), get_energy=True)
-                reg = (config.lambda_init_recon * reg).reshape(val.shape[0], -1).sum(1)
+                reg = (config.lambda_recon * reg).reshape(val.shape[0], -1).sum(1)
                 reg_grad = reg_grad.reshape(val.shape)
             fun = config.lambda_st * df.reshape(-1) + reg.reshape(-1)
-            grad = config.lambda_st * adj(mask * diff) + config.lambda_init_recon * reg_grad
+            grad = config.lambda_st * adj(mask * diff) + config.lambda_recon * reg_grad
         return fun.reshape(-1), grad
 
     def energy_grad(val: torch.Tensor, y_in: torch.Tensor) -> torch.Tensor:
@@ -200,7 +200,7 @@ def init_with_grad_desc(config: argparse.Namespace,
             pred = complex_abs(recon)
         else:
             pred = recon.flatten(0,1).unsqueeze(1)
-        reg_loss = config.lambda_init_recon * regularizer.g(pred).mean().detach().cpu()
+        reg_loss = config.lambda_recon * regularizer.g(pred).mean().detach().cpu()
         metrics[0] = [sim_loss, reg_loss]
         print(f'Before opt energy {sim_loss+reg_loss}, data fit {sim_loss}, reg {reg_loss}')
 
@@ -219,7 +219,7 @@ def init_with_grad_desc(config: argparse.Namespace,
             pred = complex_abs(recon)
         else:
             pred = recon.flatten(0,1).unsqueeze(1)
-        reg_loss = config.lambda_init_recon * regularizer.g(pred).mean()
+        reg_loss = config.lambda_recon * regularizer.g(pred).mean()
         
         loss_sum = sim_loss + reg_loss
         loss_sum.backward()
