@@ -47,6 +47,10 @@ def run(config: Config):
     config.func_kwargs = build_velocity_kwargs(config, dims)
 
     func = get_func(config.func_name, config.func_kwargs).to(config.device)
+    if config.init_motion:
+        st_dict = torch.load(config.init_motion, map_location=config.device, weights_only=False)['st_dict']
+        func.load_state_dict(st_dict)
+        logger.info(f"Velocity net initialised from {config.init_motion}")
 
     output = registration(config, writer, logger, inputs, eval_inputs, func)
     imgs_to_save = evaluate(config, writer, logger, output, inputs, eval_inputs)

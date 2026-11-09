@@ -14,6 +14,7 @@ known motion (endpoint error) or, without ground truth, by forward/backward cons
 
 import torch
 
+from stmr.metrics.metric_utils import cmrx_crop
 from stmr.robustness.jacobian import detJ_from_phi
 from stmr.utils.spatial_transformer import GridSampleTransformer
 from stmr.utils.spatial_utils import generate_coord_tensor
@@ -25,9 +26,10 @@ def magnitude(x: torch.Tensor) -> torch.Tensor:
 
 
 def heart_crop(H: int, W: int, device=None) -> torch.Tensor:
-    """The centre box the cropped CMR metrics use (metric_utils.add_cmr_eval_metrics)."""
+    """The centre box the cropped CMR metrics use (metric_utils.cmrx_crop, the CMRxRecon crop)."""
+    h_from, h_to, w_from, w_to = cmrx_crop(H, W)
     m = torch.zeros(H, W, dtype=torch.bool, device=device)
-    m[round(H / 3):round(2 * H / 3), round(W / 4):round(3 * W / 4)] = True
+    m[h_from:h_to, w_from:w_to] = True
     return m
 
 

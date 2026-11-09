@@ -251,8 +251,9 @@ def idle_gpus():
 
 
 def launch(pts, root, stage, gpus, per_gpu=1, dry_run=False):
-    """gpus: GPU indices, or "auto": one run on every GPU that has no compute process of anyone,
-    re-checked as runs finish, so GPUs other users free up are picked up (per_gpu is ignored)."""
+    """gpus: GPU indices, or "auto": per_gpu runs on every GPU that has no compute process of
+    anyone, re-checked as runs finish, so GPUs other users free up are picked up (a GPU gets new
+    runs only once all of ours on it are done)."""
     exp_base = os.path.join(LOG_ROOT.removeprefix("log/"), root, stage)
     todo = [(lb, ov) for lb, ov in pts
             if not os.path.exists(os.path.join("log", exp_base, lb, "res.pt"))]
@@ -283,12 +284,13 @@ def launch(pts, root, stage, gpus, per_gpu=1, dry_run=False):
                 del cooling[s]
                 if not auto:
                     free.append(s)
-        if auto and pending:  # a slot per idle GPU that none of our runs holds (or rests on)
+        if auto and pending:  # per_gpu slots per idle GPU that none of our runs holds (or rests on)
             ours = {slots[s] for s in list(running) + list(cooling)}
             for g in idle_gpus():
                 if g not in ours:
-                    slots.append(g)
-                    free.append(len(slots) - 1)
+                    for _ in range(per_gpu):
+                        slots.append(g)
+                        free.append(len(slots) - 1)
         while pending and free:
             start(pending.pop(0), free.pop(0))
         time.sleep(10)

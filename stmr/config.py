@@ -109,6 +109,8 @@ class Config:
     template_warp_recon: bool = False  # recon_t = warp(template, phi); only the motion net is learned
     fixed_motion: str = ""  # '' learn the motion | 'gt' the known motion of synth_flow frames (oracle)
     #                         | 'identity' (no motion) | path to a res.pt whose 'phi' is used as-is
+    init_motion: str = ""  # path to a res.pt: the velocity net starts from its 'st_dict' and is
+    #                        trained on (e.g. a motion-only warm-up run; same net and data needed)
     float64: bool = False    # run the whole pipeline in double precision (data + model + losses)
 
     # --- losses ---

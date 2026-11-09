@@ -184,6 +184,15 @@ def nmse(gt: np.ndarray, pred: np.ndarray) -> np.ndarray:
     """Compute Normalized Mean Squared Error (NMSE)"""
     return np.array(np.linalg.norm(gt - pred) ** 2 / np.linalg.norm(gt) ** 2)
 
+def cmrx_crop(H: int, W: int) -> tuple[int, int, int, int]:
+    """(h_from, h_to, w_from, w_to) of the CMRxRecon ranking crop. Use this for every heart/eval
+    crop. run4Ranking.m takes crop(img, [round(sx/3), round(sy/2)]) with MATLAB sx = readout = our
+    W and sy = phase = our H, i.e. a centred round(H/2) x round(W/3) box placed like crop.m
+    (0-based start floor(m/2) + ceil(-s/2)): rows 51:153, cols 171:342 for 204 x 512."""
+    h, w = int(np.floor(H / 2 + 0.5)), int(np.floor(W / 3 + 0.5))  # MATLAB round
+    h_from, w_from = H // 2 + int(np.ceil(-h / 2)), W // 2 + int(np.ceil(-w / 2))
+    return h_from, h_from + h, w_from, w_from + w
+
 def calc_cmr_eval_metrics(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> list[np.ndarray]:
     # backward compatibility with 2D runs
     if len(pred_recon.shape) == 4:
@@ -221,7 +230,7 @@ def add_cmr_eval_metrics(moving: torch.Tensor, gt_im: torch.Tensor, metrics: dic
     
     
     H, W = moving_im_img.shape[-2:]
-    h_from, h_to, w_from, w_to = round(H / 3), round(2 * H / 3), round(W / 4), round(3 * W / 4)
+    h_from, h_to, w_from, w_to = cmrx_crop(H, W)
     crop_moved_img = moving_im_img[..., h_from:h_to, w_from:w_to]
     crop_gt_img = gt_im_img[..., h_from:h_to, w_from:w_to]
     crop_psnr, crop_ssim, crop_nmse = calc_cmr_eval_metrics(crop_moved_img, crop_gt_img)
@@ -234,3 +243,25 @@ def add_cmr_eval_metrics(moving: torch.Tensor, gt_im: torch.Tensor, metrics: dic
     metrics['cmr evals first/cropped ssim'] = crop_ssim[0].mean()
     metrics['cmr evals first/cropped nmse'] = crop_nmse[0].mean()
     return metrics
+def cmrx_official_ssim(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> float:
+    """SSIM as ranked in the CMRxRecon 2023 challenge (CMRxReconDemo/run4Ranking.m and
+    Evaluation/Evaluation.py calmetric): magnitude, central 2 slices (all if fewer than 3) x first
+    3 frames, centre crop round(H/2) x round(W/3), each 2D image divided by its own max (gt AND
+    pred), SSIM with data range 1, mean over the images. Inputs [T, 2, D, H, W].
+
+    The slice choice is only the official one when D is the patient's full stack. A single-slice
+    run (D=1) is scored on that slice, so average the runs of the central slices (0-based
+    round(sz/2)-2 and round(sz/2)-1, i.e. s3 and s4 for 10 slices). MATLAB's sx (readout) is our
+    W and sy (phase) our H; our 2D images are its transpose, which leaves SSIM unchanged.
+    """
+    mag = lambda x: complex_abs(x[:3].detach().movedim(1, -1)).cpu().numpy().astype(np.float32)
+    pred, gt = mag(pred_recon), mag(gt_recon)
+    D, H, W = gt.shape[1:]
+    if D >= 3:
+        c = int(np.floor(D / 2 + 0.5))  # MATLAB round
+        pred, gt = pred[:, c - 2:c], gt[:, c - 2:c]
+    h_from, h_to, w_from, w_to = cmrx_crop(H, W)
+    pred, gt = pred[..., h_from:h_to, w_from:w_to], gt[..., h_from:h_to, w_from:w_to]
+    hw = gt.shape[-2:]
+    return float(np.mean([ssim(g / g.max(), p / p.max())
+                          for p, g in zip(pred.reshape(-1, *hw), gt.reshape(-1, *hw))]))

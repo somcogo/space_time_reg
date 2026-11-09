@@ -5,6 +5,7 @@
 # C, ROOT, FT, IFT, load_data, load_reg, make_objective, mask, y, yp, gt, x0, x, hist.
 
 # %% Imports
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -13,13 +14,17 @@ from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 # %% Run the solve -- skip this cell if init_condensed.py was already run in this interactive session
 from init_condensed import *  # noqa: E402,F403
 
-# %% 6. Evaluate -- magnitude PSNR/SSIM/NMSE per frame (data_range = gt.max()), full frame + centre crop
+# %% 6. Evaluate -- magnitude PSNR/SSIM/NMSE per frame (data_range = gt.max()), full frame + CMRxRecon crop
+_backend = matplotlib.get_backend()
+from stmr.metrics.metric_utils import cmrx_crop  # noqa: E402  the CMRxRecon ranking crop
+matplotlib.use(_backend)                         # importing stmr switches matplotlib to Agg; switch back
+
 def evaluate(xr, gt):
     xm = ((xr**2).sum(1)).sqrt().cpu().numpy()               # fastmri complex_abs: no eps here
     gm = ((gt**2).sum(1)).sqrt().cpu().numpy()
-    H, W = gm.shape[-2:]
+    h_from, h_to, w_from, w_to = cmrx_crop(*gm.shape[-2:])
     out = {}
-    for name, sl in (("full", np.s_[:, :, :]), ("crop", np.s_[:, round(H / 3):round(2 * H / 3), round(W / 4):round(3 * W / 4)])):
+    for name, sl in (("full", np.s_[:, :, :]), ("crop", np.s_[:, h_from:h_to, w_from:w_to])):
         p, g = xm[sl], gm[sl]
         out[name] = dict(
             psnr=np.mean([peak_signal_noise_ratio(g[t], p[t], data_range=g[t].max()) for t in range(len(g))]),
