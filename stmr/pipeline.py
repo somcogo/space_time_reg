@@ -55,5 +55,6 @@ def run(config: Config):
     output = registration(config, writer, logger, inputs, eval_inputs, func)
     imgs_to_save = evaluate(config, writer, logger, output, inputs, eval_inputs)
     save_results(config, output, inputs, eval_inputs, imgs_to_save)
-    generate_run_visuals(config, logger)
+    if config.save_visuals:
+        generate_run_visuals(config, logger)
     return output

@@ -40,4 +40,32 @@ def get_recon_regularizer(config):
     wrapped_reg.eval()
     for p in wrapped_reg.parameters():
         p.requires_grad_(False)
+    # getattr default False: notebooks/tests that build their own Namespace keep the old path.
+    if getattr(config, 'reg_fast', False):
+        reg.freeze(compile_potential=str(config.device).startswith('cuda'))
     return wrapped_reg
+
+
+class _RegEnergy(torch.autograd.Function):
+    """reg.g(x) whose backward is the regularizer's own closed-form gradient (reg.grad, computed
+    with the energy in the forward): no autograd graph through the 64-channel filter responses,
+    whose backward costs ~5x the forward."""
+
+    @staticmethod
+    def forward(ctx, x, reg):
+        energy, grad = reg.grad(x, get_energy=True)
+        ctx.save_for_backward(grad)
+        return energy
+
+    @staticmethod
+    def backward(ctx, grad_energy):
+        (grad,) = ctx.saved_tensors
+        return grad_energy.view(-1, *[1] * (grad.dim() - 1)) * grad, None
+
+
+def reg_energy(config, reg, x):
+    """Per-image reg.g(x), differentiable in x; via _RegEnergy when config.reg_fast."""
+    if (getattr(config, 'reg_fast', False) and getattr(reg, 'has_get_energy', False)
+            and torch.is_grad_enabled() and x.requires_grad):
+        return _RegEnergy.apply(x, reg)
+    return reg.g(x)

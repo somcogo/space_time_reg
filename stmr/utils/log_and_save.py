@@ -41,6 +41,8 @@ def save_results(config, output: RegistrationResult, inputs: Inputs,
     torch.save(save_dict, save_path)
     if config.debug:
         torch.save(all_metrics, os.path.join(config.log_path, 'metrics.pt'))
+    if not getattr(config, 'save_visuals', True):
+        return
     np.save(os.path.join(config.log_path, 'np_imgs.npy'), {'images': images}, allow_pickle=True)
     img_dir = os.path.join(config.log_path, 'imgs')
     os.makedirs(img_dir, exist_ok=True)

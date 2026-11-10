@@ -18,21 +18,24 @@ def evaluate(config: Namespace, writer: SummaryWriter, logger: Logger,
     init_recon, gt_im = eval_inputs.init_recon, eval_inputs.gt_im
     rel_vel, abs_phi = model_outputs.rel_vel, model_outputs.abs_phi
 
-    with torch.no_grad():
-        # inputs.moving is the live recon parameter, mutated by the final optimizer step
-        # after the best snapshot was taken. Evaluate the best-epoch recon instead, so the
-        # reported metrics describe the same state as model_outputs/res.pt.
-        best_inputs = Inputs(moving, inputs.moving_inr, inputs.fixed, inputs.forward, inputs.phi_shape)
-        metrics, imgs_to_save = calculate_metrics(config, None, best_inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
-        log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
-        slice_ndx = moving.shape[2] // 2
-        if len(inputs.phi_shape) == 5:
-            abs_phi = abs_phi.reshape(inputs.phi_shape)[:, slice_ndx, :, :, 1:].view((abs_phi.shape[0], -1, 2))
-            rel_vel = rel_vel.reshape(inputs.phi_shape)[:, slice_ndx, :, :, 1:].view((rel_vel.shape[0], -1, 2))
-        gt_im = gt_im[:, :, slice_ndx]
-        init_recon = init_recon[:, :, slice_ndx]
-        moving = moving[:, :, slice_ndx]
-        prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics)
+    # The extended final metrics only feed images (TensorBoard, np_imgs, the summary pdfs).
+    imgs_to_save = {}
+    if getattr(config, 'save_visuals', True):
+        with torch.no_grad():
+            # inputs.moving is the live recon parameter, mutated by the final optimizer step
+            # after the best snapshot was taken. Evaluate the best-epoch recon instead, so the
+            # reported metrics describe the same state as model_outputs/res.pt.
+            best_inputs = Inputs(moving, inputs.moving_inr, inputs.fixed, inputs.forward, inputs.phi_shape)
+            metrics, imgs_to_save = calculate_metrics(config, None, best_inputs, eval_inputs, model_outputs, loss_outputs, extended_log=True)
+            log_metrics(config, {}, writer, epoch, imgs_to_save, last_val=True)
+            slice_ndx = moving.shape[2] // 2
+            if len(inputs.phi_shape) == 5:
+                abs_phi = abs_phi.reshape(inputs.phi_shape)[:, slice_ndx, :, :, 1:].view((abs_phi.shape[0], -1, 2))
+                rel_vel = rel_vel.reshape(inputs.phi_shape)[:, slice_ndx, :, :, 1:].view((rel_vel.shape[0], -1, 2))
+            gt_im = gt_im[:, :, slice_ndx]
+            init_recon = init_recon[:, :, slice_ndx]
+            moving = moving[:, :, slice_ndx]
+            prep_vis_summary_pdf(config, gt_im, init_recon, moving, abs_phi, rel_vel, all_metrics)
 
     logger.info('-------------------------------------------------')
     logger.info(f'Time spent (sec) over {config.epochs} iterations')

@@ -6,6 +6,7 @@ import torch
 from stmr.data.data_utils import complex_abs, get_dataset_capabilities
 from stmr.data.fft_utils import fft2c_new, ifft2c_new
 from stmr.losses.grad_calc import get_Jacobian, get_Laplacian
+from stmr.losses.recon_reg import reg_energy
 from stmr.state import Inputs, LossOutputs, ModelOutputs
 
 # sim + recon_reg are the nmAPG init's energy: summed over the pixels of each 2D (frame, slice)
@@ -206,9 +207,9 @@ def compute_recon_reg_loss(config, inputs, recon_regularizer):
     T = moving.shape[0]
     moving = moving.movedim(2, 1).flatten(0, 1)
     if config.init_reg_abs:
-        loss = recon_regularizer.g(complex_abs(moving)).reshape(-1)
+        loss = reg_energy(config, recon_regularizer, complex_abs(moving)).reshape(-1)
     else:
-        loss = recon_regularizer.g(moving.flatten(0, 1).unsqueeze(1)).reshape(moving.shape[0], -1).sum(1)
+        loss = reg_energy(config, recon_regularizer, moving.flatten(0, 1).unsqueeze(1)).reshape(moving.shape[0], -1).sum(1)
     loss = loss.view(T, -1).sum(1)
     return loss, None
 

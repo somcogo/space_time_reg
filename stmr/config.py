@@ -26,6 +26,8 @@ class Config:
     metric_cadence: int = 1  # eval metrics, TensorBoard scalars and the summary-pdf curves every N
     #                          epochs (plus the first and last); they cost ~0.15-0.5 s/epoch on CPU
     debug: bool = False
+    save_visuals: bool = True  # after the run: summary pdfs, np_imgs.npy + imgs/*.png, gifs and deformation
+    #                            figs (~25 s); False for sweeps (res.pt, metrics and TensorBoard scalars stay)
 
     # --- data ---
     dataset: str = "cmr_P001"
@@ -74,6 +76,10 @@ class Config:
     reg_alpha: float | None = 1.0  # None -> keep the pretrained alpha (do not overwrite)
     reg_beta: float | None = 3.0  # None -> keep the pretrained beta (CRR 4.28, WCRR 1.15); lower = wider quadratic zone, less stiff
     recon_scale: float = 3.55  # 0 -> None (keep pretrained scale)
+    reg_fast: bool = True  # WCRR.freeze (cached Lipschitz constant, torch.compile'd potential) in the init
+    #                        and the joint loop, whose recon_reg backward is then WCRR's closed-form grad
+    #                        instead of autograd through g (stmr/losses/recon_reg.py): same values up to
+    #                        float rounding, ~4.5x cheaper; False = the old path
 
     # --- velocity network ---
     func_name: str = "groupsiren"  # F5: default to the non-stationary ensemble

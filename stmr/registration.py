@@ -19,12 +19,25 @@ from stmr.utils.spatial_transformer import get_spatial_transformer
 from stmr.utils.spatial_utils import generate_coord_tensor, get_relative_vel
 
 
+def _rel_vel(config: Config, func: nn.Module, coord_tensor: torch.Tensor) -> torch.Tensor:
+    time_points = torch.tensor([0., 1.], device=config.device)
+    init_value = coord_tensor.expand((config.time_points - 1, -1, -1))
+    return get_relative_vel(config, func, init_value, time_points, keep_batch_dim=True)
+
+
 def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tensor,
-                      phi_shape: list) -> ModelOutputs:
+                      phi_shape: list, rel_vel_mode: str | None = 'grad') -> ModelOutputs:
+    """rel_vel_mode: 'grad' (a loss differentiates rel_vel: grd / lap), 'nograd' (metrics and
+    visuals only) or None (not needed this epoch: an extra SIREN pass saved)."""
     time_points = torch.tensor([0., 1.], device=config.device)
     init_value = coord_tensor.expand((config.time_points - 1, -1, -1))
 
-    rel_vel = get_relative_vel(config, func, init_value, time_points, keep_batch_dim=True)
+    rel_vel = None
+    if rel_vel_mode == 'grad':
+        rel_vel = _rel_vel(config, func, coord_tensor)
+    elif rel_vel_mode == 'nograd':
+        with torch.no_grad():
+            rel_vel = _rel_vel(config, func, coord_tensor)
     solve = odeint_adjoint if config.adjoint else odeint
     abs_phi = solve(func, init_value, time_points, method=config.solver, atol=config.atol,
                     rtol=config.rtol, options={'step_size': config.step_size})
@@ -107,6 +120,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
     losses_to_calc = get_relevant_loss_names(config)
+    vel_losses = {'grd', 'lap'} & set(losses_to_calc)  # the only losses that use rel_vel
     # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
     # epoch inside calculate_losses.
     recon_regularizer = get_reg(config) if 'recon_reg' in losses_to_calc else None
@@ -138,11 +152,16 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
                             f'func to {param.requires_grad} at epoch {epoch}')
 
         log_epoch = epoch % config.log_cadence == 0
+        metric_epoch = epoch == 1 or epoch % config.metric_cadence == 0 or epoch == config.epochs
         optimizer.zero_grad()
 
         time_stamps[0, epoch - 1] = time.time()
+        # rel_vel feeds only the grd / lap losses and the metrics; the best state's is rebuilt
+        # from its weights after the loop.
+        rel_vel_mode = 'grad' if vel_losses else ('nograd' if metric_epoch else None)
         model_outputs = (fixed_outputs if fixed_outputs is not None
-                         else get_model_outputs(config, func, coord_tensor, inputs.phi_shape))
+                         else get_model_outputs(config, func, coord_tensor, inputs.phi_shape,
+                                                rel_vel_mode))
 
         if config.template_warp_recon:
             # recon_t = warp(template, phi_{0->t}); recon_0 = template. Differentiable in phi,
@@ -166,8 +185,9 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         # exactly the one loss_sum was computed on.
         if loss_sum <= best_loss and epoch > config.schedule[-1]:
             best_loss = loss_sum.detach()
-            best_model_out = ModelOutputs(model_outputs.rel_vel.clone(),
-                                          model_outputs.abs_phi.clone(), None)
+            best_model_out = ModelOutputs(
+                model_outputs.rel_vel.clone() if model_outputs.rel_vel is not None else None,
+                model_outputs.abs_phi.clone(), None)
             best_loss_out = LossOutputs(
                 copy.deepcopy(loss_outputs.losses),
                 loss_outputs.moved_imspace.clone() if loss_outputs.moved_imspace is not None else None)
@@ -182,7 +202,6 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         scheduler.step()
 
         time_stamps[4, epoch - 1] = time.time()
-        metric_epoch = epoch == 1 or epoch % config.metric_cadence == 0 or epoch == config.epochs
         with torch.no_grad():
             if metric_epoch:
                 extended_log = (epoch % 25 == 0 or epoch == 1 or loss_sum < best_loss) and config.debug
@@ -208,6 +227,13 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
             logger.info(log_msg)
         if epoch < config.epochs:
             time_stamps[6, epoch] = time.time()
+
+    if best_model_out.rel_vel is None:  # skipped that epoch: same weights -> same rel_vel
+        best_func = copy.deepcopy(func)
+        best_func.load_state_dict(best_st_dict)
+        with torch.no_grad():
+            best_model_out = ModelOutputs(_rel_vel(config, best_func, coord_tensor),
+                                          best_model_out.abs_phi, None)
 
     return RegistrationResult(
         model_outputs=best_model_out,
