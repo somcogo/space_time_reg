@@ -1,0 +1,28 @@
+# Stage B: the velocity network (depth / width / omega), the Euler step and the velocity lr, at
+# stage A's loss weights and recon_lr. Same cases, budget and run settings as stage A (extends).
+#   python -m stmr.tune launch configs/tune/siren_v1.yaml --gpus auto
+# 500 epochs favour small, fast-learning nets: reeval the top few at --set epochs=1500 too.
+extends: lambdas_v1.yaml
+name: siren_v1
+space: siren
+n_trials: 60
+
+# stage A pick: lambdas_v1 trial 48 (tune +0.1978, holdout +0.1966 vs working_init +0.1964,
+# paired p 0.70 = a tie; picked by the pre-registered rule "highest holdout mean")
+overrides:  # merged into lambdas_v1's overrides (adjoint, cmr_raw, epochs, ...)
+  lambda_rl2: 1657.5366075469765
+  lambda_grad_phi: 0.10669302012314252
+  lambda_logdetJ: 0.0
+  lambda_recon: 0.08427056130976544
+  recon_lr: 0.001527889511279713
+
+sampler:
+  n_startup_trials: 10
+
+run:
+  timeout_h: 2  # 10 Euler steps x width 256 x depth 5 is several times slower than the base net
+
+enqueue:
+  - name: base_siren  # cmr_working_init's net: groupsiren 3 x 64, omega 30, Euler step 0.5
+    params: {siren_depth: 3, siren_dim: 64, siren_omega: 30, step_size: 0.5,
+             lr: 0.00012477552260879317}  # stage A trial 48's lr: reproduces trial 48 exactly

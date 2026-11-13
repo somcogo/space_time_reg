@@ -1,0 +1,84 @@
+# Tuned pipeline for CMRxRecon single-coil SAX AF4 (static 'st' mask + CRR prior), 2D per slice.
+# From the 2026-11 Optuna tuning (stmr/tune, configs/tune/*_v1.yaml), ranked on the official
+# CMRxRecon SSIM (frames 0-2, cmrx_crop, self-normalised) minus the zero-filled recon's, mean
+# over 16 tuning slices (16 patients), checked on 20 held-out slices (10 other patients):
+#   stage A lambdas_v1  loss weights + lrs at the old net     -> trial 48 (ties working_init)
+#   stage B siren_v1    net, Euler step, velocity lr          -> trial 54 (5 x 128, omega 35)
+#   stage C refine_v1   joint re-tune of the loss weights and both lrs (x4 around A + B)
+#                                                             -> trial 36
+# Holdout, 2 seeds: +0.1996 SSIM over zero-filled vs +0.1964 for cmr_working_init at the same
+# 500 epochs (+0.0032, 19/20 slices better, p < 1e-4; seed sd ~2e-4); fixed_motion=identity
+# with these settings: +0.1707 (the learned motion is worth +0.029). Crop PSNR +0.15 dB.
+# Epochs: 500 -> 1000 -> 1500 is flat on official SSIM (+0.00002), 2500 is -0.0004; crop PSNR
+# still rises slowly (+0.15 dB at 2500), so a longer run buys PSNR only.
+# Everything else is cmr_working_init's (not tuned). Tuning logs: log/optuna/{lambdas,siren,refine}_v1.
+exp_name: cmr/tuned_v1
+dataset: cmr_P001
+device: cuda
+seed: 0
+
+# data / mask
+cmr_raw: true  # the challenge's own single-coil .mat (all tuning ran on it)
+time_points: 12
+start_frame: 0
+slices: [0]
+factor: 4
+mask: st
+normalize_data: true
+
+# initial reconstruction (nmAPG)
+use_nmapg: true
+recon_epochs: 300
+init_lr: 1.0e-2
+init_loss: l2
+init_grad: analytic
+tol: 0.0
+init_reg_abs: false
+
+# reconstruction regularizer
+reg: learned
+reg_variant: crr
+reg_alpha: 1.0
+reg_beta: 3.0
+recon_scale: 3.55
+
+# velocity network (stage B: depth 5 = the largest tried; 4 x 128 within 0.0001)
+func_name: groupsiren
+siren_depth: 5
+siren_dim: 128  # 256 ties at 1.7x the time; 32 is the worst
+siren_omega: 35  # 30-45 a plateau; <= 20 worse
+last_init_zero: true
+last_init_std: 1.0e-6  # last layer ~ N(0, std^2): random, ~1e-3 px initial motion
+
+# ODE solver
+solver: euler
+step_size: 0.5  # 1.0 close; 0.25 / 0.1 worse and 2-5x slower
+adjoint: false  # 2D: direct backprop is stable and faster (the adjoint can diverge)
+atol: 1.0e-8
+rtol: 1.0e-6
+
+# optimisation
+epochs: 500  # official SSIM saturates at 500 with these lrs (see the top)
+lr: 3.7751978772519825e-05  # velocity net (stage C; bigger nets want a lower lr)
+recon_lr: 1.2801604738914387e-03
+lr_schedule: "cosine"
+lr_min: 1.0e-5
+recon_eps: 8.333333e-6
+weight_decay: 0
+learn_recon: true
+interval: 0
+motion_warmup: 0
+use_nreps: false
+
+# losses
+lambda_st: 1.0
+lambda_grad_phi: 0.09199881376946972
+lambda_grd: 0
+lambda_lap: 0
+lambda_logdetJ: 0.0  # off in every good stage A trial
+lambda_recon: 0.04038271188215603  # also the prior's weight in the nmAPG init: 0.04 also improves the init (+0.002 SSIM vs 0.1)
+lambda_rl2: 1229.1480606146047
+
+log_cadence: 100
+metric_cadence: 25  # as tuned
+debug: false

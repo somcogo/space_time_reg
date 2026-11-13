@@ -1,0 +1,101 @@
+# Stage A: loss weights + learning rates, at the base config's SIREN (groupsiren 3 x 64, omega 30,
+# Euler step 0.5). 2D single-slice runs, 16 tuning patients, 500 epochs.
+#   python -m stmr.tune launch configs/tune/lambdas_v1.yaml --gpus 3,4,5,6,7
+# Then: report -> reeval the top few on the holdout (and at a longer budget, --set epochs=1500)
+# -> `best` -> paste into siren_v1.yaml. Changing tune_cases, metric or space needs a new `name`.
+name: lambdas_v1
+out_dir: log/optuna  # the study lives in log/optuna/lambdas_v1/ (journal.log, trials/, report/)
+
+base_config: configs/cmr_working_init.yaml
+overrides:  # every run, on top of base_config (the search space and the case come after)
+  adjoint: false  # 2D: the adjoint diverges even motion-only; direct backprop is stable + faster
+  cmr_raw: true  # the challenge's .mat for every patient (only P001-P005 have processed files)
+  epochs: 500  # screening budget: ~80% of the 1500-epoch official-SSIM gain (log/cmr/grid/epoch_budget).
+  #              Short budgets favour fast-converging configs (lower rl2, higher lr): reeval the
+  #              top trials at 1500 before adopting one. recon_lr x epochs acts as early stopping,
+  #              so the lrs found here are 500-epoch lrs.
+  save_visuals: false  # no pdfs / gifs / np_imgs after each case; scoring reads only res.pt
+  metric_cadence: 25  # metrics only for the logged curves (the best-loss checkpoint is every epoch)
+  log_cadence: 100
+  seed: 0  # the same seed in every trial keeps the comparison paired; reeval adds seeds
+
+space: lambdas  # stmr/tune/spaces.py
+# score per case = metric(best-loss recon) - metric(zero-filled recon); trial value = mean over cases
+metric: official_ssim  # crop_psnr | full_psnr | official_ssim (all recorded per case)
+n_trials: 80  # COMPLETE + RUNNING (pruned ones included); enqueued baselines always run
+
+sampler:
+  name: tpe  # tpe | gp | random
+  n_startup_trials: 12  # random trials before TPE starts modelling (baselines count)
+  seed: 0
+pruner:
+  name: wilcoxon  # paired by case vs the best trial; wilcoxon | median | none
+  p_threshold: 0.1  # larger = prunes more aggressively
+  n_startup_steps: 3  # never prune before 3 cases
+
+run:
+  timeout_h: 1  # a 500-epoch case takes ~2-3 min on a free A40
+  oom_policy: auto  # OOM on an otherwise free GPU = the config's fault -> crash_score; else retry
+  oom_retries: 3
+  oom_wait_min: 10
+  crash_score: -0.2  # crash / timeout / NaN / OOM case, in SSIM (a typical score is ~+0.1)
+  max_consecutive_failures: 3
+  keep_heavy_files: false  # drop res.pt after scoring (~65 MB per case)
+
+# Run first, as trials 0, 1: the configs to beat (both tuned at 4000 epochs, so not at their
+# best here).
+enqueue:
+  - name: working_init  # configs/cmr_working_init.yaml as it is
+    params: {lambda_rl2: 2500.0, lambda_grad_phi: 0.25, lambda_recon: 0.1, recon_lr: 1.0e-3,
+             lr: 2.0e-4, use_logdetJ: false}
+  - name: rl2_100  # the P004-s0 motion-only pick, log/cmr/grid/rl2_100_slices
+    params: {lambda_rl2: 100.0, lambda_grad_phi: 0.03, lambda_recon: 0.1, recon_lr: 1.0e-3,
+             lr: 2.0e-4, use_logdetJ: true, lambda_logdetJ: 0.12}
+
+# reeval --controls: variants of a trial's config
+controls:
+  identity: {fixed_motion: identity}  # the same config without motion
+
+# Tuning cases, one central slice (the ranking's slices: 0-based round(D/2)-2, round(D/2)-1) of
+# 16 patients, image heights near the population mix (246: 59%, 204: 29%, 162: 11%; here 9/5/2).
+# The order is fixed for the life of the study (a case's index is its id for the pruner).
+tune_cases:
+  - {dataset: cmr_P001, slices: [4]}  # 204, hard
+  - {dataset: cmr_P002, slices: [5]}  # 246
+  - {dataset: cmr_P003, slices: [3]}  # 246
+  - {dataset: cmr_P004, slices: [3]}  # 162, easy
+  - {dataset: cmr_P005, slices: [4]}  # 204
+  - {dataset: cmr_P007, slices: [4]}  # 246
+  - {dataset: cmr_P008, slices: [4]}  # 162
+  - {dataset: cmr_P010, slices: [3]}  # 246
+  - {dataset: cmr_P018, slices: [3]}  # 204
+  - {dataset: cmr_P021, slices: [4]}  # 246
+  - {dataset: cmr_P006, slices: [4]}  # 204
+  - {dataset: cmr_P009, slices: [3]}  # 246
+  - {dataset: cmr_P011, slices: [4]}  # 246
+  - {dataset: cmr_P012, slices: [3]}  # 246
+  - {dataset: cmr_P013, slices: [4]}  # 246
+  - {dataset: cmr_P031, slices: [4]}  # 204
+
+# Held-out patients, never seen by any stage: both central slices of 10 others (reeval only).
+holdout_cases:
+  - {dataset: cmr_P023, slices: [3]}
+  - {dataset: cmr_P023, slices: [4]}
+  - {dataset: cmr_P024, slices: [3]}
+  - {dataset: cmr_P024, slices: [4]}
+  - {dataset: cmr_P025, slices: [3]}
+  - {dataset: cmr_P025, slices: [4]}
+  - {dataset: cmr_P026, slices: [3]}
+  - {dataset: cmr_P026, slices: [4]}
+  - {dataset: cmr_P029, slices: [4]}
+  - {dataset: cmr_P029, slices: [5]}
+  - {dataset: cmr_P030, slices: [3]}
+  - {dataset: cmr_P030, slices: [4]}
+  - {dataset: cmr_P033, slices: [3]}
+  - {dataset: cmr_P033, slices: [4]}
+  - {dataset: cmr_P034, slices: [4]}
+  - {dataset: cmr_P034, slices: [5]}
+  - {dataset: cmr_P036, slices: [3]}
+  - {dataset: cmr_P036, slices: [4]}
+  - {dataset: cmr_P039, slices: [4]}
+  - {dataset: cmr_P039, slices: [5]}

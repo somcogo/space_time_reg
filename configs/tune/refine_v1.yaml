@@ -1,0 +1,38 @@
+# Stage C: a joint re-tune of the loss weights and both learning rates around the stage A + B
+# picks, with stage B's network fixed. Stage A tuned the lambdas at the base SIREN and stage B
+# the velocity lr at stage A's lambdas; this closes that loop. Each value is sampled
+# log-uniformly in [c / 4, c * 4] around its centre; lambda_logdetJ stays 0 (off in every good
+# stage A trial).
+#   python -m stmr.tune launch configs/tune/refine_v1.yaml --gpus auto
+# Epochs stay 500: on the 20 holdout cases trial 54 scored +0.19734 / +0.19736 / +0.19736 /
+# +0.19699 at 500 / 1000 / 1500 / 2500 epochs (rule: the shortest within 0.0005 of the best).
+extends: siren_v1.yaml
+name: refine_v1
+space: refine
+n_trials: 40
+
+space_args:
+  factor: 4.0
+  center:  # stage A trial 48 (lambdas, recon_lr) + stage B trial 54 (lr)
+    lr: 7.702622314301954e-05
+    recon_lr: 0.001527889511279713
+    lambda_recon: 0.08427056130976544
+    lambda_rl2: 1657.5366075469765
+    lambda_grad_phi: 0.10669302012314252
+    lambda_logdetJ: 0.0
+
+overrides:  # stage B pick: siren_v1 trial 54 (holdout +0.19734 vs base_siren +0.19659, p 0.65)
+  siren_depth: 5
+  siren_dim: 128
+  siren_omega: 35
+  step_size: 0.5
+  epochs: 500
+
+sampler:
+  n_startup_trials: 8
+
+enqueue:
+  - name: center  # = siren_v1 trial 54
+    params: {lr: 7.702622314301954e-05, recon_lr: 0.001527889511279713,
+             lambda_recon: 0.08427056130976544, lambda_rl2: 1657.5366075469765,
+             lambda_grad_phi: 0.10669302012314252}

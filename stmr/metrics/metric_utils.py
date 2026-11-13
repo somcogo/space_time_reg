@@ -242,6 +242,8 @@ def add_cmr_eval_metrics(moving: torch.Tensor, gt_im: torch.Tensor, metrics: dic
     metrics['cmr evals first/cropped psnr'] = crop_psnr[0].mean()
     metrics['cmr evals first/cropped ssim'] = crop_ssim[0].mean()
     metrics['cmr evals first/cropped nmse'] = crop_nmse[0].mean()
+
+    metrics['cmr evals official/ssim'] = cmrx_official_ssim(moving, gt_im)
     return metrics
 def cmrx_official_ssim(pred_recon: torch.Tensor, gt_recon: torch.Tensor) -> float:
     """SSIM as ranked in the CMRxRecon 2023 challenge (CMRxReconDemo/run4Ranking.m and

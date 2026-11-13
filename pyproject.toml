@@ -25,6 +25,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+# stmr/tune (Optuna hyperparameter studies); scipy for the WilcoxonPruner and reeval's test
+tune = ["optuna>=4.2", "scipy"]
 # cbct (stmr/data/ct_utils.py, stmr/data/spare_data.py) needs torch-radon (carterbox
 # fork, github.com/carterbox/torch-radon) for its differentiable fan-beam projector.
 # It has no PyPI package -- build from source against the local torch/CUDA install:
