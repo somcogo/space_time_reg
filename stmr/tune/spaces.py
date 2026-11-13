@@ -63,6 +63,17 @@ def siren(trial, **_) -> dict[str, Any]:
     }
 
 
+def net(trial, **_) -> dict[str, Any]:
+    """Architecture grid (configs/tune/arch_v1.yaml): depth / width / velocity lr only, omega and
+    the Euler step fixed in the YAML. Wider bounds than `siren` (depth up to 12); meant to be run
+    on enqueued grid points without pruning, so every point is fully evaluated."""
+    return {
+        "siren_depth": trial.suggest_int("siren_depth", 2, 12),
+        "siren_dim": trial.suggest_categorical("siren_dim", [32, 64, 128, 256]),
+        "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
+    }
+
+
 def refine(trial, center: dict[str, float], factor: float = 4.0,
            factors: dict[str, float] | None = None) -> dict[str, Any]:
     """Stage C: a narrow re-tune around earlier picks (``space_args`` in the YAML): every
@@ -78,6 +89,7 @@ def refine(trial, center: dict[str, float], factor: float = 4.0,
 SPACES: dict[str, Callable[..., dict[str, Any]]] = {
     "lambdas": lambdas,
     "siren": siren,
+    "net": net,
     "refine": refine,
 }
 

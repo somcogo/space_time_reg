@@ -1,0 +1,62 @@
+# Architecture grid: deeper / wider velocity nets at the final tuned config (cmr_tuned_v1:
+# stage C loss weights + recon_lr, omega 35, Euler step 0.5, 500 epochs), each at 3 velocity lrs
+# (x2 apart; bigger nets want a lower lr, stage B), fully evaluated on the 16 tuning slices (no
+# pruning: every grid point gets all 16). Then each net's best lr goes to the holdout (reeval).
+#   python -m stmr.tune launch configs/tune/arch_v1.yaml --gpus auto
+# Memory (P002_s5, 246 rows): 6x256 36 GB, 10x128 30 GB, 8x256 OOMs a 46 GB A40 -> not in the grid.
+extends: lambdas_v1.yaml  # cases, run settings and tuning-run overrides (adjoint off, 500 ep, ...)
+name: arch_v1
+base_config: configs/cmr_tuned_v1.yaml
+space: net
+space_args: {}
+n_trials: 36
+
+overrides:
+  siren_omega: 35
+  step_size: 0.5
+
+sampler:
+  name: random  # every trial is an enqueued grid point
+pruner:
+  name: none
+
+run:
+  timeout_h: 2
+
+enqueue:  # slowest first (shorter tail); lr per width: 64 -> 4e-5..1.6e-4, 128/256 -> 2e-5..8e-5
+  - {name: d6w256_lr2e-05, params: {siren_depth: 6, siren_dim: 256, lr: 2.00e-05}}
+  - {name: d6w256_lr4e-05, params: {siren_depth: 6, siren_dim: 256, lr: 4.00e-05}}
+  - {name: d6w256_lr8e-05, params: {siren_depth: 6, siren_dim: 256, lr: 8.00e-05}}
+  - {name: d5w256_lr2e-05, params: {siren_depth: 5, siren_dim: 256, lr: 2.00e-05}}
+  - {name: d5w256_lr4e-05, params: {siren_depth: 5, siren_dim: 256, lr: 4.00e-05}}
+  - {name: d5w256_lr8e-05, params: {siren_depth: 5, siren_dim: 256, lr: 8.00e-05}}
+  - {name: d10w128_lr2e-05, params: {siren_depth: 10, siren_dim: 128, lr: 2.00e-05}}
+  - {name: d10w128_lr4e-05, params: {siren_depth: 10, siren_dim: 128, lr: 4.00e-05}}
+  - {name: d10w128_lr8e-05, params: {siren_depth: 10, siren_dim: 128, lr: 8.00e-05}}
+  - {name: d8w128_lr2e-05, params: {siren_depth: 8, siren_dim: 128, lr: 2.00e-05}}
+  - {name: d8w128_lr4e-05, params: {siren_depth: 8, siren_dim: 128, lr: 4.00e-05}}
+  - {name: d8w128_lr8e-05, params: {siren_depth: 8, siren_dim: 128, lr: 8.00e-05}}
+  - {name: d6w128_lr2e-05, params: {siren_depth: 6, siren_dim: 128, lr: 2.00e-05}}
+  - {name: d6w128_lr4e-05, params: {siren_depth: 6, siren_dim: 128, lr: 4.00e-05}}
+  - {name: d6w128_lr8e-05, params: {siren_depth: 6, siren_dim: 128, lr: 8.00e-05}}
+  - {name: d5w128_lr2e-05, params: {siren_depth: 5, siren_dim: 128, lr: 2.00e-05}}
+  - {name: d5w128_lr4e-05, params: {siren_depth: 5, siren_dim: 128, lr: 4.00e-05}}
+  - {name: d5w128_lr8e-05, params: {siren_depth: 5, siren_dim: 128, lr: 8.00e-05}}
+  - {name: d10w64_lr4e-05, params: {siren_depth: 10, siren_dim: 64, lr: 4.00e-05}}
+  - {name: d10w64_lr8e-05, params: {siren_depth: 10, siren_dim: 64, lr: 8.00e-05}}
+  - {name: d10w64_lr0.00016, params: {siren_depth: 10, siren_dim: 64, lr: 1.60e-04}}
+  - {name: d8w64_lr4e-05, params: {siren_depth: 8, siren_dim: 64, lr: 4.00e-05}}
+  - {name: d8w64_lr8e-05, params: {siren_depth: 8, siren_dim: 64, lr: 8.00e-05}}
+  - {name: d8w64_lr0.00016, params: {siren_depth: 8, siren_dim: 64, lr: 1.60e-04}}
+  - {name: d3w128_lr2e-05, params: {siren_depth: 3, siren_dim: 128, lr: 2.00e-05}}
+  - {name: d3w128_lr4e-05, params: {siren_depth: 3, siren_dim: 128, lr: 4.00e-05}}
+  - {name: d3w128_lr8e-05, params: {siren_depth: 3, siren_dim: 128, lr: 8.00e-05}}
+  - {name: d6w64_lr4e-05, params: {siren_depth: 6, siren_dim: 64, lr: 4.00e-05}}
+  - {name: d6w64_lr8e-05, params: {siren_depth: 6, siren_dim: 64, lr: 8.00e-05}}
+  - {name: d6w64_lr0.00016, params: {siren_depth: 6, siren_dim: 64, lr: 1.60e-04}}
+  - {name: d5w64_lr4e-05, params: {siren_depth: 5, siren_dim: 64, lr: 4.00e-05}}
+  - {name: d5w64_lr8e-05, params: {siren_depth: 5, siren_dim: 64, lr: 8.00e-05}}
+  - {name: d5w64_lr0.00016, params: {siren_depth: 5, siren_dim: 64, lr: 1.60e-04}}
+  - {name: d3w64_lr4e-05, params: {siren_depth: 3, siren_dim: 64, lr: 4.00e-05}}
+  - {name: d3w64_lr8e-05, params: {siren_depth: 3, siren_dim: 64, lr: 8.00e-05}}
+  - {name: d3w64_lr0.00016, params: {siren_depth: 3, siren_dim: 64, lr: 1.60e-04}}
