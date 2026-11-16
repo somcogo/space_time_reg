@@ -1,7 +1,7 @@
 import copy
+import math
 import time
 from logging import Logger
-from argparse import Namespace
 
 import numpy as np
 import torch
@@ -12,8 +12,9 @@ from torchdiffeq import odeint, odeint_adjoint
 from stmr.config import Config
 from stmr.data.data_utils import get_dataset_capabilities
 from stmr.data.recon_init import get_reg
-from stmr.losses.losses import calculate_losses
+from stmr.losses.losses import PER_IMAGE_LOSSES, calculate_losses, grad_phi_loss
 from stmr.metrics.calc_metrics import calculate_metrics, get_relevant_loss_names
+from stmr.metrics.motion_metrics import endpoint_error
 from stmr.state import EvalInputs, Inputs, LossOutputs, ModelOutputs, RegistrationResult
 from stmr.utils.logging import log_metrics
 from stmr.utils.spatial_transformer import get_spatial_transformer
@@ -68,20 +69,28 @@ def get_fixed_motion_outputs(config: Config, inputs: Inputs, eval_inputs: EvalIn
     return ModelOutputs(rel_vel=abs_phi - coord, abs_phi=abs_phi, transformer=ST)
 
 
-def velocity_lr_factor(config: Config, step: int) -> float:
-    """Multiplier on config.lr for optimizer step `step` (0-based): linear warm-up over
-    lr_warmup steps, then constant or cosine-decayed to lr_min by the last epoch."""
+def velocity_lr_factor(config: Config, step: int, n_epochs: int | None = None,
+                       final: bool = True) -> float:
+    """Multiplier on config.lr for optimizer step `step` (0-based) of a level of `n_epochs`
+    epochs (default: the whole run). The final level: linear warm-up over lr_warmup steps, then
+    constant or cosine-decayed to lr_min by its last epoch -- with a single level, the whole run.
+    An earlier level: linear warm-up over level_warmup steps, then constant."""
+    if not final:
+        if step < config.level_warmup:
+            return (step + 1) / config.level_warmup
+        return 1.0
+    n_epochs = config.epochs if n_epochs is None else n_epochs
     if step < config.lr_warmup:
         return (step + 1) / config.lr_warmup
     if config.lr_schedule == 'const':
         return 1.0
     if config.lr_schedule == 'cosine':
-        progress = (step - config.lr_warmup) / max(1, config.epochs - 1 - config.lr_warmup)
+        progress = (step - config.lr_warmup) / max(1, n_epochs - 1 - config.lr_warmup)
         lr = config.lr_min + 0.5 * (config.lr - config.lr_min) * (1 + np.cos(np.pi * progress))
         return lr / config.lr
     raise ValueError(f"Unknown lr_schedule {config.lr_schedule!r}")
 
-def start_level(config: Namespace, fine_inputs: Inputs, func: nn.Module, i: int, logger: Logger):
+def start_level(config: Config, fine_inputs: Inputs, func: nn.Module, i: int, logger: Logger):
     f = config.levels[i]
     inputs, coords, affine = build_level(fine_inputs, f)
     moving = inputs.moving
@@ -89,18 +98,61 @@ def start_level(config: Namespace, fine_inputs: Inputs, func: nn.Module, i: int,
     moving.requires_grad_(config.learn_recon)
     logger.info(f'Set require_grad for recon to {moving.requires_grad}')
 
+    # A fresh Adam per level: its moment estimates would otherwise carry the previous level's
+    # gradient scale into this one (the recon is a new tensor anyway).
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if get_dataset_capabilities(config).joint_recon and not config.template_warp_recon:
         optimizer.add_param_group({'params': moving, 'lr': config.recon_lr,
                                    'weight_decay': 0., 'eps': config.recon_eps})
     # Only the velocity net (group 0) is scheduled: the recon is in an early-stopping regime
     # where the result tracks recon_lr * epochs, so decaying it would change the recon.
+    final = i == len(config.levels) - 1
+    n_epochs = (config.epochs + 1 if final else config.level_starts[i + 1]) - config.level_starts[i]
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, [lambda step: velocity_lr_factor(config, step)]
+        optimizer, [lambda step: velocity_lr_factor(config, step, n_epochs, final)]
         + [lambda step: 1.0] * (len(optimizer.param_groups) - 1))
+
+    # The per-image sums (sim, recon_reg) have per-pixel gradients that do not depend on the
+    # grid size; the per-pixel means (imdiff, grad_phi, ...) carry 1/n_pixels, i.e. 1/r more on
+    # a grid with r times the pixels. Scaling the means by r keeps every term's per-pixel pull --
+    # the recon's balance and the motion's -- as at full resolution.
     losses_to_calc = get_relevant_loss_names(config)
+    r = math.prod(inputs.phi_shape[1:-1]) / math.prod(inputs.native_grid)
+    if r != 1:
+        for name, loss in losses_to_calc.items():
+            if name not in PER_IMAGE_LOSSES:
+                loss['lambda'] *= r
+    logger.info(f'Level {i}: f={f}, motion grid {list(inputs.phi_shape[1:-1])}, '
+                f'{n_epochs} epochs, mean-loss lambdas x{r:.4g}')
     return inputs, coords, affine, optimizer, scheduler, losses_to_calc
-    
+
+
+@torch.no_grad()
+def log_level_end(config: Config, writer: SummaryWriter, logger: Logger, func: nn.Module,
+                  epoch: int, f: int, inputs: Inputs, coord_tensor: torch.Tensor, affine: tuple,
+                  fine_inputs: Inputs, eval_inputs: EvalInputs) -> None:
+    """At the end of a level: grad_phi of the current motion net on the level's grid next to the
+    same net on the full-resolution grid (a jump = wiggles between the coarse samples, which the
+    coarse grad_phi cannot see), and for frames with a known motion the full-resolution EPE."""
+    fine_coords = generate_coord_tensor(fine_inputs.native_grid, coord_tensor.device)
+    level_mo = get_model_outputs(config, func, coord_tensor, inputs.phi_shape, None, affine)
+    fine_mo = get_model_outputs(config, func, fine_coords, fine_inputs.phi_shape, None)
+    gp_level, gp_fine = (
+        grad_phi_loss(mo, c, shape, spacing=config.voxel_spacing,
+                      grid=fine_inputs.native_grid)[0].mean().item()
+        for mo, c, shape in ((level_mo, coord_tensor, inputs.phi_shape),
+                             (fine_mo, fine_coords, fine_inputs.phi_shape)))
+    writer.add_scalar('multilevel/grad_phi_level', gp_level, epoch)
+    writer.add_scalar('multilevel/grad_phi_fine', gp_fine, epoch)
+    msg = f'Level end (f={f}) at epoch {epoch}: grad_phi level grid {gp_level:.4g}, fine grid {gp_fine:.4g}'
+    if eval_inputs.gt_phi is not None:
+        epe = endpoint_error(fine_mo.abs_phi, eval_inputs.gt_phi, eval_inputs.gt_im)
+        for key, value in epe.items():
+            writer.add_scalar(f'multilevel/{key}', value, epoch)
+        msg += (f', fine EPE crop {epe["epe_crop"]:.3f} px (no motion '
+                f'{epe["gt_motion_crop"]:.3f})')
+    logger.info(msg)
+
 
 
 def registration(config: Config, writer: SummaryWriter, logger: Logger, orig_inputs: Inputs,
@@ -127,6 +179,8 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, orig_inp
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
+    # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
+    # epoch inside calculate_losses.
     recon_regularizer = get_reg(config) if config.lambda_recon > 0 and 'cmr' in config.dataset else None
     all_metrics = []
 
@@ -137,15 +191,17 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, orig_inp
 
         if epoch == 1 or epoch in config.level_starts:
             level_ndx = config.level_starts.index(epoch)
-            if config.level_recon == 'correct':
-                with torch.no_grad():
-                    orig_inputs.moving += prolong(inputs.moving - restrict(orig_inputs.moving, f), inputs.native_grid)
+            if epoch > 1:
+                prev_f = config.levels[level_ndx - 1]
+                log_level_end(config, writer, logger, func, epoch - 1, prev_f, inputs,
+                              coord_tensor, affine, orig_inputs, eval_inputs)
+                if config.level_recon == 'correct':
+                    with torch.no_grad():
+                        orig_inputs.moving += prolong(inputs.moving - restrict(orig_inputs.moving, prev_f), inputs.native_grid[-2:])
             inputs, coord_tensor, affine, optimizer, scheduler, losses_to_calc = start_level(config, orig_inputs, func, level_ndx, logger)
             moving = inputs.moving
-            
+
             vel_losses = {'grd', 'lap'} & set(losses_to_calc)  # the only losses that use rel_vel
-            # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
-            # epoch inside calculate_losses.
 
             if config.levels[level_ndx] == 1:
                 metric_epoch = True

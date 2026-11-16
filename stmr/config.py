@@ -71,10 +71,12 @@ class Config:
     init_noise_sigma: float = 0.0    # robustness: relative noise on the init recon (0=off)
 
     # --- multilevel ---
-    levels: list = [1]
-    level_starts: list = [1]
-    level_recon: str = 'reset' ('reset' or 'correct')
-    level_warmup: int = 0
+    # Level i runs from epoch level_starts[i] at k-space crop factor levels[i] (stmr/utils/multilevel.py);
+    # the last level must be 1, the full-resolution pipeline.
+    levels: list = field(default_factory=lambda: [1])
+    level_starts: list = field(default_factory=lambda: [1])  # first epoch of each level
+    level_recon: str = 'reset'  # 'reset' or 'correct'
+    level_warmup: int = 0  # velocity lr warm-up steps at the start of every level but the last
 
     # --- reconstruction regularizer ---
     reg: str = "learned"
@@ -189,7 +191,34 @@ class Config:
         if len(self.slices) > 1 and (self.voxel_spacing is None or len(self.voxel_spacing) != 3):
             raise ValueError(f"slices={self.slices} needs voxel_spacing as [d, h, w] in mm, "
                              f"got {self.voxel_spacing}")
+        self._check_levels()
         return self
+
+    def _check_levels(self):
+        levels, starts = self.levels, self.level_starts
+        if len(levels) != len(starts):
+            raise ValueError(f"levels={levels} and level_starts={starts} differ in length")
+        if any(not isinstance(f, int) or f < 1 for f in levels) or levels[-1] != 1:
+            raise ValueError(f"levels={levels} must be integers >= 1, the last one 1")
+        if starts[0] != 1 or any(b <= a for a, b in zip(starts, starts[1:])) or starts[-1] > self.epochs:
+            raise ValueError(f"level_starts={starts} must start at 1, increase strictly and stay "
+                             f"<= epochs={self.epochs}")
+        if self.level_recon not in ('reset', 'correct'):
+            raise ValueError(f"level_recon must be 'reset' or 'correct', got {self.level_recon!r}")
+        # grd / lap difference the velocity in grid-index steps, so their scale changes per level.
+        if any(f > 1 for f in levels) and (self.lambda_grd > 0 or self.lambda_lap > 0):
+            raise ValueError("coarse levels need lambda_grd = lambda_lap = 0")
+        # These index or pin the full-resolution recon / motion, which a coarse level replaces.
+        if len(levels) > 1:
+            unsupported = [name for name, on in [
+                ('template_frames', self.template_frames > 0),
+                ('template_warp_recon', self.template_warp_recon),
+                ('fixed_motion', bool(self.fixed_motion)),
+                ('motion_warmup', self.motion_warmup > 0),
+                ('interval', self.interval < self.epochs),
+            ] if on]
+            if unsupported:
+                raise ValueError(f"levels={levels} does not support {unsupported}")
 
     def to_dict(self):
         return asdict(self)

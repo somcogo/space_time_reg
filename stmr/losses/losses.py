@@ -42,7 +42,8 @@ def calc_single_loss(config, loss_name, inputs, model_outputs, coord_tensor, rec
     dispatch = {
         'sim': lambda: similarity_loss(config, inputs),
         'imdiff': lambda: im_space_l2_loss(config, inputs, model_outputs),
-        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, inputs.phi_shape, inputs.native_grid, config.voxel_spacing),
+        'grad_phi': lambda: grad_phi_loss(model_outputs, coord_tensor, inputs.phi_shape,
+                                          spacing=config.voxel_spacing, grid=inputs.native_grid),
         'detJ': lambda: detJ_loss(model_outputs, coord_tensor, inputs.phi_shape),
         'logdetJ': lambda: log_detJ_loss(model_outputs, coord_tensor, inputs.phi_shape),
         'grd': lambda: vel_grad_loss(model_outputs, inputs.phi_shape),

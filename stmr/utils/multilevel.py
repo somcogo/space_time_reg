@@ -1,5 +1,4 @@
 import math
-from argparse import Namespace
 
 import torch
 import torch.nn.functional as F
@@ -73,13 +72,13 @@ def level_coords(native_grid, f: int, device):
     b = torch.tensor(b, device=g.device, dtype=g.dtype)
     return g * a + b, a, b, coarse_grid  # f=1: a=1, b=0 exactly -> the standard grid
 
-def build_level(fine_inputs: Inputs, f: int) -> list[Inputs, torch.Tensor, tuple]:
+def build_level(fine_inputs: Inputs, f: int) -> tuple[Inputs, torch.Tensor, tuple]:
     if f == 1:
         coords = generate_coord_tensor(fine_inputs.native_grid, fine_inputs.moving.device)
         return fine_inputs, coords, (1., 0.)
     moving = torch.nn.Parameter(restrict(fine_inputs.moving.detach(), f))
     fixed = crop_kspace(fine_inputs.fixed, f)
-    forward = MaskedFT(crop_kspace(fine_inputs.forward.mask))
+    forward = MaskedFT(crop_kspace(fine_inputs.forward.mask, f))
     coarse_coords, a, b, coarse_grid = level_coords(fine_inputs.native_grid, f, fine_inputs.moving.device)
     phi_shape = get_phi_shape(coarse_grid)
     coarse_inputs = Inputs(moving=moving, moving_inr=fine_inputs.moving_inr, fixed=fixed, forward=forward, phi_shape=phi_shape, native_grid=fine_inputs.native_grid)
