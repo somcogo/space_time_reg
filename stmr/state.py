@@ -19,11 +19,12 @@ from torch import nn
 class Inputs:
     """Everything the optimisation reads each epoch."""
 
-    moving: torch.Tensor          # recon parameter [T, 2, D, H, W]
-    moving_inr: object | None     # neural-representation image (None for cmr)
-    fixed: torch.Tensor           # measured k-space [T, 2, D, H, W], zero-filled
-    forward: nn.Module            # forward operator (exposes .mask when masked)
-    phi_shape: list               # shape of deformation, [-1, H, W, 2] if D=1 else [-1, D, H, W, 3]
+    moving: torch.Tensor                # recon parameter [T, 2, D, H, W]
+    moving_inr: object | None           # neural-representation image (None for cmr)
+    fixed: torch.Tensor                 # measured k-space [T, 2, D, H, W], zero-filled
+    forward: nn.Module                  # forward operator (exposes .mask when masked)
+    phi_shape: list                     # shape of deformation, [-1, H, W, 2] if D=1 else [-1, D, H, W, 3]
+    native_grid: tuple | None = None    # fine motion grid, is needed to be stored for multilevel recon. (H, W) or (D, H, W)
 
 
 @dataclass

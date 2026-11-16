@@ -1,6 +1,7 @@
 import copy
 import time
 from logging import Logger
+from argparse import Namespace
 
 import numpy as np
 import torch
@@ -17,6 +18,7 @@ from stmr.state import EvalInputs, Inputs, LossOutputs, ModelOutputs, Registrati
 from stmr.utils.logging import log_metrics
 from stmr.utils.spatial_transformer import get_spatial_transformer
 from stmr.utils.spatial_utils import generate_coord_tensor, get_relative_vel
+from stmr.utils.multilevel import build_level, prolong, restrict
 
 
 def _rel_vel(config: Config, func: nn.Module, coord_tensor: torch.Tensor) -> torch.Tensor:
@@ -26,7 +28,7 @@ def _rel_vel(config: Config, func: nn.Module, coord_tensor: torch.Tensor) -> tor
 
 
 def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tensor,
-                      phi_shape: list, rel_vel_mode: str | None = 'grad') -> ModelOutputs:
+                      phi_shape: list, rel_vel_mode: str | None = 'grad', affine: tuple = (1, 0)) -> ModelOutputs:
     """rel_vel_mode: 'grad' (a loss differentiates rel_vel: grd / lap), 'nograd' (metrics and
     visuals only) or None (not needed this epoch: an extra SIREN pass saved)."""
     time_points = torch.tensor([0., 1.], device=config.device)
@@ -42,7 +44,7 @@ def get_model_outputs(config: Config, func: nn.Module, coord_tensor: torch.Tenso
     abs_phi = solve(func, init_value, time_points, method=config.solver, atol=config.atol,
                     rtol=config.rtol, options={'step_size': config.step_size})
     abs_phi = abs_phi[1]  # ignore abs_phi[0], which is just init_value anyway
-    ST = get_spatial_transformer(abs_phi, phi_shape, config)
+    ST = get_spatial_transformer(abs_phi, phi_shape, config, affine)
     return ModelOutputs(rel_vel=rel_vel, abs_phi=abs_phi, transformer=ST)
 
 
@@ -79,10 +81,14 @@ def velocity_lr_factor(config: Config, step: int) -> float:
         return lr / config.lr
     raise ValueError(f"Unknown lr_schedule {config.lr_schedule!r}")
 
-
-def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: Inputs,
-                 eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
+def start_level(config: Namespace, fine_inputs: Inputs, func: nn.Module, i: int, logger: Logger):
+    f = config.levels[i]
+    inputs, coords, affine = build_level(fine_inputs, f)
     moving = inputs.moving
+
+    moving.requires_grad_(config.learn_recon)
+    logger.info(f'Set require_grad for recon to {moving.requires_grad}')
+
     optimizer = torch.optim.Adam(func.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     if get_dataset_capabilities(config).joint_recon and not config.template_warp_recon:
         optimizer.add_param_group({'params': moving, 'lr': config.recon_lr,
@@ -92,20 +98,22 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, [lambda step: velocity_lr_factor(config, step)]
         + [lambda step: 1.0] * (len(optimizer.param_groups) - 1))
+    losses_to_calc = get_relevant_loss_names(config)
+    return inputs, coords, affine, optimizer, scheduler, losses_to_calc
+    
+
+
+def registration(config: Config, writer: SummaryWriter, logger: Logger, orig_inputs: Inputs,
+                 eval_inputs: EvalInputs, func: nn.Module) -> RegistrationResult:
 
     # Template-warp recon: no learned image. Each epoch the recon is a differentiable warp of
     # the fully-sampled GT template (frame 0); only the motion net is optimised (above).
     template = eval_inputs.gt_im[:1].detach() if config.template_warp_recon else None
 
-    moving.requires_grad_(config.learn_recon)
-    logger.info(f'Set require_grad for recon to {moving.requires_grad}')
-    
-    coord_tensor = generate_coord_tensor(inputs.phi_shape[1:-1], config.device)
-
     # Fixed motion: built once and reused every epoch; the motion net gets no gradient.
     fixed_outputs = None
     if config.fixed_motion:
-        fixed_outputs = get_fixed_motion_outputs(config, inputs, eval_inputs)
+        fixed_outputs = get_fixed_motion_outputs(config, orig_inputs, eval_inputs)
         logger.info(f'Motion fixed ({config.fixed_motion!r}), not learned')
 
     # Fully-sampled frozen template: pin the first `template_frames` recon frames to GT. Their
@@ -113,21 +121,36 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
     n_template = config.template_frames
     if n_template > 0:
         with torch.no_grad():
-            moving[:n_template].copy_(eval_inputs.gt_im[:n_template])
+            orig_inputs.moving[:n_template].copy_(eval_inputs.gt_im[:n_template])
         logger.info(f'Froze first {n_template} recon frame(s) at GT (fully-sampled template)')
 
     best_loss = 1e8
     time_stamps = np.zeros((7, config.epochs))
     time_stamps[6, 0] = time.time()
-    losses_to_calc = get_relevant_loss_names(config)
-    vel_losses = {'grd', 'lap'} & set(losses_to_calc)  # the only losses that use rel_vel
-    # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
-    # epoch inside calculate_losses.
-    recon_regularizer = get_reg(config) if 'recon_reg' in losses_to_calc else None
+    recon_regularizer = get_reg(config) if config.lambda_recon > 0 and 'cmr' in config.dataset else None
     all_metrics = []
 
 
     for epoch in range(1, config.epochs + 1):
+        log_epoch = epoch % config.log_cadence == 0
+        metric_epoch = (epoch == 1 or epoch % config.metric_cadence == 0 or epoch == config.epochs) and epoch >= config.level_starts[-1]
+
+        if epoch == 1 or epoch in config.level_starts:
+            level_ndx = config.level_starts.index(epoch)
+            if config.level_recon == 'correct':
+                with torch.no_grad():
+                    orig_inputs.moving += prolong(inputs.moving - restrict(orig_inputs.moving, f), inputs.native_grid)
+            inputs, coord_tensor, affine, optimizer, scheduler, losses_to_calc = start_level(config, orig_inputs, func, level_ndx, logger)
+            moving = inputs.moving
+            
+            vel_losses = {'grd', 'lap'} & set(losses_to_calc)  # the only losses that use rel_vel
+            # Built once (it's a frozen, pretrained net) instead of re-loading it from disk every
+            # epoch inside calculate_losses.
+
+            if config.levels[level_ndx] == 1:
+                metric_epoch = True
+
+
         if config.motion_warmup > 0 and epoch in (1, config.motion_warmup + 1):
             in_warmup = epoch == 1
             moving.requires_grad_(False if in_warmup else config.learn_recon)
@@ -151,8 +174,6 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
                 logger.info(f'Set require_grad for recon to {moving.requires_grad} and for '
                             f'func to {param.requires_grad} at epoch {epoch}')
 
-        log_epoch = epoch % config.log_cadence == 0
-        metric_epoch = epoch == 1 or epoch % config.metric_cadence == 0 or epoch == config.epochs
         optimizer.zero_grad()
 
         time_stamps[0, epoch - 1] = time.time()
@@ -161,7 +182,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
         rel_vel_mode = 'grad' if vel_losses else ('nograd' if metric_epoch else None)
         model_outputs = (fixed_outputs if fixed_outputs is not None
                          else get_model_outputs(config, func, coord_tensor, inputs.phi_shape,
-                                                rel_vel_mode))
+                                                rel_vel_mode, affine))
 
         if config.template_warp_recon:
             # recon_t = warp(template, phi_{0->t}); recon_0 = template. Differentiable in phi,
@@ -183,7 +204,7 @@ def registration(config: Config, writer: SummaryWriter, logger: Logger, inputs: 
 
         # Snapshot before optimizer.step() mutates moving/func, so the saved state is
         # exactly the one loss_sum was computed on.
-        if loss_sum <= best_loss and epoch > config.schedule[-1]:
+        if loss_sum <= best_loss and epoch >= config.level_starts[-1]:
             best_loss = loss_sum.detach()
             best_model_out = ModelOutputs(
                 model_outputs.rel_vel.clone() if model_outputs.rel_vel is not None else None,

@@ -70,6 +70,12 @@ class Config:
     kspace_noise_sigma: float = 0.0  # robustness: relative noise on measured k-space (0=off)
     init_noise_sigma: float = 0.0    # robustness: relative noise on the init recon (0=off)
 
+    # --- multilevel ---
+    levels: list = [1]
+    level_starts: list = [1]
+    level_recon: str = 'reset' ('reset' or 'correct')
+    level_warmup: int = 0
+
     # --- reconstruction regularizer ---
     reg: str = "learned"
     reg_variant: str = "crr"  # 'crr' (weak_convexity=0) or 'wcrr' (weak_convexity=1)
@@ -136,7 +142,6 @@ class Config:
     imdiff_warp_mag: bool = False  # warp magnitude (not complex) in the E3 image loss
 
     # --- derived / internal (filled by finalize) ---
-    schedule: list = field(default_factory=lambda: [1])
     func_kwargs: dict = field(default_factory=dict)
 
     @classmethod

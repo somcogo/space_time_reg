@@ -3,14 +3,16 @@ import torch.nn.functional as F
 
 
 class GridSampleTransformer:
-    def __init__(self, abs_phi, phi_shape):
+    def __init__(self, abs_phi, phi_shape, affine=(1, 0)):
         self.in_2d = len(phi_shape) == 4
         # Samples outside the image: in-plane that is air, so zeros. A volume's first and last
         # slices are cut through tissue, and zeros there would darken the whole slice under any
         # through-plane motion out of the stack; 'border' repeats the edge slice instead (and is
         # ~zeros at the in-plane edges, which are air).
         self.padding_mode = 'zeros' if self.in_2d else 'border'
+        a, b = affine
         grid = abs_phi.reshape(phi_shape)
+        grid = (grid - b)/a
         self.grid = torch.stack([grid[..., i] for i in reversed(range(grid.shape[-1]))], dim=-1)
 
     def apply(self, input_img, mode='bilinear'):
@@ -59,9 +61,9 @@ class NewNeuralRepApplier:
         model_out = nrep(torch.tensor([], device=self.input.device), self.input)
         return model_out.squeeze(2)
 
-def get_spatial_transformer(abs_phi, phi_shape, config):
+def get_spatial_transformer(abs_phi, phi_shape, config, affine=(1, 0)):
     if config.use_nreps:
         use_old_nrep = config.dataset in ['easy', 'hard', 'rectri', 'rot', 'rot_slow', 'rot_slow2', 'rec', 'syn_test']
         return NeuralRepTransformer(abs_phi, phi_shape, use_old_nrep)
     else:
-        return GridSampleTransformer(abs_phi, phi_shape)
+        return GridSampleTransformer(abs_phi, phi_shape, affine=affine)

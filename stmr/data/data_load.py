@@ -141,9 +141,10 @@ def prepare_inputs(config: Config, logger: Logger, writer=None) -> tuple[Inputs,
 
     recon = add_image_noise(recon.detach(), config.init_noise_sigma).detach()
     moving = nn.Parameter(recon.clone()).to(config.device)
+    native_grid = moving.shape[-2:] if moving.shape[2] == 1 else moving.shape[-3:]
 
     inputs = Inputs(moving=moving, moving_inr=None, fixed=fixed, forward=forw_subs,
-                    phi_shape=get_phi_shape(moving.shape[2:]))
+                    phi_shape=get_phi_shape(moving.shape[2:]), native_grid=native_grid)
     eval_inputs = EvalInputs(init_recon=recon, gt_im=gt_im, seg_moving=None, seg_fixed=None,
                              gt_phi=data.gt_phi)
     return inputs, eval_inputs
