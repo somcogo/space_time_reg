@@ -4,12 +4,46 @@
 # pruning: every grid point gets all 16). Then each net's best lr goes to the holdout (reeval).
 #   python -m stmr.tune launch configs/tune/arch_v1.yaml --gpus auto
 # Memory (P002_s5, 246 rows): 6x256 36 GB, 10x128 30 GB, 8x256 OOMs a 46 GB A40 -> not in the grid.
+#
+# RESULT (2026-11-13..16). Each net's lr = its best official SSIM on the 16 tuning slices; every
+# pick then ran on the 20 held-out slices (seed 0; reeval tags holdout_picks + holdout_picks2).
+# Gains vs 3x64 at its best lr (1.6e-4), paired per slice; "tune" = official SSIM on the tuning
+# slices; "vs tuned_v1" = holdout crop PSNR vs cmr_tuned_v1 (refine_v1 #36's holdout runs, same
+# code); time and peak memory per slice on an unshared A40:
+#   net       lr      crop SSIM  crop PSNR  official  (tune)   vs tuned_v1  min/slice  GB
+#   3x64      1.6e-4  ref        ref        ref       ref      -0.14 dB     2.1         7
+#   3x128     8e-5    +0.0009    +0.05 dB   +0.0009   +0.0010  -0.09        2.6        11
+#   5x64      1.6e-4  +0.0016    +0.09      +0.0014   +0.0022  -0.05        2.5         9
+#   6x64      8e-5    +0.0022    +0.13      +0.0019   +0.0033  -0.01        2.7        11
+#   8x64      8e-5    +0.0027    +0.16      +0.0020   +0.0036  +0.02        3.1        13
+#   10x64     4e-5    +0.0028    +0.17      +0.0022   +0.0039  +0.04        3.6        16
+#   tuned_v1  3.8e-5  +0.0024    +0.14      +0.0022   -        ref          3.5        16  (5x128)
+#   5x128     8e-5    +0.0026    +0.15      +0.0021   +0.0038  +0.01        3.5        16
+#   6x128     8e-5    +0.0031    +0.18      +0.0024   +0.0044  +0.04        3.9        19
+#   8x128     4e-5    +0.0036    +0.22      +0.0024   +0.0051  +0.08        4.7        24
+#   10x128    2e-5    +0.0036    +0.23      +0.0026   +0.0049  +0.09        5.5        30
+#   5x256     4e-5    +0.0032    +0.18      +0.0024   +0.0047  +0.04        6.0        31
+#   6x256     4e-5    +0.0036    +0.21      +0.0027   +0.0050  +0.07        7.0        36
+# Every net beats 3x64 on crop PSNR on 19-20/20 held-out slices (p < 0.001).
+# - Crop metrics: depth >> width; crop PSNR keeps rising to depth 8-10 at width 128, and the holdout
+#   reproduces the tuning slices to ~0.01 dB. 8x128 @ lr 4e-5 is the knee: +0.0012 crop SSIM (15/20,
+#   p .001) and +0.08 dB crop PSNR (19/20, p < .001) over cmr_tuned_v1 at 1.35x the time.
+# - Official SSIM saturates at 5x128: bigger nets are +0.0002..+0.0005 over cmr_tuned_v1 (all n.s.);
+#   the tuning slices' +0.005 over 3x64 halved on the holdout -> a tuning-slice artefact.
+# - Width 256 ~= 2-3 extra layers at width 128 for 1.5-2x the time. Bigger nets want a lower lr
+#   (width 64: 8e-5..1.6e-4; 8x128 4e-5, 10x128 2e-5).
+# - Edge lrs (trials 36-43, the last 8 enqueue entries): none won. 36 (10x128 @ 1e-5) and 37
+#   (6x128 @ 1.6e-4) OOMed next to another user's job after 5 / 7 slices and were clearly worse
+#   there (official SSIM -0.003 / -0.0005 vs the neighbouring lr), so they were not finished.
+#   Trials 44/45 are PRUNED budget placeholders (no params) that stop workers sampling random nets.
+# - Caveats: holdout is one seed (seed sd ~0.002 dB crop PSNR, ~2e-4 official SSIM); the loss
+#   weights were tuned at 5x128 (refine_v1) and not re-tuned for the bigger nets.
 extends: lambdas_v1.yaml  # cases, run settings and tuning-run overrides (adjoint off, 500 ep, ...)
 name: arch_v1
 base_config: configs/cmr_tuned_v1.yaml
 space: net
 space_args: {}
-n_trials: 36
+n_trials: 44  # 36 grid points + 8 edge lrs added after the grid
 
 overrides:
   siren_omega: 35
@@ -60,3 +94,13 @@ enqueue:  # slowest first (shorter tail); lr per width: 64 -> 4e-5..1.6e-4, 128/
   - {name: d3w64_lr4e-05, params: {siren_depth: 3, siren_dim: 64, lr: 4.00e-05}}
   - {name: d3w64_lr8e-05, params: {siren_depth: 3, siren_dim: 64, lr: 8.00e-05}}
   - {name: d3w64_lr0.00016, params: {siren_depth: 3, siren_dim: 64, lr: 1.60e-04}}
+  # added 2026-11-13 after the grid, into the existing study (enqueue only applies at creation):
+  # one more lr for every net whose best lr was at the edge of its 3
+  - {name: d10w128_lr1e-05, params: {siren_depth: 10, siren_dim: 128, lr: 1.00e-05}}
+  - {name: d6w128_lr0.00016, params: {siren_depth: 6, siren_dim: 128, lr: 1.60e-04}}
+  - {name: d10w64_lr2e-05, params: {siren_depth: 10, siren_dim: 64, lr: 2.00e-05}}
+  - {name: d5w128_lr0.00016, params: {siren_depth: 5, siren_dim: 128, lr: 1.60e-04}}
+  - {name: d6w64_lr0.00032, params: {siren_depth: 6, siren_dim: 64, lr: 3.20e-04}}
+  - {name: d3w128_lr0.00016, params: {siren_depth: 3, siren_dim: 128, lr: 1.60e-04}}
+  - {name: d5w64_lr0.00032, params: {siren_depth: 5, siren_dim: 64, lr: 3.20e-04}}
+  - {name: d3w64_lr0.00032, params: {siren_depth: 3, siren_dim: 64, lr: 3.20e-04}}

@@ -11,7 +11,10 @@
 # with these settings: +0.1707 (the learned motion is worth +0.029). Crop PSNR +0.15 dB.
 # Epochs: 500 -> 1000 -> 1500 is flat on official SSIM (+0.00002), 2500 is -0.0004; crop PSNR
 # still rises slowly (+0.15 dB at 2500), so a longer run buys PSNR only.
-# Everything else is cmr_working_init's (not tuned). Tuning logs: log/optuna/{lambdas,siren,refine}_v1.
+# Architecture grid (configs/tune/arch_v1.yaml, full table there): deeper nets buy crop metrics only.
+# Holdout vs this config: 8 x 128 at lr 4e-5 = +0.0012 crop SSIM / +0.08 dB crop PSNR at 1.35x the
+# time, official SSIM +0.0002 (saturated at 5 x 128); 10 x 128 +0.09 dB at 1.6x.
+# Everything else is cmr_working_init's (not tuned). Tuning logs: log/optuna/{lambdas,siren,refine,arch}_v1.
 exp_name: cmr/tuned_v1
 dataset: cmr_P001
 device: cuda
@@ -42,7 +45,7 @@ reg_alpha: 1.0
 reg_beta: 3.0
 recon_scale: 3.55
 
-# velocity network (stage B: depth 5 = the largest tried; 4 x 128 within 0.0001)
+# velocity network (stage B; arch_v1: depth 8-10 adds crop PSNR, not official SSIM -- see the top)
 func_name: groupsiren
 siren_depth: 5
 siren_dim: 128  # 256 ties at 1.7x the time; 32 is the worst
