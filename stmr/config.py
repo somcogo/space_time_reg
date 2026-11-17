@@ -73,8 +73,8 @@ class Config:
     # --- multilevel ---
     # Level i runs from epoch level_starts[i] at k-space crop factor levels[i] (stmr/utils/multilevel.py);
     # the last level must be 1, the full-resolution pipeline.
-    levels: list = field(default_factory=lambda: [1])
-    level_starts: list = field(default_factory=lambda: [1])  # first epoch of each level
+    levels: list[int] = field(default_factory=lambda: [1])
+    level_starts: list[int] = field(default_factory=lambda: [1])  # first epoch of each level
     level_recon: str = 'reset'  # 'reset' or 'correct'
     level_warmup: int = 0  # velocity lr warm-up steps at the start of every level but the last
 

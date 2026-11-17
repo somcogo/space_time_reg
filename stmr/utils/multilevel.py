@@ -43,9 +43,11 @@ def level_coords(native_grid, f: int, device):
     native_grid: the f=1 motion grid, (H, W) or (D, H, W). Only the last two (in-plane) axes
     are coarsened, like crop_kspace; the slice axis is kept.
 
-    Coarse pixel j sits on native pixel f*j + o, o = N//2 - f*(Nc//2) (centred k-space crop),
-    so the coarse grid does not span the native [-1, 1]: with align_corners=True its own
-    coordinate g maps to the native u = a*g + b.
+    The centred k-space crop to Nc = N // f samples the band-limited image every s = N / Nc
+    native pixels, centre on centre: coarse pixel j sits at native position
+    p_j = N//2 + (j - Nc//2) * s (= f*j + N//2 - f*(Nc//2) when f divides N; fractional when
+    it does not). So the coarse grid does not span the native [-1, 1]: with align_corners=True
+    its own coordinate g maps to the native u = a*g + b.
 
     Returns
       coords:      [prod(coarse_grid), C] coarse pixel centres in native coordinates; the
@@ -62,10 +64,11 @@ def level_coords(native_grid, f: int, device):
         Nc = N // f
         if Nc < 2:
             raise ValueError(f"f={f} leaves {Nc} pixel(s) on an axis of {N}")
-        o = N // 2 - f * (Nc // 2)
-        a_k = f * (Nc - 1) / (N - 1)
+        s = N / Nc  # native pixels per coarse pixel; f only when f divides N
+        p0 = N // 2 - (Nc // 2) * s  # native position of coarse pixel 0
+        a_k = s * (Nc - 1) / (N - 1)
         a.append(a_k)
-        b.append(a_k - 1 + 2 * o / (N - 1))
+        b.append(a_k - 1 + 2 * p0 / (N - 1))
         coarse_grid.append(Nc)
     g = generate_coord_tensor(coarse_grid, device)
     a = torch.tensor(a, device=g.device, dtype=g.dtype)
