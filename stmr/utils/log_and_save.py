@@ -30,6 +30,9 @@ def save_results(config, output: RegistrationResult, inputs: Inputs,
         'recon_init': recon_init.detach().cpu(),
         'config': config.to_dict() if hasattr(config, 'to_dict') else vars(config),
         'fixed': fixed.detach().cpu(),
+        # the sampling mask [T, 2, D, H, W] (None for unmasked operators, e.g. cmr_test2)
+        'mask': (inputs.forward.mask.detach().cpu()
+                 if isinstance(getattr(inputs.forward, 'mask', None), torch.Tensor) else None),
         'gt_im': gt_im.detach().cpu(),
         'gt_phi': eval_inputs.gt_phi.detach().cpu() if eval_inputs.gt_phi is not None else None,
         # Scalar metrics every metric_cadence epochs (the full all_metrics is debug-only), so

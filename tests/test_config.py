@@ -30,3 +30,23 @@ def test_soft_con_yaml_parses():
     config = Config.from_yaml("configs/cmr_soft_con.yaml").finalize()
     assert config.func_name == "groupsiren"
     assert config.lambda_rl2 == pytest.approx(1e2)
+
+
+def test_view_and_mask_fields_are_validated():
+    assert Config().finalize().view == "sax"
+    assert Config(view="lax", slices=[1]).finalize().view == "lax"
+    with pytest.raises(ValueError, match="view must be"):
+        Config(view="2ch").finalize()
+    # LAX slices are separate views: no stack, checked before the voxel_spacing requirement
+    with pytest.raises(ValueError, match="separate long-axis views"):
+        Config(view="lax", slices=[0, 1]).finalize()
+    with pytest.raises(ValueError, match="acs_lines"):
+        Config(acs_lines=-1).finalize()
+    with pytest.raises(ValueError, match="vd_sigma"):
+        Config(vd_sigma=0).finalize()
+
+
+def test_new_data_fields_parse_from_cli():
+    from stmr.config import parse_cli
+    c = parse_cli(["--set", "view=lax", "acs_lines=16", "mask=kt_vd", "mask_seed=5", "vd_sigma=0.15"])
+    assert (c.view, c.acs_lines, c.mask, c.mask_seed, c.vd_sigma) == ("lax", 16, "kt_vd", 5, 0.15)

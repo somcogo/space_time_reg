@@ -35,8 +35,20 @@ class Config:
     start_frame: int = 0
     slices: list[int] = field(default_factory=lambda: [0])  # which slices to take
     factor: int = 4
-    mask: str = "st"
+    mask: str = "st"  # 'st' equispaced (= the challenge's AccFactor masks) | 'kt' equispaced shifted
+    #                   per frame | 'random' / 'random2' uniform random rows | 'kt_random' per frame |
+    #                   'vd' / 'kt_vd' Gaussian variable density, static / per frame, with as many
+    #                   rows as 'st' (data_utils.get_kspace_mask); all of them + the ACS rows
+    acs_lines: int = 24  # fully sampled centre rows in every generated mask (the challenge's 24).
+    #                      With 24 the nominal factor overstates the acceleration: 'st' at 4 / 8 / 10
+    #                      samples 69 / 47 / 42 of 204 rows (effective 2.96 / 4.34 / 4.86)
+    mask_seed: int = 0  # RNG of the random masks (random*, kt_random, vd, kt_vd). Independent of
+    #                     `seed`, so repeats with other seeds share the mask; vary it for new masks
+    vd_sigma: float = 0.25  # vd / kt_vd: std of the row density around k = 0, as a fraction of H
     random_mask: bool = False
+    view: str = "sax"  # cmr_P*: 'sax' short-axis stack | 'lax' long-axis views. LAX needs
+    #                    cmr_raw=true (no processed files), and its slices are separate views (not a
+    #                    stack), so one view per run; the official score uses views 0 and 1
     template_frames: int = 0  # leading frames kept fully-sampled + recon frozen at GT (0 = off)
     normalize_data: bool = True  # divide k-space by the max GT magnitude over all loaded frames
     cmr_raw: bool = False  # cmr_P*: load the challenge's own single-coil .mat (data/raw/cmrxrecon)
@@ -179,6 +191,17 @@ class Config:
             self.step_size = None
         if self.interval == 0:
             self.interval = self.epochs
+        if self.view not in ("sax", "lax"):
+            raise ValueError(f"view must be 'sax' or 'lax', got {self.view!r}")
+        # Checked before voxel_spacing: the LAX "slices" are different views, there is no 3D
+        # volume for any spacing to describe.
+        if self.view == "lax" and len(self.slices) > 1:
+            raise ValueError(f"view='lax': the slices are separate long-axis views, not a stack; "
+                             f"run one view per run (got slices={self.slices})")
+        if self.acs_lines < 0:
+            raise ValueError(f"acs_lines must be >= 0, got {self.acs_lines}")
+        if self.vd_sigma <= 0:
+            raise ValueError(f"vd_sigma must be > 0, got {self.vd_sigma}")
         # Several slices move in 3D, and the motion regularizer weighs the slice axis by its real
         # spacing (losses._pixel_phi_Jacobian), so it has to be set on purpose.
         if len(self.slices) > 1 and (self.voxel_spacing is None or len(self.voxel_spacing) != 3):

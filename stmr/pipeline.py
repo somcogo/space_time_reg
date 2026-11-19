@@ -1,9 +1,7 @@
 """End-to-end reconstruction pipeline: data -> init recon -> registration -> eval -> save."""
 
 import os
-import random
 
-import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -15,13 +13,8 @@ from stmr.models.factory import get_func
 from stmr.registration import registration
 from stmr.utils.log_and_save import save_results
 from stmr.utils.logging import get_logger, log_metrics
+from stmr.utils.seed import set_seed
 from stmr.viz.post_run import generate_run_visuals
-
-
-def set_seed(seed: int) -> None:
-    torch.manual_seed(seed)
-    random.seed(seed + 1)
-    np.random.seed(seed + 2)
 
 
 def run(config: Config):

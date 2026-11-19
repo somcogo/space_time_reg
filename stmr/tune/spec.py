@@ -43,7 +43,9 @@ def _case_name(d: dict) -> str:
     ds = str(d["dataset"]).removeprefix("cmr_")
     sl = d.get("slices", [0])
     sl = sl if isinstance(sl, (list, tuple)) else [sl]
-    return f"{ds}_s{'-'.join(str(s) for s in sl)}"
+    # LAX view 0 of a patient is not its SAX slice 0; SAX names stay as they were.
+    view = "" if d.get("view", "sax") == "sax" else f"_{d['view']}"
+    return f"{ds}{view}_s{'-'.join(str(s) for s in sl)}"
 
 
 @dataclass

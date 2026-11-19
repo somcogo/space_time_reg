@@ -20,6 +20,7 @@ from stmr.data.recon_init import init_using_nmAPG
 from stmr.metrics.init_logger import InitTBLogger
 from stmr.metrics.init_metrics import init_quality_metrics, init_scalar_metrics
 from stmr.utils.logging import get_logger
+from stmr.utils.seed import set_seed
 from stmr.viz.post_run import generate_tb_gifs
 
 from .figures import make_init_figures
@@ -34,6 +35,8 @@ def run_init(config: Config) -> dict:
                 f"(lambda_recon={config.lambda_recon}, recon_scale={config.recon_scale})")
     writer = SummaryWriter(os.path.join(config.log_path, "tensorboard"))
 
+    # As pipeline.run, so the k-space / init noise (and an init='rand' start) match a full run's.
+    set_seed(config.seed)
     data = prepare_data(config)
     # The init is a 2D solve per (frame, slice): fold the slices into the batch, exactly as
     # prepare_inputs does, so this runner solves the same problem as the pipeline.

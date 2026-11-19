@@ -21,15 +21,22 @@ def _cmr(name: str) -> str:
     return str(_DATA_ROOT / "processed" / "cmrxrecon" / "test" / name)
 
 
-def _cmr_challenge_slice(patient: str, slices: list[int]) -> torch.Tensor:
+CMR_VIEWS = ('sax', 'lax')
+
+
+def _cmr_challenge_slice(patient: str, slices: list[int], view: str = 'sax') -> torch.Tensor:
     """Full single-coil k-space of slices straight from the challenge release, [T, 2, D, H, W].
 
+    view 'sax': the short-axis stack (P001: 10 slices of 204 x 512). 'lax': the long-axis file,
+    whose "slices" are separate views, not a stack (P001: 3 of 204 x 448).
     The processed files are this times one real scale per patient and a sign flip on some frames
     (fixed per patient, fitted on slice 0); the pipeline is invariant to both.
     """
     import h5py
+    if view not in CMR_VIEWS:
+        raise ValueError(f"Unknown view {view!r}; one of {CMR_VIEWS}")
     path = (_DATA_ROOT / "raw" / "cmrxrecon" / "ChallengeData" / "SingleCoil" / "Cine"
-            / "TrainingSet" / "FullSample" / f"P{patient}" / "cine_sax.mat")
+            / "TrainingSet" / "FullSample" / f"P{patient}" / f"cine_{view}.mat")
     with h5py.File(path, "r") as f:
         k = f["kspace_single_full"][:, slices]  # [T, D, H, W] of (real, imag) records
     return torch.from_numpy(np.stack([k["real"], k["imag"]], axis=1))
@@ -58,6 +65,12 @@ class DatasetSpec:
 
 
 def _cmr_load(config: argparse.Namespace) -> tuple:
+    view = getattr(config, 'view', 'sax')
+    # The processed _norm files (and so cmr_test2) exist for the SAX stack only.
+    if view != 'sax' and (config.dataset == 'cmr_test2' or not getattr(config, 'cmr_raw', False)):
+        raise ValueError(f"view={view!r} reads the challenge .mat: needs a cmr_P* dataset with "
+                         f"cmr_raw=true (got dataset={config.dataset!r}, "
+                         f"cmr_raw={getattr(config, 'cmr_raw', False)})")
     if config.dataset == 'cmr_test2':
         # Fully-sampled, unmasked "no k-space undersampling" mode used by the staged
         # ablation (stage S0-S2), on P001's slices and frames as the real cmr datasets.
@@ -68,7 +81,7 @@ def _cmr_load(config: argparse.Namespace) -> tuple:
     else:
         patient = config.dataset.split('_')[1][1:]
         if getattr(config, 'cmr_raw', False):
-            gt_kspace_data = _cmr_challenge_slice(patient, config.slices)
+            gt_kspace_data = _cmr_challenge_slice(patient, config.slices, view)
         else:
             gt_kspace_data = torch.load(_cmr(f'training_p{patient}_single_coil_full_cine_sax_norm.pt'))[:,config.slices].permute(0, 4, 1, 2, 3)
         gt_kspace_data = gt_kspace_data[config.start_frame:config.start_frame + config.time_points]
@@ -152,88 +165,135 @@ def get_init(config: argparse.Namespace, raw_kspace_data: torch.Tensor, gt_im: t
     return recon_init
 
     
-def generate_standard_mask(shape: torch.Size, factor: int):
-    h = shape[-2]
-    start = h//2 - 12
-    end = h//2 + 12
+def _acs_rows(h: int, acs: int) -> set[int]:
+    """The `acs` fully-sampled centre rows (auto-calibration lines) around k = 0, which is row h//2.
+    acs=24 is rows h//2-12 .. h//2+11, the challenge's ACS block."""
+    start = h // 2 - acs // 2
+    return set(range(start, start + acs))
 
-    set1 = set(range(start, end))
-    set2 = set(range(0, h, factor))
-    indices = list(set1.union(set2))
 
+def _rows_mask(shape: torch.Size, rows) -> torch.Tensor:
+    """A [..., H, W] bool mask sampling the given rows (phase-encode lines) fully along W."""
     mask = torch.zeros(shape, dtype=bool)
-    mask[..., indices, :] = 1
-
+    mask[..., list(rows), :] = 1
     return mask
 
-def generate_random_mask(shape: torch.Size, factor: int):
+
+def generate_standard_mask(shape: torch.Size, factor: int, acs: int = 24):
+    # Equispaced rows 0, f, 2f, ... plus the ACS, the same in every frame. At acs=24 this is the
+    # challenge's AccFactor04/08/10 mask (checked on P001 SAX and LAX): 69 / 47 / 42 of 204 rows,
+    # so the effective acceleration is only 2.96 / 4.34 / 4.86.
     h = shape[-2]
-    start = h//2 - 12
-    end = h//2 + 12
+    return _rows_mask(shape, _acs_rows(h, acs) | set(range(0, h, factor)))
 
-    set1 = set(range(start, end))
-    set2 = set(random.sample(range(h), h//factor))
-    indices = list(set1.union(set2))
-
-    mask = torch.zeros(shape, dtype=bool)
-    mask[..., indices, :] = 1
-
-    return mask
-
-def generate_random_mask2(shape: torch.Size, factor: int):
-    rate = 1 / factor
+def generate_random_mask(shape: torch.Size, factor: int, acs: int = 24, seed: int | None = None):
+    # h//factor uniformly random rows (they may fall inside the ACS) plus the ACS, the same in
+    # every frame. seed=None draws from the global `random` state.
     h = shape[-2]
-    start = h//2 - 12
-    end = h//2 + 12
+    rng = random if seed is None else random.Random(seed)
+    return _rows_mask(shape, _acs_rows(h, acs) | set(rng.sample(range(h), h // factor)))
 
-    set1 = set(range(start, end))
-    mask = torch.rand(h) < rate
-    set2 = set(np.arange(h)[mask])
-    indices = list(set1.union(set2))
+def generate_random_mask2(shape: torch.Size, factor: int, acs: int = 24, seed: int | None = None):
+    # Every row is kept with probability 1/factor, plus the ACS, the same in every frame.
+    # seed=None draws from the global torch RNG.
+    h = shape[-2]
+    gen = None if seed is None else torch.Generator().manual_seed(seed)
+    keep = torch.rand(h, generator=gen) < 1 / factor
+    return _rows_mask(shape, _acs_rows(h, acs) | set(np.arange(h)[keep.numpy()].tolist()))
 
-    mask = torch.zeros(shape, dtype=bool)
-    mask[..., indices, :] = 1
-
-    return mask
-
-def generate_kt_mask(shape: torch.Size, factor: int):
+def generate_kt_mask(shape: torch.Size, factor: int, acs: int = 24):
     # Time-interleaved (k-t) sampling: every frame keeps the ACS center rows, but the
     # equispaced rows are shifted by one per frame. Consecutive frames then measure
     # complementary k-space rows, so temporal consistency + motion can actually fill in
     # the rows a frame is missing, and the aliasing ghosts are no longer static in time.
     t_dim, h = shape[0], shape[-2]
-    start = h//2 - 12
-    end = h//2 + 12
-
+    acs_rows = _acs_rows(h, acs)
     mask = torch.zeros(shape, dtype=bool)
     for t in range(t_dim):
-        indices = list(set(range(start, end)).union(set(range(t % factor, h, factor))))
-        mask[t, ..., indices, :] = 1
-
+        mask[t, ..., list(acs_rows | set(range(t % factor, h, factor))), :] = 1
     return mask
 
-def generate_kt_random_mask(shape: torch.Size, factor: int):
+def generate_kt_random_mask(shape: torch.Size, factor: int, acs: int = 24, seed: int | None = None):
     # Like generate_kt_mask but with an independent random row selection per frame.
+    # seed=None draws from the global `random` state.
     t_dim, h = shape[0], shape[-2]
-    start = h//2 - 12
-    end = h//2 + 12
-
+    rng = random if seed is None else random.Random(seed)
+    acs_rows = _acs_rows(h, acs)
     mask = torch.zeros(shape, dtype=bool)
     for t in range(t_dim):
-        indices = list(set(range(start, end)).union(set(random.sample(range(h), h//factor))))
-        mask[t, ..., indices, :] = 1
-
+        mask[t, ..., list(acs_rows | set(rng.sample(range(h), h // factor))), :] = 1
     return mask
+
+
+def _matched_row_count(h: int, factor: int, acs_rows: set[int]) -> int:
+    """Rows outside the ACS that generate_standard_mask samples at this factor: a variable-density
+    mask with this many extra rows measures exactly as many rows as the equispaced one, so the
+    two compare at the same effective acceleration."""
+    return len(set(range(0, h, factor)) - acs_rows)
+
+def _vd_rows(h: int, n: int, acs_rows: set[int], sigma: float,
+             gen: torch.Generator | None) -> set[int]:
+    """n distinct rows outside the ACS, drawn with probability ~ exp(-k^2 / (2 (sigma h)^2)), k the
+    row's distance from k = 0 (row h//2). Float64 weights, so a narrow sigma does not underflow
+    the outer rows to probability 0."""
+    free = torch.tensor(sorted(set(range(h)) - acs_rows))
+    if n == 0 or free.numel() == 0:
+        return set()
+    weight = torch.exp(-0.5 * ((free.double() - h // 2) / (sigma * h)) ** 2)
+    return set(free[torch.multinomial(weight, n, replacement=False, generator=gen)].tolist())
+
+def generate_vd_mask(shape: torch.Size, factor: int, acs: int = 24, sigma: float = 0.25,
+                     seed: int | None = None):
+    # Variable-density random rows (Gaussian in k_y around k = 0) plus the ACS, the same in every
+    # frame, with exactly as many rows as generate_standard_mask at the same factor and acs.
+    # seed=None draws from the global torch RNG.
+    h = shape[-2]
+    gen = None if seed is None else torch.Generator().manual_seed(seed)
+    acs_rows = _acs_rows(h, acs)
+    n = _matched_row_count(h, factor, acs_rows)
+    return _rows_mask(shape, acs_rows | _vd_rows(h, n, acs_rows, sigma, gen))
+
+def generate_kt_vd_mask(shape: torch.Size, factor: int, acs: int = 24, sigma: float = 0.25,
+                        seed: int | None = None):
+    # generate_vd_mask with an independent draw per frame (k-t variable density): every frame
+    # measures as many rows as the equispaced mask, but different ones away from the ACS.
+    t_dim, h = shape[0], shape[-2]
+    gen = None if seed is None else torch.Generator().manual_seed(seed)
+    acs_rows = _acs_rows(h, acs)
+    n = _matched_row_count(h, factor, acs_rows)
+    mask = torch.zeros(shape, dtype=bool)
+    for t in range(t_dim):
+        mask[t, ..., list(acs_rows | _vd_rows(h, n, acs_rows, sigma, gen)), :] = 1
+    return mask
+
+
+MASKS = ('st', 'random', 'random2', 'kt', 'kt_random', 'vd', 'kt_vd')
 
 def get_kspace_mask(config, kspace_data, factor):
-    if config.mask == 'random':
-        mask = generate_random_mask(kspace_data.shape, factor)
-    elif config.mask == 'random2':
-        mask = generate_random_mask2(kspace_data.shape, factor)
-    elif config.mask == 'kt':
-        mask = generate_kt_mask(kspace_data.shape, factor)
-    elif config.mask == 'kt_random':
-        mask = generate_kt_random_mask(kspace_data.shape, factor)
-    else:
-        mask = generate_standard_mask(kspace_data.shape, factor)
-    return mask
+    """The sampling mask config.mask (one of MASKS), [T, 2, D, H, W] bool; rows = H = phase encode.
+
+    The random masks draw from their own RNG seeded with config.mask_seed, not from the global
+    state. So the mask does not change with config.seed (repeats with other seeds stay paired on
+    the same mask) or with whatever drew random numbers before, and every entry point (pipeline,
+    initsweep, tune) builds the same mask from the same config.
+    """
+    shape, kind = kspace_data.shape, config.mask
+    acs = getattr(config, 'acs_lines', 24)
+    seed = getattr(config, 'mask_seed', 0)
+    sigma = getattr(config, 'vd_sigma', 0.25)
+    if kind == 'st':
+        return generate_standard_mask(shape, factor, acs)
+    if kind == 'kt':
+        return generate_kt_mask(shape, factor, acs)
+    if kind == 'random':
+        return generate_random_mask(shape, factor, acs, seed)
+    if kind == 'random2':
+        return generate_random_mask2(shape, factor, acs, seed)
+    if kind == 'kt_random':
+        return generate_kt_random_mask(shape, factor, acs, seed)
+    if kind == 'vd':
+        return generate_vd_mask(shape, factor, acs, sigma, seed)
+    if kind == 'kt_vd':
+        return generate_kt_vd_mask(shape, factor, acs, sigma, seed)
+    # An unknown name used to fall through to the standard mask silently.
+    raise ValueError(f"Unknown mask {kind!r}; one of {MASKS}")
